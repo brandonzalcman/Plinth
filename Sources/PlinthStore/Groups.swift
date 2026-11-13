@@ -288,6 +288,22 @@ extension BrowserStore {
         commit()
     }
 
+    /// What the shell's Group and chip buttons call: focuses the group and, when the selected page
+    /// sits on a bar site outside it, moves the selection to the group's most recently used page.
+    /// `visibleSites` always keeps the selected page's site, so without this the site you were on
+    /// when you pressed Group stays on the bar and the press seems to do nothing.
+    public func showGroup(_ group: GroupID, in window: WindowID) {
+        setFocus(group, in: window)
+        guard let w = self.window(window), w.focusedGroup == group, let g = self.group(group),
+              let selected = w.selectedPageID, let current = w.site(containing: selected),
+              !g.keys.contains(current.key) else { return }
+        var best: Page?
+        for site in w.sites where g.keys.contains(site.key) {
+            for page in site.pages where best == nil || page.usage.lastUsed > best!.usage.lastUsed { best = page }
+        }
+        if let best { select(best.id, in: window) }
+    }
+
     /// Deletes the group and clears any focus on it. The sites are untouched.
     public func deleteGroup(_ id: GroupID) {
         guard let gi = groups.firstIndex(where: { $0.id == id }) else { return }
