@@ -100,67 +100,38 @@ engine.clearHistory()
 
 ## Turning CloudKit on: what the owner must do
 
-Nothing in this list has been done. Each step needs the owner's own Apple Developer account.
+Each step needs the owner's own Apple Developer account. Most of the work is done in Xcode with `Plinth.xcodeproj`.
 
-1. **Join the Apple Developer Program** (paid). CloudKit needs a team ID. A free personal team
+1. **Join the Apple Developer Program** (paid). CloudKit needs a team; a free personal team
    cannot use iCloud containers on macOS.
-2. **Register the App ID.** In Certificates, Identifiers & Profiles, go to Identifiers and add
-   an App ID with the bundle ID **`app.plinth.Plinth`** (the one in `Scripts/Info.plist`). Turn
-   on the **iCloud** capability, with CloudKit selected.
-3. **Create the iCloud container.** Under Identifiers, choose iCloud Containers, then add one,
-   for example **`iCloud.app.plinth.Plinth`**. Then open the App ID, choose iCloud, and assign
-   that container to it.
-4. **Optional: push.** Push lets other Macs learn about changes right away instead of at the next
-   scheduled sync. To use it, enable Push Notifications on the App ID. The engine does not
-   subscribe to pushes yet. It syncs when `syncNow` or `scheduleSync` is called. Adding a
-   `CKRecordZoneSubscription` would be a follow-up task.
-5. **Create a provisioning profile.** Choose Profiles, then add a macOS App Development profile
-   (and later a Developer ID profile for distribution). Base it on the App ID above, the owner's
-   certificate, and this Mac. Download it as `Plinth.provisionprofile`.
-6. **Write an entitlements file**, for example `Scripts/Plinth.entitlements`:
+2. **Open `Plinth.xcodeproj`** and select the **Plinth** target, then **Signing & Capabilities**.
+   - Choose your **Team**, keep "Automatically manage signing" on, and set **Signing Certificate**
+     to "Development" instead of "Sign to Run Locally".
+   - Xcode registers the App ID **`app.plinth.Plinth`** and creates a provisioning profile.
+3. **Add the iCloud capability** with the **+ Capability** button.
+   - Tick **CloudKit** and add the container **`iCloud.app.plinth.Plinth`** (Xcode creates it).
+   - Xcode writes `com.apple.developer.icloud-services` and
+     `com.apple.developer.icloud-container-identifiers` into `App/Plinth.entitlements`.
+4. **Optional: add Push Notifications.** Other Macs would then hear about changes at once
+   instead of at the next sync. The engine does not subscribe to pushes yet; adding a
+   `CKRecordZoneSubscription` would be a follow-up.
+5. **Run from Xcode** (⌘R), then turn on Plinth › iCloud Sync. Run
+   `codesign -d --entitlements - <path to Plinth.app>` to confirm the container is listed.
+   `SyncSettings.isCloudKitConfigured` then returns true.
+6. **Deploy the schema.**
+   - Run a development build once with sync on, so CloudKit creates the `Plinth` zone and the
+     five record types in the **Development** environment.
+   - In the CloudKit Console (icloud.developer.apple.com), check the record types. Mark
+     `recordName` as Queryable on each if you want to browse records there.
+   - Use **Deploy Schema Changes** to send it to **Production**. Builds signed for distribution
+     use Production and fail with "unknown record type" until the schema is deployed.
+7. **Distribute.** Product › Archive, then Distribute App › Direct Distribution (Developer ID,
+   notarised by Apple), or the Mac App Store.
+8. **Test with two Macs** signed into the same iCloud account. Turn sync on in both, pin a site on
+   one, and check it appears on the other.
 
-   ```xml
-   <?xml version="1.0" encoding="UTF-8"?>
-   <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-   <plist version="1.0">
-   <dict>
-       <key>com.apple.developer.icloud-services</key>
-       <array><string>CloudKit</string></array>
-       <key>com.apple.developer.icloud-container-identifiers</key>
-       <array><string>iCloud.app.plinth.Plinth</string></array>
-       <key>com.apple.application-identifier</key>
-       <string>TEAMID.app.plinth.Plinth</string>
-       <key>com.apple.developer.team-identifier</key>
-       <string>TEAMID</string>
-       <!-- Only if push is wanted: development, later production -->
-       <key>com.apple.developer.aps-environment</key>
-       <string>development</string>
-   </dict>
-   </plist>
-   ```
-
-   Replace `TEAMID` with the team ID. The entitlements must match the provisioning profile, or the
-   app will not launch.
-7. **Sign with the team instead of ad hoc.** In `Scripts/bundle.sh`, embed the profile, then
-   replace `codesign --force --sign - "$APP"` with a real identity:
-
-   ```zsh
-   cp Scripts/Plinth.provisionprofile "$APP/Contents/embedded.provisionprofile"
-   codesign --force --options runtime --timestamp \
-            --entitlements Scripts/Plinth.entitlements \
-            --sign "Apple Development: <Name> (<ID>)" "$APP"   # or "Developer ID Application: …"
-   ```
-
-   Check the result with `codesign -d --entitlements - build/Plinth.app`. It must list the
-   container. After that, `SyncSettings.isCloudKitConfigured` returns true.
-8. **Deploy the schema.** Run a development build once with sync on, so CloudKit creates the
-   `Plinth` zone and the five record types in the **Development** environment. Then, in the
-   CloudKit Console (icloud.developer.apple.com), check the record types. Mark `recordName` as
-   Queryable on each type if you want to browse the records there. Then use **Deploy Schema
-   Changes** to deploy to **Production**. Builds signed for distribution (Developer ID or App
-   Store) use Production, and they fail with "unknown record type" until the schema is deployed.
-9. **Test with two Macs** signed into the same iCloud account. Turn sync on in both. Pin a site
-   on one Mac and run Sync now on the other.
+The SwiftPM route (`Scripts/bundle.sh`) still signs ad hoc and therefore never has iCloud. Use the
+Xcode project for any signed build.
 
 ## Decisions to confirm
 

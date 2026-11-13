@@ -20,7 +20,7 @@ git clone https://github.com/brandonzalcman/Plinth.git
 cd Plinth && swift build && swift test
 ```
 
-To work in Xcode, open the package folder with `xed .`. There is no `.xcodeproj`. If `swift` can't find the SDK, prefix commands with `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`.
+To work in Xcode, open `Plinth.xcodeproj` and run the **Plinth** scheme. It signs to run locally, so no account is needed. The code lives in the Swift package; the project only adds the app bundle (`App/`, `Scripts/Info.plist`, entitlements). Don't commit your own Team ID in the project file. If `swift` can't find the SDK, prefix commands with `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`.
 
 Run the app on a throwaway profile, so your own browsing data is never touched:
 
@@ -36,7 +36,7 @@ Each module has one job, and modules depend only on `PlinthModel` (value types a
 
 - **Pure logic** has unit tests and no UI or WebKit: `PlinthRules`, `PlinthFade`, `PlinthLayout`, `PlinthStore`, `PlinthAI`, `PlinthSync`.
 - **UI and WebKit:** `PlinthBarUI`, `PlinthPanels`, `PlinthWeb`.
-- **The app shell** (`Sources/Plinth`) wires the store's events to web views and panels.
+- **The app shell** (`Sources/PlinthApp`) wires the store's events to web views and panels.
 
 If a change needs a new type shared between modules, add it to `PlinthModel` first and keep it a plain value type or protocol.
 

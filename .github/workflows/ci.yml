@@ -20,3 +20,5 @@ jobs:
         run: swift test
       - name: Bundle
         run: Scripts/bundle.sh
+      - name: Build Xcode app project
+        run: xcodebuild -project Plinth.xcodeproj -scheme Plinth -configuration Release -destination 'platform=macOS' -derivedDataPath DerivedData build

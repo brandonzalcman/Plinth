@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	Empty on purpose so Plinth builds and runs with no developer team.
+	To turn on iCloud sync: choose your team in Signing & Capabilities, add the iCloud
+	capability with CloudKit and the container iCloud.app.plinth.Plinth; Xcode writes the
+	keys here. See Design/icloud-sync.md.
+	-->
+</dict>
+</plist>

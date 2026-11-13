@@ -7,3 +7,5 @@ build/
 
 # Product plan stays private
 Design/feature-plan.md
+xcuserdata/
+DerivedData/

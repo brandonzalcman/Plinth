@@ -2,7 +2,7 @@
 
 Nov 13, 2026. All seven remaining v1 items are built and wired. `swift build` is clean with no warnings, `swift test` passes 392 tests (up from 245), and `Scripts/bundle.sh` builds `build/Plinth.app`.
 
-The app was checked on a throwaway profile against a local test server. Computer-use control of Plinth was declined, so clicks were made with the `PLINTH_STEPS` debug hook (`Sources/Plinth/DebugScript.swift`). It drives the same entry points the UI uses, including real `NSEvent` mouse clicks sent into the window, and takes window screenshots with `screencapture -l`.
+The app was checked on a throwaway profile against a local test server. Computer-use control of Plinth was declined, so clicks were made with the `PLINTH_STEPS` debug hook (`Sources/PlinthApp/DebugScript.swift`). It drives the same entry points the UI uses, including real `NSEvent` mouse clicks sent into the window, and takes window screenshots with `screencapture -l`.
 
 ## New modules
 

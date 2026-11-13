@@ -79,7 +79,7 @@ Also included:
 
 ## Install
 
-There are no signed releases yet, so build it yourself; it takes about a minute.
+There are no signed releases yet, so build it yourself; it takes about a minute. You can open `Plinth.xcodeproj` and press ⌘R, or use the command line:
 
 ```bash
 git clone https://github.com/brandonzalcman/Plinth.git
@@ -155,19 +155,21 @@ swift test
 Scripts/bundle.sh
 ```
 
-`Scripts/bundle.sh [debug|release]` builds `build/Plinth.app` and signs it ad hoc.
+`Scripts/bundle.sh [debug|release]` builds `build/Plinth.app` from the command line and signs it ad hoc. It's handy for quick local builds, but signed builds and iCloud need the Xcode project below.
 
 ### Open in Xcode
 
-There is no `.xcodeproj`, because Plinth is a Swift package and Xcode opens it directly:
+`Plinth.xcodeproj` is the app project. It holds the real app bundle settings: `Info.plist`, entitlements, the icon, signing and archiving. All of the code lives in the Swift package, which the project links as the `PlinthApp` library.
 
 ```bash
-xed .
+open Plinth.xcodeproj
 ```
 
-Or use File › Open… and choose the `Plinth` folder or `Package.swift`. Pick the **Plinth** scheme and **My Mac**, then press ⌘R to run or ⌘U to test.
+1. Choose the **Plinth** scheme and **My Mac**, then press ⌘R. It builds and runs with "Sign to Run Locally", so no Apple developer account is needed.
+2. To sign with your own team, go to the **Plinth** target › **Signing & Capabilities** and choose your **Team**. That's also where you add iCloud; see [Design/icloud-sync.md](Design/icloud-sync.md).
+3. To ship it, use **Product › Archive**, then **Distribute App** (Developer ID with notarization, or the Mac App Store).
 
-Running from Xcode starts the bare executable, without the app bundle's `Info.plist`. Everything works except being the default browser and receiving links from other apps. To test those, run `Scripts/bundle.sh` and open `build/Plinth.app`.
+Run the tests with `swift test`, or open `Package.swift` in Xcode and press ⌘U.
 
 If `swift` complains about a missing SDK, `xcode-select` is probably pointing at the Command Line Tools. Either switch it to Xcode, or prefix commands like this:
 
@@ -188,7 +190,7 @@ open -n build/Plinth.app --env PLINTH_STORAGE=/tmp/plinth-test --env PLINTH_OPEN
 | `PLINTH_STORAGE` | Profile folder (state, favicons, semantic index, settings) |
 | `PLINTH_OPEN` | Comma-separated URLs to open at launch |
 | `PLINTH_AI=fake` | Use a deterministic fake model, so the AI interface works on any Mac |
-| `PLINTH_STEPS` | Run a scripted sequence of steps for testing (see `Sources/Plinth/DebugScript.swift`) |
+| `PLINTH_STEPS` | Run a scripted sequence of steps for testing (see `Sources/PlinthApp/DebugScript.swift`) |
 | `PLINTH_SHOTS` | Folder for screenshots taken by `PLINTH_STEPS` |
 
 ## Architecture
@@ -206,7 +208,9 @@ PlinthModel ── contracts (value types, protocols)
    ├─ PlinthWeb      WKWebView pool, content blocker, peek and mini views, downloads, readable text
    ├─ PlinthBarUI    the bottom bar (SwiftUI)
    └─ PlinthPanels   command bar, shelf, find, ask, peek, resume card, groups, downloads
-Plinth ── the app shell that wires them together
+PlinthApp ── the app shell that wires them together (a library)
+   ├─ Plinth            SwiftPM executable (swift run, Scripts/bundle.sh)
+   └─ Plinth.xcodeproj  the Xcode app target: Info.plist, entitlements, signing, archive
 ```
 
 - The store has no WebKit or UI. It emits events, and the shell turns them into web view work.
@@ -233,7 +237,7 @@ Good first areas:
 
 ## Known limits
 
-- **iCloud sync** needs an Apple developer team and an iCloud container entitlement, so it cannot run in an ad-hoc signed build. [Design/icloud-sync.md](Design/icloud-sync.md) lists the exact steps.
+- **iCloud sync** needs an Apple developer team. Choose your team and add the iCloud capability in `Plinth.xcodeproj`; the ad-hoc build can't use iCloud. [Design/icloud-sync.md](Design/icloud-sync.md) has the steps.
 - **System Passwords autofill** needs Apple's web-browser entitlement, which an open-source build does not have.
 - **Semantic search** quality depends on Apple's NaturalLanguage sentence embeddings, so "By meaning" results come after keyword results.
 - **No extensions,** by design.

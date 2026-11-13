@@ -6,7 +6,11 @@ let ui: [SwiftSetting] = [.swiftLanguageMode(.v5)]
 let package = Package(
     name: "Plinth",
     platforms: [.macOS(.v26)],
-    products: [.executable(name: "Plinth", targets: ["Plinth"])],
+    products: [
+        .executable(name: "Plinth", targets: ["Plinth"]),
+        // The whole app as a library, for the Xcode app target in Plinth.xcodeproj.
+        .library(name: "PlinthApp", targets: ["PlinthApp"]),
+    ],
     targets: [
         // Frozen shared contracts: value types and protocols. No logic beyond trivial helpers.
         .target(name: "PlinthModel"),
@@ -23,11 +27,14 @@ let package = Package(
         .target(name: "PlinthBarUI", dependencies: ["PlinthModel"], swiftSettings: ui),
         .target(name: "PlinthPanels", dependencies: ["PlinthModel"], swiftSettings: ui),
         .target(name: "PlinthWeb", dependencies: ["PlinthModel"], resources: [.process("Resources")], swiftSettings: ui),
-        .executableTarget(
-            name: "Plinth",
+        // The app shell: wires the modules together.
+        .target(
+            name: "PlinthApp",
             dependencies: ["PlinthModel", "PlinthRules", "PlinthFade", "PlinthLayout", "PlinthStore", "PlinthBarUI", "PlinthPanels", "PlinthWeb", "PlinthAI", "PlinthSync"],
             swiftSettings: ui
         ),
+        // SwiftPM entry point; Scripts/bundle.sh wraps it in Plinth.app.
+        .executableTarget(name: "Plinth", dependencies: ["PlinthApp"], swiftSettings: ui),
         .testTarget(name: "PlinthRulesTests", dependencies: ["PlinthRules"]),
         .testTarget(name: "PlinthFadeTests", dependencies: ["PlinthFade"]),
         .testTarget(name: "PlinthLayoutTests", dependencies: ["PlinthLayout"]),

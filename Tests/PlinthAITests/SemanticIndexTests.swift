@@ -132,7 +132,10 @@ final class Counter: @unchecked Sendable {
         let dir = tempDirectory()
         let index = SemanticIndex(storageDirectory: dir, embedder: FakeEmbedder(), saveDelay: .milliseconds(20))
         await index.add(entry: visit("https://a.com", title: "Garden tomatoes"), text: "soil")
-        try await Task.sleep(for: .milliseconds(300))
+        // Poll rather than sleep a fixed time: CI runners can be slow.
+        for _ in 0..<100 where !FileManager.default.fileExists(atPath: index.fileURL.path()) {
+            try await Task.sleep(for: .milliseconds(50))
+        }
         #expect(FileManager.default.fileExists(atPath: index.fileURL.path()))
         #expect(await SemanticIndex(storageDirectory: dir, embedder: FakeEmbedder()).count == 1)
     }
