@@ -81,6 +81,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public var blockThirdPartyCookies = false
     public var httpsOnly = false
     public var globalPrivacyControl = false
+    /// Ask the search engine for suggestions while typing in the command bar (sends the text you type to it).
+    public var searchSuggestionsEnabled = true
 
     // Downloads
     /// Absolute path; nil means the system Downloads folder.
@@ -118,7 +120,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public static let defaults = AppSettings()
 
     private enum CodingKeys: String, CodingKey {
-        case searchEngine, contentBlockerEnabled, blockThirdPartyCookies, httpsOnly, globalPrivacyControl
+        case searchEngine, contentBlockerEnabled, blockThirdPartyCookies, httpsOnly, globalPrivacyControl, searchSuggestionsEnabled
         case downloadFolder, askWhereToSave, openSafeFilesAfterDownload
         case startup, newPage, homepage
         case appearance, hasCompletedOnboarding
@@ -135,6 +137,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         blockThirdPartyCookies = get(.blockThirdPartyCookies, d.blockThirdPartyCookies)
         httpsOnly = get(.httpsOnly, d.httpsOnly)
         globalPrivacyControl = get(.globalPrivacyControl, d.globalPrivacyControl)
+        searchSuggestionsEnabled = get(.searchSuggestionsEnabled, d.searchSuggestionsEnabled)
         downloadFolder = (try? c.decodeIfPresent(String.self, forKey: .downloadFolder)) ?? nil
         askWhereToSave = get(.askWhereToSave, d.askWhereToSave)
         openSafeFilesAfterDownload = get(.openSafeFilesAfterDownload, d.openSafeFilesAfterDownload)

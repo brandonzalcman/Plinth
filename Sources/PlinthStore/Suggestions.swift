@@ -236,6 +236,8 @@ enum SuggestionRanker {
         // One candidate per page: an open/pinned/shelved page beats its own history entry.
         var best: [String: Scored] = [:]
         for candidate in candidates {
+            // Installers and archives are not places to go back to.
+            if candidate.kind == .history, isDownload(candidate.url) { continue }
             guard let scored = score(candidate, tokens: tokens, query: query, picks: picks[candidate.canon], now: now) else { continue }
             if let existing = best[candidate.canon] {
                 // Keep the more specific kind, but remember the history signal.
@@ -290,6 +292,14 @@ enum SuggestionRanker {
         return results
     }
 
+    private static let downloadExtensions: Set<String> = ["dmg", "zip", "pkg", "exe", "msi", "gz", "tgz", "xz", "7z", "rar", "iso", "deb", "apk"]
+
+    static func isDownload(_ foldedURL: String) -> Bool {
+        guard let last = foldedURL.split(separator: "/").last, let dot = last.lastIndex(of: ".") else { return false }
+        let ext = last[last.index(after: dot)...].split(separator: "?").first.map(String.init) ?? ""
+        return downloadExtensions.contains(ext)
+    }
+
     static func isConfident(_ s: Scored) -> Bool {
         guard s.hostPrefix || s.typedBefore else { return false }
         if s.candidate.kind != .history { return true }
@@ -319,7 +329,7 @@ enum SuggestionRanker {
             points += best
         }
         var score = 50 * points / (6 * Double(tokens.count))
-        if hostPrefix { score += 25 }
+        if hostPrefix { score += c.isRoot ? 25 : 8 } // a deep link is not "the site"
         if hostPrefix, c.isRoot { score += 15 }
 
         let frecency = FrecencyScorer.score(samples: c.samples, visits: c.visits, dwell: c.dwell, now: now)

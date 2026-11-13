@@ -80,6 +80,7 @@ struct PanelLayer: View {
                         return app.store.suggestions(for: query, limit: 7)
                     },
                     semanticResults: { query in await app.semanticResults(for: query) },
+                    searchSuggestions: { query in await app.searchSuggestions(for: query) },
                     icon: { app.pool.favicons.image(for: $0) },
                     onSubmit: { controller.submit($0) },
                     onDismiss: { controller.dismissPanel() }
