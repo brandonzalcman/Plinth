@@ -27,6 +27,8 @@ let package = Package(
         .target(name: "PlinthSettings", dependencies: ["PlinthModel", "PlinthRules"]),
         // Bookmark and history import from Safari and Chrome.
         .target(name: "PlinthImport", dependencies: ["PlinthModel", "PlinthRules", "PlinthStore"]),
+        // Password manager: Keychain vault, page capture/fill policy and the page script, CSV import.
+        .target(name: "PlinthPasswords", swiftSettings: ui),
         // UI and WebKit.
         .target(name: "PlinthBarUI", dependencies: ["PlinthModel"], swiftSettings: ui),
         .target(name: "PlinthPanels", dependencies: ["PlinthModel"], swiftSettings: ui),
@@ -34,7 +36,7 @@ let package = Package(
         // The app shell: wires the modules together.
         .target(
             name: "PlinthApp",
-            dependencies: ["PlinthModel", "PlinthRules", "PlinthFade", "PlinthLayout", "PlinthStore", "PlinthBarUI", "PlinthPanels", "PlinthWeb", "PlinthAI", "PlinthSync", "PlinthSettings", "PlinthImport"],
+            dependencies: ["PlinthModel", "PlinthRules", "PlinthFade", "PlinthLayout", "PlinthStore", "PlinthBarUI", "PlinthPanels", "PlinthWeb", "PlinthAI", "PlinthSync", "PlinthSettings", "PlinthImport", "PlinthPasswords"],
             swiftSettings: ui
         ),
         // SwiftPM entry point; Scripts/bundle.sh wraps it in Plinth.app.
@@ -47,6 +49,7 @@ let package = Package(
         .testTarget(name: "PlinthSyncTests", dependencies: ["PlinthSync"]),
         .testTarget(name: "PlinthSettingsTests", dependencies: ["PlinthSettings"]),
         .testTarget(name: "PlinthWebTests", dependencies: ["PlinthWeb"]),
+        .testTarget(name: "PlinthPasswordsTests", dependencies: ["PlinthPasswords"]),
         .testTarget(name: "PlinthImportTests", dependencies: ["PlinthImport", "PlinthStore", "PlinthModel", "PlinthRules"]),
     ]
 )

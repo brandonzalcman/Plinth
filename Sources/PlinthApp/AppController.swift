@@ -41,6 +41,8 @@ final class AppController: NSObject, NSApplicationDelegate {
     var sync: SyncCoordinator?
     var otherDevices: [DeviceOpenPages] = []
     var storageDirectory: URL!
+    /// The built-in password manager (see PasswordsController.swift).
+    var passwords: PasswordsController!
     /// Set by the Xcode app target (Sparkle). nil in the SwiftPM build.
     var checkForUpdates: (@MainActor () -> Void)?
     @objc func menuCheckForUpdates(_ sender: Any?) { checkForUpdates?() }
@@ -72,6 +74,7 @@ final class AppController: NSObject, NSApplicationDelegate {
         pool = WebViewPool(storageDirectory: support)
         ai = AIService.makeDefault(storageDirectory: support)
         storageDirectory = support
+        setUpPasswords()
         connect()
         connectFeatures()
         pool.apply(settings.value)

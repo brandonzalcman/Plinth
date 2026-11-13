@@ -222,6 +222,7 @@ enum DebugScript {
         case "scroll": await js(app, "window.scrollTo(0, \(Double(arg) ?? 0))")
         case "closepage": if let wid, let page = app.store.window(wid)?.selectedPageID { app.store.closePage(page) }
         case "reopen": app.menuReopen(nil)
+        case "pw": app.passwords.debug(arg)
         case "settings":
             // settings <section id>: opens the Settings window on that section.
             app.menuSettings(nil)
@@ -253,7 +254,7 @@ enum DebugScript {
         case "shot":
             // shot <name> [mini]: captures the key main window (or the newest mini window).
             let parts = arg.split(separator: " ")
-            let window = parts.count > 1 ? app.miniWindows.last?.window : controller?.window
+            let window = parts.count > 1 ? (parts[1] == "settings" ? app.settingsWindow?.window : app.miniWindows.last?.window) : controller?.window
             guard let window, let dir = ProcessInfo.processInfo.environment["PLINTH_SHOTS"] else { return }
             let task = Process()
             task.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
