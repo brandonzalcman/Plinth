@@ -306,6 +306,7 @@ final class AppController: NSObject, NSApplicationDelegate {
     @objc func menuNewPage(_ sender: Any?) { keyController?.openCommandBar(newPage: true) }
     @objc func menuOpenLocation(_ sender: Any?) { keyController?.openCommandBar(newPage: false) }
     @objc func menuShelf(_ sender: Any?) { keyController?.toggleShelf() }
+    @objc func menuHistory(_ sender: Any?) { keyController?.toggleHistory() }
     @objc func menuFind(_ sender: Any?) { keyController?.openFind() }
     @objc func menuClosePage(_ sender: Any?) {
         guard let id = keyWindowID, let controller = controllers[id], controller.window === NSApp.keyWindow else {

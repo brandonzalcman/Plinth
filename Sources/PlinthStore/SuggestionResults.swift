@@ -9,8 +9,8 @@ extension BrowserStore {
     /// per page and at most two history rows per site. See `SuggestionRanker`.
     public func suggestions(for query: String, limit: Int = 7) -> [SearchResult] {
         let tokens = Self.fold(query).split(whereSeparator: { $0.isWhitespace }).map(String.init)
+        lastSuggestionQuery = tokens.isEmpty ? "" : query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !tokens.isEmpty, limit > 0 else { return [] }
-        lastSuggestionQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
         suggestionIndex.update(with: history)
 
         var candidates = suggestionIndex.candidates(matching: tokens)

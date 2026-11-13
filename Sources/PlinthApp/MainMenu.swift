@@ -61,6 +61,7 @@ enum MainMenu {
         add(view, "Actual Size", #selector(AppController.menuZoomReset(_:)), "0")
         view.addItem(.separator())
         add(view, "Show Shelf", #selector(AppController.menuShelf(_:)), "l", [.command, .shift])
+        add(view, "Show History", #selector(AppController.menuHistory(_:)), "y")
         dynamicSubmenu(view, splitMenuTitle)
         add(view, "Split View with Next Page", #selector(AppController.menuSplitWithNext(_:)), "\\", [.command, .option])
         add(view, "End Split View", #selector(AppController.menuEndSplit(_:)), "\\", [.command, .shift])

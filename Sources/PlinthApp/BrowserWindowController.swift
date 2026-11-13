@@ -15,6 +15,7 @@ final class WindowChrome {
         case none
         case command(text: String, newPage: Bool)
         case shelf
+        case history
         case find
         case ask
     }
@@ -282,6 +283,11 @@ final class BrowserWindowController: NSObject, NSWindowDelegate {
         syncPanel()
     }
 
+    func toggleHistory() {
+        chrome.panel = chrome.panel == .history ? .none : .history
+        syncPanel()
+    }
+
     func openFind() {
         guard app.store.window(windowID)?.selectedPageID != nil else { return }
         chrome.findNotFound = false
@@ -338,11 +344,14 @@ final class BrowserWindowController: NSObject, NSWindowDelegate {
             guard !trimmed.isEmpty else { return }
             let url: URL
             switch app.resolver.resolve(trimmed) {
-            case .url(let resolved): url = resolved
+            case .url(let resolved):
+                url = resolved
+                store.recordSuggestionPick(url: resolved)
             case .search(let query): url = app.resolver.searchURL(for: query)
             }
             open(url, newPage: newPage || selected == nil, replacing: selected)
         case .result(let result):
+            store.recordSuggestionPick(result)
             switch result.target {
             case .openPage(let page, let otherWindow):
                 store.select(page, in: otherWindow)
