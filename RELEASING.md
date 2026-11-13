@@ -128,4 +128,4 @@ gh release create v0.2.0 build/release/Plinth.dmg build/release/appcast.xml --ti
 
 ## Later: iCloud sync in releases
 
-When you add the iCloud capability (see [Design/icloud-sync.md](Design/icloud-sync.md)), Developer ID builds need a **Developer ID provisioning profile** that includes the iCloud container. Create it at developer.apple.com under Profiles. Then add it to the export options in `Scripts/release.sh` (`provisioningProfiles` → `app.plinth.Plinth`) and to the workflow as another secret.
+When you add the iCloud capability (see [docs/icloud-sync.md](docs/icloud-sync.md)), Developer ID builds need a **Developer ID provisioning profile** that includes the iCloud container. Create it at developer.apple.com under Profiles. Then add it to the export options in `Scripts/release.sh` (`provisioningProfiles` → `app.plinth.Plinth`) and to the workflow as another secret.

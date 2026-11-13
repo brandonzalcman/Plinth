@@ -151,7 +151,7 @@ extension AppController: NSMenuItemValidation, NSMenuDelegate {
         guard SyncSettings.isCloudKitConfigured else {
             let alert = NSAlert()
             alert.messageText = "iCloud sync needs a developer team"
-            alert.informativeText = "This copy of Plinth is signed without an Apple developer team, so it cannot use iCloud. Sync of pins, the shelf and history is built and ready; see Design/icloud-sync.md for the steps to turn it on."
+            alert.informativeText = "This copy of Plinth is signed without an Apple developer team, so it cannot use iCloud. Sync of pins, the shelf and history is built and ready; see docs/icloud-sync.md for the steps to turn it on."
             alert.runModal()
             return
         }

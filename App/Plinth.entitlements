@@ -6,7 +6,7 @@
 	Empty on purpose so Plinth builds and runs with no developer team.
 	To turn on iCloud sync: choose your team in Signing & Capabilities, add the iCloud
 	capability with CloudKit and the container iCloud.app.plinth.Plinth; Xcode writes the
-	keys here. See Design/icloud-sync.md.
+	keys here. See docs/icloud-sync.md.
 	-->
 </dict>
 </plist>

@@ -157,7 +157,7 @@ open Plinth.xcodeproj
 ```
 
 1. Choose the **Plinth** scheme and **My Mac**, then press ⌘R. It builds and runs with "Sign to Run Locally", so no Apple developer account is needed.
-2. To sign with your own team, go to the **Plinth** target › **Signing & Capabilities** and choose your **Team**. That's also where you add iCloud; see [Design/icloud-sync.md](Design/icloud-sync.md).
+2. To sign with your own team, go to the **Plinth** target › **Signing & Capabilities** and choose your **Team**. That's also where you add iCloud; see [docs/icloud-sync.md](docs/icloud-sync.md).
 3. To ship it, use **Product › Archive**, then **Distribute App** (Developer ID with notarization, or the Mac App Store).
 
 Run the tests with `swift test`, or open `Package.swift` in Xcode and press ⌘U.
@@ -208,7 +208,7 @@ PlinthApp ── the app shell that wires them together (a library)
 - The AI module hides Apple's frameworks behind `TextGenerating` and `TextEmbedding`, so the store and shell never import them, and tests use fakes.
 - Apple's on-device model has a small context, so long pages go through a chunk-and-summarise pipeline that keeps every request within budget.
 
-More detail is in [`Design/`](Design): the brand guide, the bar artboard, and the [iCloud sync design](Design/icloud-sync.md).
+More detail is in [`docs/`](docs): the [brand guide](docs/brand-guide.md) and the [iCloud sync design](docs/icloud-sync.md).
 
 ## Privacy
 
@@ -232,8 +232,8 @@ Good first areas:
 
 ## Known limits
 
-- **iCloud sync** needs an Apple developer team. Choose your team and add the iCloud capability in `Plinth.xcodeproj`; the ad-hoc build can't use iCloud. [Design/icloud-sync.md](Design/icloud-sync.md) has the steps.
-- **System Passwords autofill** needs Apple's web-browser entitlement, which an open-source build does not have. See `Design/passwords-autofill.md` for how to request it.
+- **iCloud sync** needs an Apple developer team. Choose your team and add the iCloud capability in `Plinth.xcodeproj`; the ad-hoc build can't use iCloud. [docs/icloud-sync.md](docs/icloud-sync.md) has the steps.
+- **System Passwords autofill** needs Apple's web-browser entitlement, which an open-source build does not have.
 - **Semantic search** quality depends on Apple's NaturalLanguage sentence embeddings, so "By meaning" results come after keyword results.
 - **No extensions,** by design.
 

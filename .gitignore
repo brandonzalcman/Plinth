@@ -5,8 +5,9 @@ build/
 .swiftpm/
 *.xcodeproj/xcuserdata/
 
-# Product plan stays private
-Design/feature-plan.md
+# Design working files stay local; only the logo is tracked
+Design/*
+!Design/icon/
 xcuserdata/
 DerivedData/
 
