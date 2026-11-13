@@ -16,6 +16,7 @@ public struct ShelfView: View {
     private let accent: Color
     private let icon: (SiteKey) -> NSImage?
     private let snapshot: (PageID) -> NSImage?
+    private let hasSnapshot: (PageID) -> Bool
     private let now: Date
     private let onRestore: (SiteID, PageID?) -> Void
     private let onRemove: (SiteID, PageID?) -> Void
@@ -51,6 +52,7 @@ public struct ShelfView: View {
                 accent: Color,
                 icon: @escaping (SiteKey) -> NSImage?,
                 snapshot: @escaping (PageID) -> NSImage?,
+                hasSnapshot: ((PageID) -> Bool)? = nil,
                 now: Date = Date(),
                 onRestore: @escaping (_ entry: SiteID, _ page: PageID?) -> Void,
                 onRemove: @escaping (_ entry: SiteID, _ page: PageID?) -> Void,
@@ -61,7 +63,7 @@ public struct ShelfView: View {
                 undoCount: Int = 0,
                 onUndoClear: (() -> Void)? = nil) {
         self.onClearAll = onClearAll; self.undoCount = undoCount; self.onUndoClear = onUndoClear
-        self.entries = entries; self.accent = accent; self.icon = icon; self.snapshot = snapshot; self.now = now
+        self.entries = entries; self.accent = accent; self.icon = icon; self.snapshot = snapshot; self.hasSnapshot = hasSnapshot ?? { snapshot($0) != nil }; self.now = now
         self.onRestore = onRestore; self.onRemove = onRemove; self.onDismiss = onDismiss
         self.semanticResults = semanticResults; self.onOpenResult = onOpenResult
         let estimate = entries.reduce(CGFloat(12)) { $0 + Self.rowHeight * CGFloat(1 + $1.pages.count) + 6 }
@@ -207,7 +209,7 @@ public struct ShelfView: View {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     ForEach(groups) { group in
                         header(group, palette: palette).id(RowID.site(group.id))
-                        let thumbnails = group.pages.contains { snapshot($0.id) != nil }
+                        let thumbnails = group.pages.contains { hasSnapshot($0.id) }
                         ForEach(group.pages) { page in
                             pageRow(page, in: group, thumbnails: thumbnails, palette: palette)
                                 .id(RowID.page(group.id, page.id))

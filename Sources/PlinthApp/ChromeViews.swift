@@ -98,6 +98,7 @@ struct PanelLayer: View {
                     accent: app.accent,
                     icon: { app.pool.favicons.image(for: $0) },
                     snapshot: { app.pool.snapshot(for: $0) },
+                    hasSnapshot: { app.pool.hasSnapshot(for: $0) },
                     onRestore: { entry, page in
                         let ids = app.store.restore(entry: entry, page: page, into: controller.windowID)
                         controller.dismissPanel()
