@@ -14,24 +14,35 @@ enum SafariReader {
             throw Failures.unreadable(.safari, "bookmarks")
         }
         var out: [ImportedBookmark] = []
-        walk(root, into: &out)
+        walk(root, path: [], into: &out)
         return out
     }
 
-    private static func walk(_ node: [String: Any], into out: inout [ImportedBookmark]) {
+    /// Safari names its two built-in folders "BookmarksBar" and "BookmarksMenu".
+    private static func folderName(_ title: String) -> String {
+        switch title {
+        case "BookmarksBar": "Favorites"
+        case "BookmarksMenu": "Bookmarks Menu"
+        default: title
+        }
+    }
+
+    private static func walk(_ node: [String: Any], path: [String], into out: inout [ImportedBookmark]) {
         if node["Title"] as? String == "com.apple.ReadingList" { return }
         switch node["WebBookmarkType"] as? String {
         case "WebBookmarkTypeLeaf":
             guard let s = node["URLString"] as? String, let url = httpURL(s) else { return }
             let title = ((node["URIDictionary"] as? [String: Any])?["title"] as? String) ?? ""
-            out.append(ImportedBookmark(title: title, url: url))
+            out.append(ImportedBookmark(title: title, url: url, folder: path))
             return
         case "WebBookmarkTypeProxy":
             return
         default:
             break
         }
-        for case let child as [String: Any] in (node["Children"] as? [Any]) ?? [] { walk(child, into: &out) }
+        var inner = path
+        if let title = node["Title"] as? String, !title.isEmpty { inner.append(folderName(title)) }
+        for case let child as [String: Any] in (node["Children"] as? [Any]) ?? [] { walk(child, path: inner, into: &out) }
     }
 
     /// Newest first, at most `limit` visits.

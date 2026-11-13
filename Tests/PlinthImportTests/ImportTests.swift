@@ -119,6 +119,7 @@ func writeChromeHistory(_ home: FakeHome, profile: String = "Default", _ rows: [
         #expect(items.map(\.url.absoluteString) == ["https://a.com/x", "http://b.com/", "https://notitle.com/"])
         #expect(items[0].title == "A")
         #expect(items[2].title == "")
+        #expect(items.map(\.folder) == [["Favorites"], ["Favorites", "Deep", "Deeper"], []])
     }
 
     @Test func historyTimeAndFilters() throws {
@@ -154,6 +155,7 @@ func writeChromeHistory(_ home: FakeHome, profile: String = "Default", _ rows: [
         let items = try ChromeReader.bookmarks(home: home.url)
         #expect(items.map(\.url.host) == ["a.com", "b.com", "c.com"])
         #expect(items[1].title == "B")
+        #expect(items.map(\.folder) == [["Bookmarks bar"], ["Bookmarks bar", "F", "G"], ["Other"]])
     }
 
     @Test func historyTimeConversion() throws {
@@ -293,6 +295,29 @@ func writeChromeHistory(_ home: FakeHome, profile: String = "Default", _ rows: [
         #expect(store.shelf.count == 2)
         #expect(store.shelf.first { $0.key.host == "fresh.com" }?.pages.count == 2)
         #expect(store.checkInvariants().isEmpty)
+    }
+
+    @Test func bookmarksGoToTheBookmarkStoreWithTheirFolders() async throws {
+        let home = FakeHome()
+        writeSafariPlist(home, [folder("BookmarksBar", [leaf("https://a.com/one", "One"), folder("Deep", [leaf("https://b.com/", "B")]), leaf("https://a.com/one", "Again")]),
+                                leaf("https://top.com/", "Top")])
+        let store = makeStore()
+        let marks = BookmarkStore(storageDirectory: nil)
+        let report = try await ImportService.run(.safari, bookmarks: true, history: false, into: store, identity: SiteIdentity(), bookmarkStore: marks, home: home.url)
+        #expect(report.bookmarksImported == 3)
+        #expect(report.notes.contains { $0.contains("Imported from Safari") })
+        #expect(report.notes.contains { $0.contains("1 bookmark was skipped") })
+        #expect(store.shelf.isEmpty)
+        let paths = Dictionary(uniqueKeysWithValues: marks.bookmarks.map { ($0.title, marks.path(of: $0.folder)) })
+        #expect(paths["One"] == ["Imported from Safari", "Favorites"])
+        #expect(paths["B"] == ["Imported from Safari", "Favorites", "Deep"])
+        #expect(paths["Top"] == ["Imported from Safari"])
+
+        // Running again adds nothing and makes no new folders.
+        let folderCount = marks.folders.count
+        let again = try await ImportService.run(.safari, bookmarks: true, history: false, into: store, identity: SiteIdentity(), bookmarkStore: marks, home: home.url)
+        #expect(again.bookmarksImported == 0)
+        #expect(marks.bookmarks.count == 3 && marks.folders.count == folderCount)
     }
 
     @Test func historyMergesNewestFirstWithoutDuplicates() {

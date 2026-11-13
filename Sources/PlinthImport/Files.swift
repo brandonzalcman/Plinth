@@ -5,6 +5,8 @@ import SQLite3
 struct ImportedBookmark: Sendable, Equatable {
     var title: String
     var url: URL
+    /// The folders it sat in, outermost first. Empty at the top level (and for Arc, which has none).
+    var folder: [String] = []
 }
 
 /// One visit read from another browser.

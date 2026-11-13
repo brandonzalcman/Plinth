@@ -39,14 +39,17 @@ private func writeZen(_ home: FakeHome, profile: String = "abc.Default (release)
     }
     var sql = ["CREATE TABLE moz_places (id INTEGER PRIMARY KEY, url TEXT, title TEXT)",
                "CREATE TABLE moz_historyvisits (id INTEGER PRIMARY KEY, place_id INTEGER, visit_date INTEGER)",
-               "CREATE TABLE moz_bookmarks (id INTEGER PRIMARY KEY, type INTEGER, fk INTEGER, title TEXT, dateAdded INTEGER)"]
+               "CREATE TABLE moz_bookmarks (id INTEGER PRIMARY KEY, type INTEGER, fk INTEGER, title TEXT, dateAdded INTEGER, parent INTEGER)"]
     var place = 0
     for b in bookmarks {
         place += 1
         sql.append("INSERT INTO moz_places VALUES (\(place), '\(b.0)', '\(b.1)')")
-        sql.append("INSERT INTO moz_bookmarks VALUES (\(place), 1, \(place), '\(b.1)', \(place))")
+        sql.append("INSERT INTO moz_bookmarks VALUES (\(place), 1, \(place), '\(b.1)', \(place), 5002)")
     }
-    sql.append("INSERT INTO moz_bookmarks VALUES (900, 2, NULL, 'a folder', 0)")
+    // A root, the toolbar under it, and a folder in the toolbar that holds the bookmarks.
+    sql.append("INSERT INTO moz_bookmarks VALUES (5000, 2, NULL, '', 0, 0)")
+    sql.append("INSERT INTO moz_bookmarks VALUES (5001, 2, NULL, 'toolbar', 0, 5000)")
+    sql.append("INSERT INTO moz_bookmarks VALUES (5002, 2, NULL, 'a folder', 0, 5001)")
     for h in history {
         place += 1
         sql.append("INSERT INTO moz_places VALUES (\(place), '\(h.0)', \(h.1.map { "'\($0)'" } ?? "NULL"))")
@@ -105,6 +108,7 @@ private func writeZen(_ home: FakeHome, profile: String = "abc.Default (release)
                  history: [("https://b.com/", "B", 1_700_000_000), ("about:blank", "x", 1_700_000_100)])
         let marks = try ZenReader.bookmarks(home: home.url)
         #expect(marks.map(\.url.host) == ["a.com"])
+        #expect(marks[0].folder == ["Bookmarks Toolbar", "a folder"])
         let visits = try ZenReader.history(home: home.url, limit: 10)
         #expect(visits.map(\.url.host) == ["b.com"])
         #expect(visits[0].date == Date(timeIntervalSince1970: 1_700_000_000))

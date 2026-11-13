@@ -36,17 +36,19 @@ enum ChromeReader {
               let roots = json["roots"] as? [String: Any] else { throw Failures.unreadable(.chrome, "bookmarks") }
         var out: [ImportedBookmark] = []
         for name in ["bookmark_bar", "other", "synced"] {
-            if let node = roots[name] as? [String: Any] { walk(node, into: &out) }
+            if let node = roots[name] as? [String: Any] { walk(node, path: [], into: &out) }
         }
         return out
     }
 
-    private static func walk(_ node: [String: Any], into out: inout [ImportedBookmark]) {
+    private static func walk(_ node: [String: Any], path: [String], into out: inout [ImportedBookmark]) {
         if node["type"] as? String == "url" {
-            if let s = node["url"] as? String, let url = httpURL(s) { out.append(ImportedBookmark(title: node["name"] as? String ?? "", url: url)) }
+            if let s = node["url"] as? String, let url = httpURL(s) { out.append(ImportedBookmark(title: node["name"] as? String ?? "", url: url, folder: path)) }
             return
         }
-        for case let child as [String: Any] in (node["children"] as? [Any]) ?? [] { walk(child, into: &out) }
+        var inner = path
+        if let name = node["name"] as? String, !name.isEmpty { inner.append(name) }
+        for case let child as [String: Any] in (node["children"] as? [Any]) ?? [] { walk(child, path: inner, into: &out) }
     }
 
     /// Microseconds since 1601-01-01 to a date.

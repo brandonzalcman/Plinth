@@ -48,11 +48,13 @@ public enum ImportService {
         return Probe.state(folder) != .missing
     }
 
-    /// Reads bookmarks and/or history from `source` and adds them to `store`. Never throws anything but `ImportFailure`
+    /// Reads bookmarks and/or history from `source` and adds them to `store`. With `bookmarkStore`, bookmarks
+    /// go there with their folders, under a folder named for the source; without it they go to the shelf. Never throws anything but `ImportFailure`
     /// and never crashes on missing, locked or malformed files.
     @MainActor
     public static func run(_ source: ImportSource, bookmarks: Bool, history: Bool, into store: BrowserStore,
-                           identity: SiteIdentity, home: URL = FileManager.default.homeDirectoryForCurrentUser) async throws -> ImportReport {
+                           identity: SiteIdentity, bookmarkStore: BookmarkStore? = nil,
+                           home: URL = FileManager.default.homeDirectoryForCurrentUser) async throws -> ImportReport {
         let historyLimit = BrowserStore.importHistoryCap
         let read = await Task.detached { () -> ReadResult in
             var r = ReadResult()
@@ -78,7 +80,27 @@ public enum ImportService {
         if let f = read.bookmarkFailure { report.notes.append("Bookmarks weren't imported. " + f.message) }
         if let f = read.historyFailure { report.notes.append("History wasn't imported. " + f.message) }
 
-        if bookmarks, read.bookmarkFailure == nil {
+        if bookmarks, read.bookmarkFailure == nil, let bookmarkStore {
+            let result = bookmarkStore.importItems(read.bookmarks.map { (title: $0.title, url: $0.url, folder: $0.folder) },
+                                                   under: "Imported from \(source.displayName)")
+            report.bookmarksImported = result.added
+            if read.bookmarks.isEmpty {
+                report.notes.append("\(source.displayName) had no bookmarks to import.")
+            } else {
+                if result.added > 0 {
+                    report.notes.append("Bookmarks were added to Bookmarks, in a folder named \"Imported from \(source.displayName)\" with their own folders.")
+                }
+                if source == .arc {
+                    report.notes.append("Arc has no bookmarks file, so Plinth imported the tabs saved in Arc's sidebar.")
+                }
+                if source == .zen {
+                    report.notes.append("Zen's pinned tabs and Essentials aren't imported; only its bookmarks are.")
+                }
+                if result.alreadySaved > 0 {
+                    report.notes.append("\(result.alreadySaved) bookmark\(result.alreadySaved == 1 ? " was" : "s were") skipped because the page is already bookmarked, or was listed twice.")
+                }
+            }
+        } else if bookmarks, read.bookmarkFailure == nil {
             let outcome = store.importBookmarksDetailed(read.bookmarks.map { (title: $0.title, url: $0.url) })
             report.bookmarksImported = outcome.added
             if read.bookmarks.isEmpty {
