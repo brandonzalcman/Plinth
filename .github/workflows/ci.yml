@@ -25,14 +25,14 @@ jobs:
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: macos-26
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Select Xcode
         run: sudo xcode-select -s "$(ls -d /Applications/Xcode_26*.app | sort -V | tail -1)"
       - name: Versions
         run: swift --version && sw_vers
       # Keeps downloaded dependencies and compiled modules between runs.
       - name: Restore the Swift build folder
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: .build
           key: spm-${{ runner.os }}-${{ hashFiles('Package.swift', 'Plinth.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-${{ github.sha }}

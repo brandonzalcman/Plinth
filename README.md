@@ -80,7 +80,7 @@ Also included:
 
 ## Install
 
-**[Download Plinth for Mac](https://github.com/brandonzalcman/Plinth/releases/latest/download/Plinth.dmg)** (macOS 26 or later). Open the disk image and drag Plinth to Applications. It's signed and notarized, and it updates itself: you'll get new versions automatically, or choose **Plinth › Check for Updates…**.
+**[Download Plinth for Mac](https://github.com/brandonzalcman/Plinth/releases/latest)** (macOS 26 or later). Open the disk image and drag Plinth to Applications. It's signed and notarized, and it updates itself: you'll get new versions automatically, or choose **Plinth › Check for Updates…**.
 
 To make Plinth your default browser, choose it under System Settings › Desktop & Dock › Default web browser.
 
@@ -219,7 +219,7 @@ More detail is in [`docs/`](docs): the [brand guide](docs/brand-guide.md) and th
 
 ## Releasing
 
-Releases are a signed, notarized `Plinth-<version>.dmg` on GitHub Releases (also published as `Plinth.dmg` for the stable download link), with Sparkle auto-updates. Nothing ships on merge: running the Release workflow by hand, or pushing a tag like `v0.2.0`, runs the whole pipeline. One-time setup and details are in [RELEASING.md](RELEASING.md).
+Releases are a signed, notarized `Plinth-<version>.dmg` on GitHub Releases, with Sparkle auto-updates. Nothing ships on merge: running the Release workflow by hand, or pushing a tag like `v0.2.0`, runs the whole pipeline. One-time setup and details are in [RELEASING.md](RELEASING.md).
 
 ## Contributing
 
