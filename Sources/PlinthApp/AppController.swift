@@ -10,6 +10,7 @@ import PlinthBarUI
 import PlinthWeb
 import PlinthAI
 import PlinthSync
+import PlinthSettings
 
 /// Owns the store and the web view pool, and connects the two. One per process.
 @MainActor
@@ -17,7 +18,11 @@ final class AppController: NSObject, NSApplicationDelegate {
     static var shared: AppController?
 
     let identity = SiteIdentity()
-    let resolver = AddressResolver()
+    var resolver = AddressResolver()
+    /// User settings (`settings.json`). Created at launch, before anything that reads it.
+    private(set) var settings: SettingsStore!
+    /// The one Settings window, created on first use (see SettingsWindowController.swift).
+    var settingsWindow: SettingsWindowController?
     let layoutEngine = BarLayoutEngine()
     private(set) var store: BrowserStore!
     private(set) var pool: WebViewPool!
@@ -56,6 +61,8 @@ final class AppController: NSObject, NSApplicationDelegate {
                 .appendingPathComponent("Plinth", isDirectory: true)
         try? FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
 
+        settings = SettingsStore(storageDirectory: support)
+        resolver.engine = settings.value.searchEngine
         store = BrowserStore(identity: identity, namer: PageNamer(), fader: FadeEngine(), storageDirectory: support)
         pool = WebViewPool(storageDirectory: support)
         ai = AIService.makeDefault(storageDirectory: support)
