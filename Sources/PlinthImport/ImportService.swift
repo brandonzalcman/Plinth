@@ -6,8 +6,15 @@ import PlinthStore
 // CONTRACT (the settings UI codes against this; the import agent implements it behind the same signatures).
 
 public enum ImportSource: String, CaseIterable, Sendable {
-    case safari, chrome
-    public var displayName: String { self == .safari ? "Safari" : "Chrome" }
+    case safari, chrome, arc, zen
+    public var displayName: String {
+        switch self {
+        case .safari: "Safari"
+        case .chrome: "Chrome"
+        case .arc: "Arc"
+        case .zen: "Zen"
+        }
+    }
 }
 
 /// What an import did, in numbers and plain-language notes the UI shows as is.
@@ -30,7 +37,13 @@ public struct ImportFailure: Error, Equatable, Sendable {
 public enum ImportService {
     /// True when the browser's data folder exists (it can still be unreadable: see `permissionDenied`).
     public static func isInstalled(_ source: ImportSource, home: URL = FileManager.default.homeDirectoryForCurrentUser) -> Bool {
-        let folder = source == .safari ? SafariReader.folder(home) : ChromeReader.folder(home)
+        let folder: URL
+        switch source {
+        case .safari: folder = SafariReader.folder(home)
+        case .chrome: folder = ChromeReader.folder(home)
+        case .arc: folder = ArcReader.folder(home)
+        case .zen: folder = ZenReader.folder(home)
+        }
         // A folder macOS won't let us look inside still exists.
         return Probe.state(folder) != .missing
     }
@@ -44,11 +57,11 @@ public enum ImportService {
         let read = await Task.detached { () -> ReadResult in
             var r = ReadResult()
             if bookmarks {
-                do throws(ImportFailure) { r.bookmarks = try source == .safari ? SafariReader.bookmarks(home: home) : ChromeReader.bookmarks(home: home) }
+                do throws(ImportFailure) { r.bookmarks = try readBookmarks(source, home: home) }
                 catch { r.bookmarkFailure = error }
             }
             if history {
-                do throws(ImportFailure) { r.visits = try source == .safari ? SafariReader.history(home: home, limit: historyLimit) : ChromeReader.history(home: home, limit: historyLimit) }
+                do throws(ImportFailure) { r.visits = try readHistory(source, home: home, limit: historyLimit) }
                 catch { r.historyFailure = error }
             }
             return r
@@ -73,6 +86,12 @@ public enum ImportService {
             } else {
                 if outcome.added > 0 {
                     report.notes.append("Bookmark folders aren't kept: Plinth has no folders, so bookmarks were added to the shelf, grouped by site.")
+                }
+                if source == .arc {
+                    report.notes.append("Arc has no bookmarks file, so Plinth imported the tabs saved in Arc's sidebar.")
+                }
+                if source == .zen {
+                    report.notes.append("Zen's pinned tabs and Essentials aren't imported; only its bookmarks are.")
                 }
                 if outcome.alreadyThere > 0 {
                     report.notes.append("\(outcome.alreadyThere) bookmark\(outcome.alreadyThere == 1 ? " was" : "s were") skipped because the page is already open, pinned or on the shelf, or was listed twice.")
@@ -99,6 +118,24 @@ public enum ImportService {
             }
         }
         return report
+    }
+
+    private static func readBookmarks(_ source: ImportSource, home: URL) throws(ImportFailure) -> [ImportedBookmark] {
+        switch source {
+        case .safari: try SafariReader.bookmarks(home: home)
+        case .chrome: try ChromeReader.bookmarks(home: home)
+        case .arc: try ArcReader.bookmarks(home: home)
+        case .zen: try ZenReader.bookmarks(home: home)
+        }
+    }
+
+    private static func readHistory(_ source: ImportSource, home: URL, limit: Int) throws(ImportFailure) -> [ImportedVisit] {
+        switch source {
+        case .safari: try SafariReader.history(home: home, limit: limit)
+        case .chrome: try ChromeReader.history(home: home, limit: limit)
+        case .arc: try ChromeReader.history(home: home, limit: limit, source: .arc)
+        case .zen: try ZenReader.history(home: home, limit: limit)
+        }
     }
 
     private struct ReadResult: Sendable {

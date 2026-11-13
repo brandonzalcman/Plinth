@@ -2,13 +2,15 @@ import Foundation
 import SQLite3
 
 enum ChromeReader {
-    static func folder(_ home: URL) -> URL {
-        home.appendingPathComponent("Library/Application Support/Google/Chrome", isDirectory: true)
+    /// Chrome's data folder, or Arc's `User Data` folder (Arc is built on Chromium and keeps its history the same way).
+    static func folder(_ home: URL, source: ImportSource = .chrome) -> URL {
+        let path = source == .arc ? "Library/Application Support/Arc/User Data" : "Library/Application Support/Google/Chrome"
+        return home.appendingPathComponent(path, isDirectory: true)
     }
 
     /// "Default" if it has the file, else the first "Profile N" (in numeric order) that does.
-    static func profileFile(_ name: String, home: URL) -> URL? {
-        let root = folder(home)
+    static func profileFile(_ name: String, home: URL, source: ImportSource = .chrome) -> URL? {
+        let root = folder(home, source: source)
         let first = root.appendingPathComponent("Default/\(name)")
         if Probe.state(first) != .missing { return first }
         let profiles = ((try? FileManager.default.contentsOfDirectory(atPath: root.path)) ?? [])
@@ -52,17 +54,17 @@ enum ChromeReader {
         Date(timeIntervalSince1970: Double(t) / 1_000_000 - 11_644_473_600)
     }
 
-    static func history(home: URL, limit: Int) throws(ImportFailure) -> [ImportedVisit] {
-        guard let file = profileFile("History", home: home) else {
-            if Probe.state(folder(home)) == .denied { throw Failures.denied(.chrome) }
-            throw Failures.notFound(.chrome, "history")
+    static func history(home: URL, limit: Int, source: ImportSource = .chrome) throws(ImportFailure) -> [ImportedVisit] {
+        guard let file = profileFile("History", home: home, source: source) else {
+            if Probe.state(folder(home, source: source)) == .denied { throw Failures.denied(source) }
+            throw Failures.notFound(source, "history")
         }
-        return try withDatabaseCopy(file, source: .chrome, what: "history") { db throws(ImportFailure) in
+        return try withDatabaseCopy(file, source: source, what: "history") { db throws(ImportFailure) in
             var out: [ImportedVisit] = []
             try query(db, """
                 SELECT u.url, u.title, v.visit_time FROM visits v JOIN urls u ON u.id = v.url
                 ORDER BY v.visit_time DESC LIMIT \(limit)
-                """, source: .chrome, what: "history") { row in
+                """, source: source, what: "history") { row in
                 guard let url = httpURL(text(row, 0)) else { return }
                 out.append(ImportedVisit(title: text(row, 1), url: url, date: date(chromeTime: sqlite3_column_int64(row, 2))))
             }

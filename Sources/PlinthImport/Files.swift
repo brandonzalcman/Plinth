@@ -54,8 +54,8 @@ enum Failures {
         switch source {
         case .safari:
             return ImportFailure(kind: .permissionDenied, message: "macOS keeps Safari's data private. To import it, allow Plinth in System Settings > Privacy & Security > Full Disk Access, then try again.")
-        case .chrome:
-            return ImportFailure(kind: .permissionDenied, message: "macOS wouldn't let Plinth read Chrome's data. Allow Plinth in System Settings > Privacy & Security > Full Disk Access, then try again.")
+        case .chrome, .arc, .zen:
+            return ImportFailure(kind: .permissionDenied, message: "macOS wouldn't let Plinth read \(source.displayName)'s data. Allow Plinth in System Settings > Privacy & Security > Full Disk Access, then try again.")
         }
     }
     static func unreadable(_ source: ImportSource, _ what: String) -> ImportFailure {

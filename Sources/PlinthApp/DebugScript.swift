@@ -220,6 +220,8 @@ enum DebugScript {
                 window.setFrame(NSRect(x: 200, y: 120, width: p[0], height: p[1]), display: true)
             }
         case "scroll": await js(app, "window.scrollTo(0, \(Double(arg) ?? 0))")
+        case "closepage": if let wid, let page = app.store.window(wid)?.selectedPageID { app.store.closePage(page) }
+        case "reopen": app.menuReopen(nil)
         case "settings":
             // settings <section id>: opens the Settings window on that section.
             app.menuSettings(nil)
