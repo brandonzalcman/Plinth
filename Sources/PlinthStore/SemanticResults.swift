@@ -34,7 +34,7 @@ extension BrowserStore {
     }
 
     private func bestResult(for match: SemanticMatch) -> SearchResult {
-        for window in windows {
+        for window in windows where !window.isPrivate {
             for site in window.sites {
                 if let page = site.pages.first(where: { $0.url == match.url }) {
                     return SearchResult(id: "meaning-page-\(page.id.raw.uuidString)", target: .openPage(page.id, window: window.id),

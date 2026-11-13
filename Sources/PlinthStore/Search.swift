@@ -20,7 +20,8 @@ extension BrowserStore {
         }
 
         var open: [Hit] = []
-        for window in windows {
+        // Private pages are never offered, not even to the private window itself.
+        for window in windows where !window.isPrivate {
             for site in window.sites {
                 for page in site.pages {
                     guard let score = Self.score(tokens, name: page.name, title: page.rawTitle, url: page.url, site: site.name) else { continue }

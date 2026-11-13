@@ -98,7 +98,7 @@ extension BrowserStore {
     public func openPagesSummary() -> [OpenPageSummary] {
         var seen = Set<URL>()
         var result: [OpenPageSummary] = []
-        for w in windows {
+        for w in windows where !w.isPrivate {
             for site in w.sites {
                 for page in site.pages where page.url.scheme?.lowercased() != "about" && seen.insert(page.url).inserted {
                     result.append(OpenPageSummary(url: page.url, name: page.name, title: page.rawTitle, key: site.key))
