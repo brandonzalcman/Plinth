@@ -11,7 +11,7 @@
   <a href="LICENSE"><img alt="License: GPL v3" src="https://img.shields.io/badge/license-GPL%20v3-2F5BEA"></a>
   <img alt="macOS 26" src="https://img.shields.io/badge/macOS-26-1C1C1A">
   <img alt="Swift 6.2" src="https://img.shields.io/badge/Swift-6.2-F05138">
-  <a href="https://github.com/brandonzalcman/Plinth/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/brandonzalcman/Plinth/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/brandonzalcman/Plinth/actions/workflows/release.yml"><img alt="Release" src="https://github.com/brandonzalcman/Plinth/actions/workflows/release.yml/badge.svg"></a>
 </p>
 
 <p align="center">

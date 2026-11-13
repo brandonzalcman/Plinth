@@ -1,9 +1,15 @@
 name: CI
 
+# Runs on pull requests only. A merge to main is not built again: the pull request already
+# passed these checks, and the Release workflow builds the app itself when a version ships.
 on:
-  push:
-    branches: [main]
   pull_request:
+  workflow_dispatch:
+
+# A new push to a pull request cancels the run for the push before it.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build-and-test:
@@ -15,12 +21,11 @@ jobs:
       - name: Versions
         run: swift --version && sw_vers
       - name: Build
-        run: swift build
+        run: swift build --build-tests
       - name: Test
-        run: swift test
+        run: swift test --skip-build
       - name: Bundle
         run: Scripts/bundle.sh
-      - name: Build Xcode app project
-        run: xcodebuild -project Plinth.xcodeproj -scheme Plinth -configuration Release -destination 'platform=macOS' -derivedDataPath DerivedData build
+      # Archives the Xcode app project and packages it, so it also proves the project builds.
       - name: Release packaging dry run
         run: UNSIGNED=1 Scripts/release.sh 0.0.0
