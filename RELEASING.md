@@ -9,9 +9,11 @@ Plinth ships as a signed, notarized `Plinth.dmg` on GitHub Releases. Installed c
 
 ## How updates reach people
 
-1. You push a tag such as `v0.2.0`.
+1. You merge a pull request into `main` that raises `MARKETING_VERSION` in `Plinth.xcodeproj` (and, ideally, adds `release-notes/<version>.md`). Merges that keep the same version do nothing: the workflow sees the release already exists and stops. (Pushing a tag such as `v0.2.0`, or running the workflow by hand, still works too.)
 2. The **Release** workflow builds the app, signs it with your Developer ID, notarizes it with Apple and builds the DMG. It also writes `appcast.xml`, signed with your Sparkle key, and publishes both as a GitHub Release.
-3. Each installed Plinth checks the feed once a day. It downloads the update in the background and installs it when the app quits. People can also choose **Plinth › Check for Updates…**.
+3. The workflow ends by checking that `releases/latest/download/Plinth.dmg` and `appcast.xml` both answer, so the landing page's download button serves the new version as soon as the run is green. If the landing page links to those two addresses, nothing else needs updating.
+
+Each installed Plinth checks the feed once a day. It downloads the update in the background and installs it when the app quits. People can also choose **Plinth › Check for Updates…**.
 
 Sparkle only accepts an update signed with your private Sparkle key, and macOS only opens an app signed with your Developer ID and notarized by Apple.
 

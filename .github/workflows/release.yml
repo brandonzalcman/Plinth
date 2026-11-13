@@ -1,10 +1,15 @@
 name: Release
 
-# Push a tag like v0.2.0 to build, sign, notarize and publish Plinth.dmg plus the Sparkle
-# update feed (appcast.xml) as a GitHub Release. Installed copies pick the update up on
-# their own. One-time setup: see RELEASING.md.
+# Merging a pull request into main releases Plinth when it carries a new version: the version
+# is MARKETING_VERSION in Plinth.xcodeproj, and if the tag v<version> already exists the run
+# stops quietly. A release builds, signs and notarizes Plinth.dmg, writes the Sparkle feed
+# (appcast.xml) and publishes both as the newest GitHub Release. The landing page's download
+# button points at releases/latest/download/Plinth.dmg, so it serves the new DMG as soon as
+# the release is published; the last step checks that. Pushing a tag like v0.2.0 or running the
+# workflow by hand also works. One-time setup: see RELEASING.md.
 on:
   push:
+    branches: [main]
     tags: ["v*"]
   workflow_dispatch:
     inputs:
@@ -15,20 +20,45 @@ on:
 permissions:
   contents: write
 
+# One release at a time; a second merge waits instead of racing the first.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
   release:
     runs-on: macos-26
-    env:
-      VERSION: ${{ github.event.inputs.version || github.ref_name }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0   # the build number is the commit count
 
+      - name: Work out the version
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [[ "${{ github.event_name }}" == "push" && "${{ github.ref_type }}" == "branch" ]]; then
+            V="$(grep -m1 -oE 'MARKETING_VERSION = [^;]+' Plinth.xcodeproj/project.pbxproj | sed 's/.*= //')"
+          else
+            V="${{ github.event.inputs.version || github.ref_name }}"
+          fi
+          V="${V#v}"
+          [[ "$V" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]] || { echo "::error::Bad version '$V'"; exit 1; }
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          if gh release view "v$V" >/dev/null 2>&1; then
+            echo "Release v$V already exists: nothing to do. Bump MARKETING_VERSION to ship a new one."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Select Xcode
+        if: steps.version.outputs.skip != 'true'
         run: sudo xcode-select -s "$(ls -d /Applications/Xcode_26*.app | sort -V | tail -1)"
 
       - name: Import the Developer ID certificate
+        if: steps.version.outputs.skip != 'true'
         env:
           CERT_P12: ${{ secrets.DEVELOPER_ID_CERT_P12 }}
           CERT_PASSWORD: ${{ secrets.DEVELOPER_ID_CERT_PASSWORD }}
@@ -45,6 +75,7 @@ jobs:
           rm "$RUNNER_TEMP/cert.p12"
 
       - name: Write the notarization and Sparkle keys
+        if: steps.version.outputs.skip != 'true'
         env:
           ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
           SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
@@ -53,29 +84,50 @@ jobs:
           printf '%s' "$SPARKLE_PRIVATE_KEY" > "$RUNNER_TEMP/sparkle_key"
 
       - name: Build, sign and notarize
+        if: steps.version.outputs.skip != 'true'
         env:
           TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           SPARKLE_PUBLIC_KEY: ${{ vars.SPARKLE_PUBLIC_KEY }}
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
         run: |
-          V="${VERSION#v}"
+          V="${{ steps.version.outputs.version }}"
           [[ -f "release-notes/$V.md" ]] && export RELEASE_NOTES="release-notes/$V.md"
           ASC_KEY_PATH="$RUNNER_TEMP/asc_key.p8" SPARKLE_KEY_FILE="$RUNNER_TEMP/sparkle_key" \
             Scripts/release.sh "$V"
 
       - name: Publish the GitHub Release
+        if: steps.version.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          V="${VERSION#v}"
+          V="${{ steps.version.outputs.version }}"
           NOTES=(--generate-notes)
           [[ -f "release-notes/$V.md" ]] && NOTES=(--notes-file "release-notes/$V.md")
           gh release create "v$V" build/release/Plinth.dmg build/release/appcast.xml \
-            --title "Plinth $V" "${NOTES[@]}" --verify-tag=false
+            --title "Plinth $V" "${NOTES[@]}" --target "$GITHUB_SHA" --latest
+
+      - name: Check the landing page download
+        if: steps.version.outputs.skip != 'true'
+        run: |
+          # The landing page links to these two addresses; both must now serve the new files.
+          for file in Plinth.dmg appcast.xml; do
+            URL="https://github.com/${{ github.repository }}/releases/latest/download/$file"
+            for attempt in 1 2 3 4 5 6; do
+              CODE="$(curl -sL -o /dev/null -w '%{http_code}' -I "$URL")"
+              [[ "$CODE" == 200 ]] && break
+              sleep 10
+            done
+            echo "$URL -> $CODE"
+            [[ "$CODE" == 200 ]] || { echo "::error::$URL is not downloadable"; exit 1; }
+          done
+          LATEST="$(gh release view --json tagName -q .tagName)"
+          [[ "$LATEST" == "v${{ steps.version.outputs.version }}" ]] || { echo "::error::Latest release is $LATEST, not the one just published"; exit 1; }
+        env:
+          GH_TOKEN: ${{ github.token }}
 
       - name: Clean up keys
-        if: always()
+        if: steps.version.outputs.skip != 'true' && always()
         run: |
           rm -f "$RUNNER_TEMP/asc_key.p8" "$RUNNER_TEMP/sparkle_key"
           security delete-keychain "$RUNNER_TEMP/release.keychain-db" 2>/dev/null || true
