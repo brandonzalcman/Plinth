@@ -310,7 +310,14 @@ final class AppController: NSObject, NSApplicationDelegate {
                 store.select(id, in: windowID)
             }
         case .closePage(let id): store.closePage(id)
-        case .selectPin(let id): store.selectPin(id, in: windowID)
+        case .selectPin(let id):
+            // Like a page: clicking the pin you are already on opens the address editor.
+            if let pin = store.pins.first(where: { $0.id == id }), store.window(windowID)?.selectedPageID == pin.page.id,
+               case .none = controller.chrome.panel {
+                controller.openCommandBar(newPage: false)
+            } else {
+                store.selectPin(id, in: windowID)
+            }
         case .selectSite(let id): store.selectSite(id, in: windowID)
         case .toggleFold(let id): store.toggleFold(id, in: windowID)
         case .newPage: controller.openCommandBar(newPage: true)
