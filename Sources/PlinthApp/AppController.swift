@@ -10,6 +10,7 @@ import PlinthBarUI
 import PlinthWeb
 import PlinthAI
 import PlinthSync
+import PlinthSettings
 
 /// Owns the store and the web view pool, and connects the two. One per process.
 @MainActor
@@ -17,7 +18,11 @@ final class AppController: NSObject, NSApplicationDelegate {
     static var shared: AppController?
 
     let identity = SiteIdentity()
-    let resolver = AddressResolver()
+    var resolver = AddressResolver()
+    /// User settings (`settings.json`). Created at launch, before anything that reads it.
+    private(set) var settings: SettingsStore!
+    /// The one Settings window, created on first use (see SettingsWindowController.swift).
+    var settingsWindow: SettingsWindowController?
     let layoutEngine = BarLayoutEngine()
     private(set) var store: BrowserStore!
     private(set) var pool: WebViewPool!
@@ -39,7 +44,11 @@ final class AppController: NSObject, NSApplicationDelegate {
     /// Set by the Xcode app target (Sparkle). nil in the SwiftPM build.
     var checkForUpdates: (@MainActor () -> Void)?
     @objc func menuCheckForUpdates(_ sender: Any?) { checkForUpdates?() }
-    let accent = Color(red: 0x2F / 255, green: 0x5B / 255, blue: 0xEA / 255)
+    /// The accent colour chosen in Settings (SwiftUI views read it, so they follow changes).
+    var accent: Color {
+        let c = settings.value.accent.rgb
+        return Color(red: c.r / 255, green: c.g / 255, blue: c.b / 255)
+    }
 
     private var controllers: [WindowID: BrowserWindowController] = [:]
     private var fadeTimer: Timer?
@@ -56,12 +65,16 @@ final class AppController: NSObject, NSApplicationDelegate {
                 .appendingPathComponent("Plinth", isDirectory: true)
         try? FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
 
+        settings = SettingsStore(storageDirectory: support)
+        resolver.engine = settings.value.searchEngine
         store = BrowserStore(identity: identity, namer: PageNamer(), fader: FadeEngine(), storageDirectory: support)
         pool = WebViewPool(storageDirectory: support)
         ai = AIService.makeDefault(storageDirectory: support)
         storageDirectory = support
         connect()
         connectFeatures()
+        pool.apply(settings.value)
+        settings.observe { [weak self] _, new in self?.pool.apply(new) }
 
         NSApp.mainMenu = MainMenu.build()
 

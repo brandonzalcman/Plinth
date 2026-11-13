@@ -15,6 +15,8 @@ enum MainMenu {
             add(app, "Check for Updates…", #selector(AppController.menuCheckForUpdates(_:)), "")
         }
         app.addItem(.separator())
+        add(app, "Settings…", #selector(AppController.menuSettings(_:)), ",")
+        app.addItem(.separator())
         add(app, "Use On-Device AI", #selector(AppController.menuToggleAI(_:)), "")
         add(app, "iCloud Sync", #selector(AppController.menuToggleSync(_:)), "")
         app.addItem(.separator())
