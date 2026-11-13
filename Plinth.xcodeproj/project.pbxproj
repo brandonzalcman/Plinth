@@ -174,7 +174,7 @@
 		A10000000000000000000084 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				CODE_SIGN_ENTITLEMENTS = App/Plinth.entitlements;
+				CODE_SIGN_ENTITLEMENTS = "$(PLINTH_ENTITLEMENTS)";
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
@@ -191,8 +191,11 @@
 					"@executable_path/../Frameworks",
 				);
 				MARKETING_VERSION = 0.2.0;
+				PLINTH_ENTITLEMENTS = App/Plinth.entitlements;
+				PLINTH_PROFILE = "";
 				PRODUCT_BUNDLE_IDENTIFIER = app.plinth.Plinth;
 				PRODUCT_NAME = Plinth;
+				PROVISIONING_PROFILE_SPECIFIER = "$(PLINTH_PROFILE)";
 				SPARKLE_PUBLIC_KEY = "";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
@@ -202,7 +205,7 @@
 		A10000000000000000000085 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				CODE_SIGN_ENTITLEMENTS = App/Plinth.entitlements;
+				CODE_SIGN_ENTITLEMENTS = "$(PLINTH_ENTITLEMENTS)";
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
@@ -219,8 +222,11 @@
 					"@executable_path/../Frameworks",
 				);
 				MARKETING_VERSION = 0.2.0;
+				PLINTH_ENTITLEMENTS = App/Plinth.entitlements;
+				PLINTH_PROFILE = "";
 				PRODUCT_BUNDLE_IDENTIFIER = app.plinth.Plinth;
 				PRODUCT_NAME = Plinth;
+				PROVISIONING_PROFILE_SPECIFIER = "$(PLINTH_PROFILE)";
 				SPARKLE_PUBLIC_KEY = "";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
