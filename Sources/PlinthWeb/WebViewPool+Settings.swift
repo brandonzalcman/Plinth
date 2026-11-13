@@ -68,10 +68,8 @@ extension WebViewPool {
         }
     }
 
-    private static let cookieRulesIdentifier = "plinth-block-third-party-cookies-v1"
-    private static let cookieRulesJSON = """
-    [{"trigger":{"url-filter":".*","load-type":["third-party"]},"action":{"type":"block-cookies"}}]
-    """
+    private static let cookieRulesIdentifier = WebPrivacy.cookieRulesIdentifier
+    private static let cookieRulesJSON = WebPrivacy.cookieRulesJSON
 
     func syncCookieBlocker() {
         cookieGeneration += 1
@@ -117,19 +115,9 @@ extension WebViewPool {
         }
     }
 
-    static let gpcSource = """
-    (function () {
-      try {
-        Object.defineProperty(Navigator.prototype, 'globalPrivacyControl', { get: function () { return true; }, configurable: true });
-      } catch (e) {}
-    })();
-    """
+    static let gpcSource = WebPrivacy.gpcSource
 
-    static func gpcLiveScript(_ on: Bool) -> String {
-        on ? gpcSource : """
-        (function () { try { delete Navigator.prototype.globalPrivacyControl; } catch (e) {} })();
-        """
-    }
+    static func gpcLiveScript(_ on: Bool) -> String { WebPrivacy.gpcLiveScript(on) }
 
     /// WebKit has no public "default font size" API, so the root font size is set from a style
     /// element. Limits: only text sized relative to the root (rem, em, percentages, keywords)

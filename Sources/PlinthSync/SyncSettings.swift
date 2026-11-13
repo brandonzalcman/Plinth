@@ -46,7 +46,11 @@ public struct SyncSettings {
 
     /// The Mac's name as shown to other Macs, e.g. "Brandon's MacBook Air".
     public static var deviceName: String {
+        #if os(macOS)
         Host.current().localizedName ?? ProcessInfo.processInfo.hostName
+        #else
+        ProcessInfo.processInfo.hostName
+        #endif
     }
 
     /// True only when the running app is signed with an iCloud container entitlement.
@@ -54,10 +58,15 @@ public struct SyncSettings {
 
     /// The first iCloud container in the app's entitlements, if any.
     public static var cloudKitContainerIdentifier: String? {
+        #if os(macOS)
         guard let task = SecTaskCreateFromSelf(nil) else { return nil }
         let value = SecTaskCopyValueForEntitlement(task, containerEntitlement as CFString, nil)
         guard let ids = value as? [String] else { return nil }
         return ids.first { !$0.isEmpty }
+        #else
+        // iOS has no public SecTask API; the iOS app passes its container explicitly when sync lands there.
+        return nil
+        #endif
     }
 
     /// An engine on CloudKit when sync is on and possible, else nil. Constructs no CloudKit

@@ -24,9 +24,17 @@ public struct FoundationModelsGenerator: TextGenerating {
         case .available:
             return .available
         case .unavailable(.deviceNotEligible):
+            #if os(macOS)
             return .unavailable(reason: "This Mac can’t run Apple Intelligence, which the on-device AI features need.")
+            #else
+            return .unavailable(reason: "This device can’t run Apple Intelligence, which the on-device AI features need.")
+            #endif
         case .unavailable(.appleIntelligenceNotEnabled):
+            #if os(macOS)
             return .unavailable(reason: "Turn on Apple Intelligence in System Settings to use the on-device AI features.")
+            #else
+            return .unavailable(reason: "Turn on Apple Intelligence in Settings to use the on-device AI features.")
+            #endif
         case .unavailable(.modelNotReady):
             return .unavailable(reason: "The on-device model is still downloading or getting ready. Try again in a little while.")
         case .unavailable:
