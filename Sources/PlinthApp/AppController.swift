@@ -287,7 +287,13 @@ final class AppController: NSObject, NSApplicationDelegate {
     func handle(_ action: BarAction, in windowID: WindowID) {
         guard let controller = controllers[windowID] else { return }
         switch action {
-        case .selectPage(let id): store.select(id, in: windowID)
+        case .selectPage(let id):
+            // Clicking the page you are already on opens the address editor with its URL selected.
+            if store.window(windowID)?.selectedPageID == id, case .none = controller.chrome.panel {
+                controller.openCommandBar(newPage: false)
+            } else {
+                store.select(id, in: windowID)
+            }
         case .closePage(let id): store.closePage(id)
         case .selectPin(let id): store.selectPin(id, in: windowID)
         case .selectSite(let id): store.selectSite(id, in: windowID)
