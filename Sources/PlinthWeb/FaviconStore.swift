@@ -46,7 +46,8 @@ public final class FaviconStore {
 
     /// Fetches the first candidate that yields an image (candidates are in order of preference),
     /// falling back to `/favicon.ico` at the page's origin, and stores it for `key`.
-    public func noteIcon(candidates: [URL], pageURL: URL, key: SiteKey) {
+    /// With `persist` false (a private page) the icon is kept in memory only.
+    public func noteIcon(candidates: [URL], pageURL: URL, key: SiteKey, persist: Bool = true) {
         guard !inFlight.contains(key) else { return }
         let now = Date()
         if let last = checked[key], now.timeIntervalSince(last) < 3600 { return }
@@ -76,7 +77,7 @@ public final class FaviconStore {
                 guard let data = await download(url), let png = Self.normalizedPNG(from: data),
                       let image = NSImage(data: png) else { continue }
                 do {
-                    try png.write(to: file, options: .atomic)
+                    if persist { try png.write(to: file, options: .atomic) }
                 } catch {
                     log.error("Could not store icon for \(key.host, privacy: .public): \(error.localizedDescription, privacy: .public)")
                 }

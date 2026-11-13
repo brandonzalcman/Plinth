@@ -128,10 +128,11 @@ extension AppController: NSMenuItemValidation, NSMenuDelegate {
         let url = view.url ?? mini.initialURL
         mini.window.close()
         let target: WindowID
-        if let id = keyWindowID, controller(for: id) != nil {
+        // Never into a private window: the page was made with the normal profile's cookies.
+        if let id = keyWindowID, controller(for: id) != nil, !store.isPrivate(window: id) {
             target = id
         } else {
-            target = store.windows.first?.id ?? store.createWindow()
+            target = store.windows.first(where: { !$0.isPrivate })?.id ?? store.createWindow()
             showControllerPublic(for: target)
         }
         adoptNextOpen(view, url: url)
@@ -207,6 +208,8 @@ extension AppController: NSMenuItemValidation, NSMenuDelegate {
         case #selector(menuAsk(_:)):
             // A mini window has no bar to ask from; never reach through to a hidden main window.
             return keyMiniWindow == nil && keyController.flatMap { store.window($0.windowID)?.selectedPageID } != nil
+        case #selector(menuPinSite(_:)):
+            return keyWindowID.map { !store.isPrivate(window: $0) } ?? true
         case #selector(menuSplitWithNext(_:)):
             guard let id = keyWindowID else { return false }
             return store.visibleSites(in: id).reduce(0) { $0 + $1.pages.count } > 1

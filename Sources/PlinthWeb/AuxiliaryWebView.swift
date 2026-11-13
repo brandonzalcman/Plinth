@@ -160,8 +160,9 @@ extension WebViewPool {
     /// A view for the peek card or the mini window: same cookies, content blocker, user agent and
     /// preferences as pooled pages, but not a page. Loads `url` when given. Read what it shows
     /// through `auxiliaryState(of:)`; make it a real page with `adopt(_:as:)`, or just drop it.
-    public func makeAuxiliaryWebView(url: URL?) -> WKWebView {
-        let webView = makeWebView()
+    /// `dataStore` nil means the default one; a private window passes its own.
+    public func makeAuxiliaryWebView(url: URL?, dataStore: WKWebsiteDataStore? = nil) -> WKWebView {
+        let webView = makeWebView(configuration: makeConfiguration(dataStore: dataStore))
         let controller = AuxiliaryController(pool: self)
         webView.auxiliary = controller
         controller.attach(to: webView)

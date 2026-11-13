@@ -33,6 +33,8 @@ final class AppController: NSObject, NSApplicationDelegate {
     var miniWindows: [MiniWindowController] = []
     /// Windows for pages' `window.open` popups (sign-in windows and the like).
     var popups: [PopupWindowController] = []
+    /// Each private window's own non-persistent data store (see PrivateWindows.swift).
+    var privateStores: [WindowID: WKWebsiteDataStore] = [:]
     /// Links handed to Plinth before it finished launching.
     var pendingOpenURLs: [URL] = []
     var didFinishLaunching = false
@@ -172,6 +174,7 @@ final class AppController: NSObject, NSApplicationDelegate {
         store.onEvent = { [weak self] event in self?.handle(event) }
         let identity = identity
         pool.siteKey = { identity.key(for: $0) }
+        pool.dataStoreForPage = { [weak self] id in self?.dataStore(forPage: id) }
 
         pool.callbacks.didUpdate = { [weak self] id, url, title, hint in
             self?.store.pageDidUpdate(id, url: url, title: title, siteNameHint: hint)
@@ -258,9 +261,15 @@ final class AppController: NSObject, NSApplicationDelegate {
     }
 
     /// Closing the last window keeps its bar for next time; closing one of several puts its sites away.
+    /// A private window is always discarded, and never counts as "another window" for a normal one.
     func windowDidClose(_ id: WindowID) {
         controllers[id] = nil
-        if !controllers.isEmpty { store.closeWindow(id) }
+        if store.isPrivate(window: id) {
+            store.closeWindow(id)
+            privateWindowClosed(id)
+        } else if controllers.keys.contains(where: { !store.isPrivate(window: $0) }) {
+            store.closeWindow(id)
+        }
     }
 
     // MARK: Timers

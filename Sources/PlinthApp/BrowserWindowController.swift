@@ -73,10 +73,13 @@ final class BrowserWindowController: NSObject, NSWindowDelegate {
     var askTask: Task<Void, Never>?
     var peekView: WKWebView?
     var peekHost: NSView?
+    /// True for a private window; fixed for the window's life.
+    let isPrivate: Bool
 
     init(app: AppController, windowID: WindowID) {
         self.app = app
         self.windowID = windowID
+        isPrivate = app.store.isPrivate(window: windowID)
         let saved = app.store.window(windowID)?.frame
         let frame = saved.flatMap { $0.count == 4 ? NSRect(x: $0[0], y: $0[1], width: $0[2], height: $0[3]) : nil }
             ?? NSRect(x: 0, y: 0, width: 1280, height: 820)
@@ -90,7 +93,7 @@ final class BrowserWindowController: NSObject, NSWindowDelegate {
         window.isReleasedWhenClosed = false
         window.minSize = NSSize(width: 520, height: 360)
         window.tabbingMode = .disallowed
-        window.backgroundColor = .plinthWindowBackground
+        window.backgroundColor = isPrivate ? PrivateTint.surface : .plinthWindowBackground
         window.delegate = self
         if saved == nil { window.center() } else { window.setFrame(frame, display: false) }
 
@@ -110,6 +113,7 @@ final class BrowserWindowController: NSObject, NSWindowDelegate {
         topStrip.autoresizingMask = [.width, .minYMargin]
         root.addSubview(topStrip)
 
+        if isPrivate { installPrivateBadge() }
         barHost = NSHostingView(rootView: BarHost(app: app, windowID: windowID, chrome: chrome))
         barHost.frame = NSRect(x: metrics.sideInset, y: metrics.bottomInset,
                                width: root.bounds.width - metrics.sideInset * 2, height: metrics.barHeight)
@@ -161,7 +165,7 @@ final class BrowserWindowController: NSObject, NSWindowDelegate {
         if let selected = state.selectedPageID {
             if let split = state.split, split.contains(selected) {
                 // Panes sit in the same left-to-right order as their buttons on the bar.
-                let order = BarOrder.pageOrder(pins: app.store.pins, sites: state.sites)
+                let order = BarOrder.pageOrder(pins: app.store.pins(in: windowID), sites: state.sites)
                 let leadingFirst = (order.firstIndex(of: split.leading) ?? 0) <= (order.firstIndex(of: split.trailing) ?? 0)
                 ordered = leadingFirst ? [split.leading, split.trailing] : [split.trailing, split.leading]
                 splitFlipped = !leadingFirst
@@ -191,7 +195,7 @@ final class BrowserWindowController: NSObject, NSWindowDelegate {
         dropResumeCardIfStale()
         let changed = shownPages != pages.map(\.id)
         shownPages = pages.map(\.id)
-        window.title = state.selectedPageID.flatMap { app.store.page($0)?.name } ?? "Plinth"
+        window.title = (isPrivate ? "Private — " : "") + (state.selectedPageID.flatMap { app.store.page($0)?.name } ?? "Plinth")
         if changed {
             chrome.progress = nil
             if chrome.panel == .find { chrome.panel = .none; syncPanel() }
@@ -228,7 +232,9 @@ final class BrowserWindowController: NSObject, NSWindowDelegate {
 
     /// Also called when the Appearance setting changes.
     func applyChromeAppearance() {
-        let appearance = app.settings.value.appearance.nsAppearance
+        // A private window is always dark, whatever the Mac or the Appearance setting says.
+        let appearance = isPrivate ? NSAppearance(named: .darkAqua) : app.settings.value.appearance.nsAppearance
+        if isPrivate { window.appearance = appearance }
         // Changing a host's appearance re-renders its whole SwiftUI tree, so only do it when it flips.
         guard chromeAppearance?.name != appearance?.name || barHost.appearance?.name != appearance?.name else { return }
         chromeAppearance = appearance
@@ -247,7 +253,7 @@ final class BrowserWindowController: NSObject, NSWindowDelegate {
 
     private func showEmptyState(_ show: Bool) {
         if show, emptyHost == nil {
-            let host = NSHostingView(rootView: EmptyWindowView())
+            let host = NSHostingView(rootView: EmptyWindowView(isPrivate: isPrivate))
             host.frame = root.bounds
             host.autoresizingMask = [.width, .height]
             root.addSubview(host, positioned: .below, relativeTo: topStrip)
@@ -298,6 +304,8 @@ final class BrowserWindowController: NSObject, NSWindowDelegate {
     }
 
     func toggleShelf() {
+        // The shelf belongs to the normal profile: nothing goes onto it from here or comes off it into here.
+        guard !isPrivate else { return }
         chrome.panel = chrome.panel == .shelf ? .none : .shelf
         syncPanel()
     }
@@ -381,10 +389,19 @@ final class BrowserWindowController: NSObject, NSWindowDelegate {
                 store.select(page, in: otherWindow)
                 app.controller(for: otherWindow)?.window.makeKeyAndOrderFront(nil)
             case .pin(let pin):
-                store.selectPin(pin, in: windowID)
+                if isPrivate, let url = store.url(of: result.target) {
+                    open(url, newPage: true, replacing: selected)
+                } else {
+                    store.selectPin(pin, in: windowID)
+                }
             case .shelf(let entry, let page):
-                let ids = store.restore(entry: entry, page: page, into: windowID)
-                showResumeCard(forRestored: ids)
+                if isPrivate {
+                    // A private window opens the address; the shelf entry stays where it is.
+                    if let url = store.url(of: result.target) { open(url, newPage: true, replacing: selected) }
+                } else {
+                    let ids = store.restore(entry: entry, page: page, into: windowID)
+                    showResumeCard(forRestored: ids)
+                }
             case .history(let url):
                 open(url, newPage: true, replacing: selected)
             }

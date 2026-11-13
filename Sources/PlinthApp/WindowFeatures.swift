@@ -93,6 +93,18 @@ extension BrowserWindowController {
         accessoryHosts = [accessory]
     }
 
+    /// "Private" beside the traffic lights, over the strip behind them.
+    func installPrivateBadge() {
+        let badge = NSHostingView(rootView: PrivateBadge())
+        badge.sizingOptions = [.intrinsicContentSize]
+        badge.translatesAutoresizingMaskIntoConstraints = false
+        root.addSubview(badge)
+        NSLayoutConstraint.activate([
+            badge.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 82),
+            badge.topAnchor.constraint(equalTo: root.topAnchor, constant: 5),
+        ])
+    }
+
     func applyAccessoryAppearance() {
         for host in accessoryHosts { host.appearance = chromeAppearance }
         peekHost?.appearance = chromeAppearance
@@ -158,7 +170,7 @@ extension BrowserWindowController {
     func showPeek(_ url: URL) {
         closePeek()
         dismissPanel()
-        let view = app.pool.makeAuxiliaryWebView(url: url)
+        let view = app.pool.makeAuxiliaryWebView(url: url, dataStore: app.privateDataStore(for: windowID))
         peekView = view
         let host = NSHostingView(rootView: PeekLayer(controller: self, webView: view,
                                                      state: app.pool.auxiliaryState(of: view), accent: app.accent))

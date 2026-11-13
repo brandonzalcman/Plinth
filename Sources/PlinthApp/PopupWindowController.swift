@@ -36,6 +36,8 @@ final class PopupWindowController: NSObject, NSWindowDelegate {
         window.makeKeyAndOrderFront(nil)
     }
 
+    func uses(_ dataStore: WKWebsiteDataStore) -> Bool { webView.configuration.websiteDataStore === dataStore }
+
     func windowWillClose(_ notification: Notification) {
         titleObservation?.invalidate()
         titleObservation = nil

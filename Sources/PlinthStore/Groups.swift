@@ -77,7 +77,7 @@ extension BrowserStore {
         let dt = min(seconds, Self.coOpenMaxTick)
         let t = now()
         var pairs = Set<CoOpenPair>()
-        for w in windows {
+        for w in windows where !w.isPrivate {
             let keys = Array(Set(w.sites.map(\.key)))
             guard keys.count >= 2 else { continue }
             for i in 0..<(keys.count - 1) {
@@ -165,7 +165,7 @@ extension BrowserStore {
 
     /// The group to suggest for this window right now, if any. Deterministic. Ignoring it changes nothing.
     public func groupSuggestion(for window: WindowID) -> GroupSuggestion? {
-        guard let w = self.window(window), w.focusedGroup == nil else { return nil }
+        guard let w = self.window(window), w.focusedGroup == nil, !w.isPrivate else { return nil }
         var hasher = Hasher()
         for site in w.sites { hasher.combine(site.key); hasher.combine(site.name) }
         hasher.combine(qualifiedPairs)

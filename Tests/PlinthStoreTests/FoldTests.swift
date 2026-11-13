@@ -74,6 +74,18 @@ import PlinthModel
         #expect(old.isFolded == false)
     }
 
+    @Test func foldingWorksInAPrivateWindow() {
+        let r = Rig()
+        let w = r.store.createPrivateWindow()
+        let pages = (1...3).map { r.open("https://a.com/\($0)", in: w) }
+        let a = r.store.window(w)!.sites[0].id
+        r.store.toggleFold(a, in: w)
+        #expect(r.store.window(w)?.sites[0].isFolded == true)
+        r.store.select(pages[0], in: w)
+        #expect(r.store.window(w)?.sites[0].isFolded == false)
+        r.ok()
+    }
+
     @Test func aSiteHoldingTheSplitCannotFold() {
         let (r, w, a, pages) = rig()
         r.store.split(pages[0], with: pages[1], in: w)
