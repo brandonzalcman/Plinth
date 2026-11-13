@@ -60,6 +60,9 @@ public final class WebViewPool: NSObject {
     }
 
     public var callbacks = Callbacks()
+    /// The data store a page's view is made with, nil for the default (persistent) one. The shell
+    /// answers with a window's non-persistent store for a page of a private window.
+    public var dataStoreForPage: @MainActor (PageID) -> WKWebsiteDataStore? = { _ in nil }
     /// User scripts from other modules, kept across `rebuildUserScripts()` (loaded pages keep the scripts they ran).
     public var extraUserScripts: [WKUserScript] = [] {
         didSet { rebuildUserScripts() }
@@ -124,6 +127,8 @@ public final class WebViewPool: NSObject {
     var activeDownloads: [ObjectIdentifier: DownloadRecord] = [:]
     /// Every download this session, newest first, for the downloads indicator.
     public let downloads = DownloadsModel()
+    /// Downloads that came from a private window's view, by the data store they ran in.
+    var privateDownloads: [UUID: ObjectIdentifier] = [:]
     /// The same list as `downloads.items` (observable through it).
     public var downloadItems: [DownloadItem] { downloads.items }
 
@@ -159,9 +164,9 @@ public final class WebViewPool: NSObject {
 
     /// Every view (pooled or auxiliary) gets one of these: same data store, content controller,
     /// user agent and preferences.
-    func makeConfiguration() -> WKWebViewConfiguration {
+    func makeConfiguration(dataStore: WKWebsiteDataStore? = nil) -> WKWebViewConfiguration {
         let configuration = WKWebViewConfiguration()
-        configuration.websiteDataStore = .default()
+        configuration.websiteDataStore = dataStore ?? .default()
         configuration.userContentController = userContent
         configuration.applicationNameForUserAgent = "Version/26.0 Safari/605.1.15"
         configuration.preferences.isElementFullscreenEnabled = true
@@ -187,7 +192,7 @@ public final class WebViewPool: NSObject {
     }
 
     private func makeEntry(for id: PageID) -> Entry {
-        register(makeWebView(), as: id)
+        register(makeWebView(configuration: makeConfiguration(dataStore: dataStoreForPage(id))), as: id)
     }
 
     /// Makes `webView` the pool's view for `id`: delegates, observations and the link menu.
@@ -510,7 +515,9 @@ public final class WebViewPool: NSObject {
             }
             guard ["http", "https"].contains(pageURL.scheme?.lowercased() ?? "") else { return }
             let icons = (body["icons"] as? [[String: Any]]) ?? []
-            favicons.noteIcon(candidates: Self.rankedIcons(icons), pageURL: pageURL, key: siteKey(pageURL))
+            // A private page's icon stays in memory: a file per host would be a record of where it went.
+            let persistent = entry.webView.configuration.websiteDataStore.isPersistent
+            favicons.noteIcon(candidates: Self.rankedIcons(icons), pageURL: pageURL, key: siteKey(pageURL), persist: persistent)
         default:
             break
         }

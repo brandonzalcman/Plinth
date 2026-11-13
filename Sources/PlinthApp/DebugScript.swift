@@ -203,6 +203,21 @@ enum DebugScript {
             await contextMenu(arg, app)
         case "frame":
             if let w = controller?.window { log("frame: \(w.frame) split fraction: \(String(describing: wid.flatMap { app.store.window($0)?.split?.fraction })) bar hidden: \(controller?.barHost.isHidden ?? false)") }
+        case "newprivate": app.newPrivateWindow(); app.lastMainWindowID = app.store.windows.last?.id
+        case "newwindow": app.newWindow(); app.lastMainWindowID = app.store.windows.last?.id
+        // focus <index in store.windows>: later steps act on that window (a test launch may have no key window).
+        case "focus": if let n = Int(arg), app.store.windows.indices.contains(n) { app.lastMainWindowID = app.store.windows[n].id }
+        case "closewin": app.keyController?.window.performClose(nil)
+        case "windows":
+            log("windows: \(app.store.windows.map { "\($0.isPrivate ? "private" : "normal"):\($0.sites.map(\.key.host).joined(separator: ","))" }) history: \(app.store.history.map { $0.url.host ?? "-" }) shelf: \(app.store.shelf.map(\.name)) downloads: \(app.pool.downloads.items.map(\.filename))")
+        case "cookies":
+            // The cookie names the key window's current page's data store holds, for any host.
+            if let wid, let page = app.store.window(wid)?.selectedPageID, let view = app.pool.existingWebView(for: page) {
+                let all = await view.configuration.websiteDataStore.httpCookieStore.allCookies()
+                // Only the test sites' cookies are listed: the default store is the real profile's.
+                let mine = all.filter { $0.domain.contains("example.") || $0.domain.contains("iana.org") }
+                log("cookies (\(view.configuration.websiteDataStore.isPersistent ? "persistent" : "private")): \(mine.map { "\($0.domain) \($0.name)" })")
+            }
         case "promotemini": if let mini = app.miniWindows.last { app.promote(mini) }
         case "toggleai": app.menuToggleAI(nil)
         case "shelf": controller?.toggleShelf()

@@ -32,6 +32,7 @@ enum MainMenu {
         let file = submenu(main, "File")
         add(file, "New Page", #selector(AppController.menuNewPage(_:)), "t")
         add(file, "New Window", #selector(AppController.menuNewWindow(_:)), "n")
+        add(file, "New Private Window", #selector(AppController.menuNewPrivateWindow(_:)), "n", [.command, .shift])
         add(file, "Search or Enter Address…", #selector(AppController.menuOpenLocation(_:)), "l")
         file.addItem(.separator())
         add(file, "Close Page", #selector(AppController.menuClosePage(_:)), "w")

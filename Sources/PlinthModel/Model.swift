@@ -161,11 +161,29 @@ public struct WindowState: Identifiable, Codable, Sendable, Equatable {
     /// When set, the bar shows only the sites of this group (plus the site of the selected page).
     /// Nothing is closed or shelved: clearing it shows everything again.
     public var focusedGroup: GroupID?
+    /// A private window leaves no trace: the store keeps its pages out of history, the shelf, the
+    /// closed-page stack, site stats, co-open time, saved state and sync, and discards them when the
+    /// window closes. Never written to disk.
+    public var isPrivate: Bool
 
     public init(id: WindowID = WindowID(), sites: [Site] = [], selectedPageID: PageID? = nil,
-                split: SplitPair? = nil, frame: [Double]? = nil, focusedGroup: GroupID? = nil) {
+                split: SplitPair? = nil, frame: [Double]? = nil, focusedGroup: GroupID? = nil, isPrivate: Bool = false) {
         self.id = id; self.sites = sites; self.selectedPageID = selectedPageID; self.split = split; self.frame = frame
-        self.focusedGroup = focusedGroup
+        self.focusedGroup = focusedGroup; self.isPrivate = isPrivate
+    }
+
+    private enum CodingKeys: String, CodingKey { case id, sites, selectedPageID, split, frame, focusedGroup, isPrivate }
+
+    /// `isPrivate` is newer than the first state files, so it may be missing.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(WindowID.self, forKey: .id)
+        sites = try c.decode([Site].self, forKey: .sites)
+        selectedPageID = try c.decodeIfPresent(PageID.self, forKey: .selectedPageID)
+        split = try c.decodeIfPresent(SplitPair.self, forKey: .split)
+        frame = try c.decodeIfPresent([Double].self, forKey: .frame)
+        focusedGroup = try c.decodeIfPresent(GroupID.self, forKey: .focusedGroup)
+        isPrivate = try c.decodeIfPresent(Bool.self, forKey: .isPrivate) ?? false
     }
 
     /// Every page on screen in this window: the selected page plus its split partner.

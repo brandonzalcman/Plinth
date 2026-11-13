@@ -1,8 +1,10 @@
 # iCloud sync
 
-Status: built and tested against an in-memory server. It has **not run against CloudKit**,
-because the app is signed ad hoc, with no developer team. Sync is **off by default**. In a build
-without an iCloud entitlement, the settings switch shows "iCloud sync needs a developer team".
+Status: built and tested against an in-memory server. It has **not run against CloudKit** yet.
+Sync is **off by default**. In a build without an iCloud entitlement (no-team builds, and signed
+releases made without the provisioning profile), the settings switch shows "iCloud sync needs a
+developer team". The running app only checks for the entitlement
+`com.apple.developer.icloud-container-identifiers`; it then uses the first container listed.
 
 Code: `Sources/PlinthSync/`. Tests: `Tests/PlinthSyncTests/`.
 
@@ -109,7 +111,7 @@ Each step needs the owner's own Apple Developer account. Most of the work is don
      to "Development" instead of "Sign to Run Locally".
    - Xcode registers the App ID **`app.plinth.Plinth`** and creates a provisioning profile.
 3. **Add the iCloud capability** with the **+ Capability** button.
-   - Tick **CloudKit** and add the container **`iCloud.app.plinth.Plinth`** (Xcode creates it).
+   - Tick **CloudKit** and add the container **`iCloud.dev.getplinth.Plinth`** (Xcode creates it).
    - Xcode writes `com.apple.developer.icloud-services` and
      `com.apple.developer.icloud-container-identifiers` into `App/Plinth.entitlements`.
 4. **Optional: add Push Notifications.** Other Macs would then hear about changes at once
@@ -118,17 +120,32 @@ Each step needs the owner's own Apple Developer account. Most of the work is don
 5. **Run from Xcode** (⌘R), then turn on Plinth › iCloud Sync. Run
    `codesign -d --entitlements - <path to Plinth.app>` to confirm the container is listed.
    `SyncSettings.isCloudKitConfigured` then returns true.
-6. **Deploy the schema.**
-   - Run a development build once with sync on, so CloudKit creates the `Plinth` zone and the
-     five record types in the **Development** environment.
-   - In the CloudKit Console (icloud.developer.apple.com), check the record types. Mark
-     `recordName` as Queryable on each if you want to browse records there.
-   - Use **Deploy Schema Changes** to send it to **Production**. Builds signed for distribution
-     use Production and fail with "unknown record type" until the schema is deployed.
-7. **Distribute.** Product › Archive, then Distribute App › Direct Distribution (Developer ID,
-   notarised by Apple), or the Mac App Store.
+6. **Deploy the schema** (next section).
+7. **Distribute.** Releases are built by `Scripts/release.sh`, which adds the iCloud entitlement
+   from `App/Plinth.release.entitlements` when it is given a Developer ID provisioning profile. The
+   one-time account steps (container, App ID, profile, `DEVELOPER_ID_PROFILE` secret) are in
+   [RELEASING.md](../RELEASING.md#icloud-sync-in-releases-optional). A signed build made
+   without the profile has no iCloud, as before.
 8. **Test with two Macs** signed into the same iCloud account. Turn sync on in both, pin a site on
    one, and check it appears on the other.
+
+## Deploying the CloudKit schema
+
+Xcode builds run against the **Development** environment, where CloudKit creates a record type the
+first time a record of that type is saved. A Developer ID release runs against **Production**, which
+has no types until you deploy them. The app never creates types in Production.
+
+1. Run from Xcode with sync on (step 5 above). Make every record type appear in Development:
+   pin a site (`Pin`), shelve a page (`ShelfPage`), visit a page (`HistoryEntry`), use **Clear
+   history** once (`HistoryClear`, only written then), and wait for a sync (`Device`; it is written
+   on the first sync). All five types must exist, or Production lacks the missing ones.
+2. Open the CloudKit Console (icloud.developer.apple.com), choose container
+   `iCloud.dev.getplinth.Plinth`, environment **Development**, and check Schema › Record Types for
+   the five types above.
+3. Choose **Deploy Schema Changes…** and confirm. This copies the types to **Production**. Deploy
+   again after any later change to the records.
+
+The `Plinth` zone is created by the app on first sync in each environment.
 
 The SwiftPM route (`Scripts/bundle.sh`) still signs ad hoc and therefore never has iCloud. Use the
 Xcode project for any signed build.
