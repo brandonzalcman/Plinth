@@ -42,6 +42,8 @@ final class AppController: NSObject, NSApplicationDelegate {
     var otherDevices: [DeviceOpenPages] = []
     var storageDirectory: URL!
     /// Set by the Xcode app target (Sparkle). nil in the SwiftPM build.
+    /// The first-launch animation and guide (see Onboarding.swift).
+    var welcome: WelcomeWindowController?
     var checkForUpdates: (@MainActor () -> Void)?
     @objc func menuCheckForUpdates(_ sender: Any?) { checkForUpdates?() }
     /// The accent colour chosen in Settings (SwiftUI views read it, so they follow changes).
@@ -66,6 +68,7 @@ final class AppController: NSObject, NSApplicationDelegate {
         try? FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
 
         settings = SettingsStore(storageDirectory: support)
+        NSApp.appearance = settings.value.appearance.nsAppearance
         resolver.engine = settings.value.searchEngine
         store = BrowserStore(identity: identity, namer: PageNamer(), fader: Self.fader(for: settings.value.fadeBehavior),
                              storageDirectory: support)
@@ -85,6 +88,7 @@ final class AppController: NSObject, NSApplicationDelegate {
 
         // Time passed while Plinth was closed counts: apply fading before anything is shown.
         scheduleFade()
+        let profileHadWindows = !store.windows.isEmpty
         if store.windows.isEmpty { store.createWindow() }
         if let list = environment["PLINTH_OPEN"], let first = store.windows.first?.id {
             for text in list.split(separator: ",") {
@@ -102,6 +106,7 @@ final class AppController: NSObject, NSApplicationDelegate {
         let early = pendingOpenURLs
         pendingOpenURLs = []
         for url in early { openFromOtherApp(url) }
+        launchWelcomeIfNeeded(profileHadWindows: profileHadWindows)
         DebugScript.runIfRequested(self)
     }
 
@@ -127,6 +132,10 @@ final class AppController: NSObject, NSApplicationDelegate {
         }
         ai.semanticEnabled = new.semanticSearchEnabled
         ai.summariesEnabled = new.pageSummariesEnabled
+        if old.appearance != new.appearance {
+            NSApp.appearance = new.appearance.nsAppearance
+            for controller in controllers.values { controller.applyChromeAppearance() }
+        }
         if old.accent != new.accent {
             for controller in controllers.values { controller.refreshContent() }
         }
@@ -302,6 +311,7 @@ final class AppController: NSObject, NSApplicationDelegate {
 
     // MARK: Menu actions (sent to the key window)
 
+    @objc func menuShowWelcome(_ sender: Any?) { showWelcomeGuide() }
     @objc func menuNewWindow(_ sender: Any?) { newWindow() }
     @objc func menuNewPage(_ sender: Any?) { keyController?.openCommandBar(newPage: true) }
     @objc func menuOpenLocation(_ sender: Any?) { keyController?.openCommandBar(newPage: false) }

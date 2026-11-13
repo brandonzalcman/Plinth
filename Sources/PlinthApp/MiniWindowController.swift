@@ -36,7 +36,7 @@ final class MiniWindowController: NSObject, NSWindowDelegate {
         window.tabbingMode = .disallowed
         window.minSize = NSSize(width: 420, height: 320)
         window.delegate = self
-        window.backgroundColor = NSColor(red: 0xFB / 255, green: 0xF8 / 255, blue: 0xF2 / 255, alpha: 1)
+        window.backgroundColor = .plinthWindowBackground
 
         root.frame = NSRect(origin: .zero, size: frame.size)
         root.autoresizingMask = [.width, .height]

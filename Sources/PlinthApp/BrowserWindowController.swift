@@ -65,6 +65,7 @@ final class BrowserWindowController: NSObject, NSWindowDelegate {
     private var stripObservation: NSKeyValueObservation?
     /// nil follows the system (used when the window has no page).
     var chromeAppearance: NSAppearance?
+    private var stripColoured = false
     var accessoryHosts: [NSView] = []
     var resumeTask: Task<Void, Never>?
     var askTask: Task<Void, Never>?
@@ -87,7 +88,7 @@ final class BrowserWindowController: NSObject, NSWindowDelegate {
         window.isReleasedWhenClosed = false
         window.minSize = NSSize(width: 520, height: 360)
         window.tabbingMode = .disallowed
-        window.backgroundColor = NSColor(red: 0xFB / 255, green: 0xF8 / 255, blue: 0xF2 / 255, alpha: 1)
+        window.backgroundColor = .plinthWindowBackground
         window.delegate = self
         if saved == nil { window.center() } else { window.setFrame(frame, display: false) }
 
@@ -191,27 +192,26 @@ final class BrowserWindowController: NSObject, NSWindowDelegate {
         topStrip.frame = NSRect(x: 0, y: root.bounds.height - height, width: root.bounds.width, height: height)
         topStrip.isHidden = height == 0
         if view == nil { topStrip.layer?.backgroundColor = NSColor.clear.cgColor }
-        if view == nil {
-            chromeAppearance = nil
-            barHost.appearance = nil
-            panelHost?.appearance = nil
-            applyAccessoryAppearance()
-        }
+        if view == nil { applyChromeAppearance() }
         stripObservation = view?.observe(\.underPageBackgroundColor, options: [.initial, .new]) { [weak self] view, _ in
             MainActor.assumeIsolated { self?.applyPageColour(of: view) }
         }
     }
 
-    /// The strip behind the traffic lights takes the page's colour, and the bar and panels go
-    /// light over light pages and dark over dark ones.
+    /// The strip behind the traffic lights takes the page's colour. The bar and panels follow the
+    /// Appearance setting (nil follows the Mac), so they stay legible and consistent in dark mode.
     private func applyPageColour(of view: WKWebView) {
         // A page that has not drawn anything yet reports a placeholder colour; keep what was there.
-        if view.isLoading, view.estimatedProgress < 0.5, chromeAppearance != nil { return }
+        if view.isLoading, view.estimatedProgress < 0.5, stripColoured { return }
+        stripColoured = true
         let colour = view.underPageBackgroundColor ?? .windowBackgroundColor
         topStrip.layer?.backgroundColor = colour.cgColor
-        let rgb = colour.usingColorSpace(.sRGB)
-        let luminance = rgb.map { 0.2126 * $0.redComponent + 0.7152 * $0.greenComponent + 0.0722 * $0.blueComponent } ?? 1
-        chromeAppearance = NSAppearance(named: luminance > 0.5 ? .aqua : .darkAqua)
+        applyChromeAppearance()
+    }
+
+    /// Also called when the Appearance setting changes.
+    func applyChromeAppearance() {
+        chromeAppearance = app.settings.value.appearance.nsAppearance
         barHost.appearance = chromeAppearance
         panelHost?.appearance = chromeAppearance
         applyAccessoryAppearance()
