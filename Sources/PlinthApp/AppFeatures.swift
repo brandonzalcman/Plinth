@@ -275,6 +275,18 @@ extension AppController: NSMenuItemValidation, NSMenuDelegate {
         }
     }
 
+    /// Clears history on this Mac and, with iCloud sync on, on the others. Everything clears with the
+    /// sync marker; a range deletes just those entries from the server. Returns how many were removed.
+    @discardableResult
+    func clearHistory(since date: Date?) -> Int {
+        let ids = store.history.filter { date == nil || $0.visitedAt >= date! }.map(\.id)
+        let removed = store.clearHistory(since: date)
+        if let engine = sync?.engine {
+            if date == nil { engine.clearHistory() } else { engine.clearHistory(removing: ids) }
+        }
+        return removed
+    }
+
     private func observeForSync() {
         guard sync != nil else { return }
         withObservationTracking {

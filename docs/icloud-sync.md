@@ -58,7 +58,11 @@ when the next sync happens.
 - **History.** Union by id. Sync never deletes history entries, and an entry removed on one Mac
   is not brought back to that Mac. The one exception is **Clear history** (`clearHistory()`): it
   writes the `history-clear` marker, and every Mac drops every entry visited at or before
-  `clearedAt`. The Mac that cleared also deletes those records from the server. Only the newest
+  `clearedAt`. The Mac that cleared also deletes those records from the server. The marker can only
+  mean "everything", so a **ranged** clear (last hour, today, …) uses `clearHistory(removing:)`
+  instead: the removed entries are deleted from the server by id, and a Mac that had already synced
+  one drops it at its next sync. An entry that a Mac has not uploaded yet, or has not synced yet,
+  is not covered and can still arrive from that Mac. Only the newest
   20,000 entries are kept. The Mac that created an entry may update its title, name or dwell
   later, and that update syncs.
 - **Open pages.** Each Mac writes only its own `device-<id>` record. It does so when its open pages
@@ -93,7 +97,8 @@ if let engine = settings.makeCloudKitEngine(stateURL: profileDir.appendingPathCo
     sync.otherDevices                                     // other Macs' open pages, read-only
 }
 // Clear history: clear the store, then
-engine.clearHistory()
+engine.clearHistory()                          // everything
+engine.clearHistory(removing: removedIDs)      // a time range
 // Turning sync off: settings.isEnabled = false; engine.forgetServerState()
 ```
 

@@ -72,12 +72,18 @@ public struct SyncOutcome: Sendable, Equatable {
         var pendingRemoteHistory: [HistoryEntry] = []
         /// "Clear history" requested locally, not yet on the server.
         var pendingClear: Date?
+        /// History entries removed locally by a ranged clear, not yet deleted on the server.
+        var pendingHistoryDeletes: Set<UUID> = []
+        /// History entries another Mac deleted on the server that this Mac had synced; dropped from
+        /// the local history by the next merge (kept until a sync's result is applied).
+        var pendingRemoteDeletes: Set<UUID> = []
         var lastSyncedAt: Date?
     }
 
     private struct LastInput {
         var localRecords: [String: SyncRecord]
         var adoptedHistory: [HistoryEntry]
+        var remoteDeleted: Set<UUID>
     }
 
     public init(transport: any SyncTransport, deviceID: String, deviceName: String, stateURL: URL?,
@@ -113,6 +119,18 @@ public struct SyncOutcome: Sendable, Equatable {
         persist()
     }
 
+    /// Clears part of the history on every Mac, for a clear that is not "everything" (a time range).
+    /// The marker can only say "everything up to a time", so the removed entries are deleted from
+    /// the server by id instead, and every Mac that had synced them drops them. An entry another
+    /// Mac never uploaded, or has not synced yet, can still come from that Mac later. The caller
+    /// removes the entries from its own store as usual.
+    public func clearHistory(removing ids: some Sequence<UUID>) {
+        let ids = Set(ids)
+        guard !ids.isEmpty else { return }
+        state.pendingHistoryDeletes.formUnion(ids)
+        persist()
+    }
+
     /// Call when the shell could not apply the last `merged` payload (the user changed something
     /// while the sync was running). The next sync then merges again from what the shell really has.
     public func mergeNotApplied() {
@@ -121,6 +139,7 @@ public struct SyncOutcome: Sendable, Equatable {
         state.pendingRemoteHistory = li.adoptedHistory
         // Not applied, so not yet "known" here: let the next merge add them again.
         for e in li.adoptedHistory { state.historySynced[e.id] = nil }
+        state.pendingRemoteDeletes.formUnion(li.remoteDeleted)
         lastInput = nil
         persist()
     }
@@ -149,6 +168,7 @@ public struct SyncOutcome: Sendable, Equatable {
 
         // 2. Remote changes.
         var fetched = try await fetch(&s, localRecords: localRecords, at: t)
+        let remoteDeleted = s.pendingRemoteDeletes
         for e in s.pendingRemoteHistory where fetched[e.id] == nil { fetched[e.id] = e }
 
         // 3. History, open pages, clear marker.
@@ -169,6 +189,7 @@ public struct SyncOutcome: Sendable, Equatable {
 
         // 4. Resolve and upload; re-merge on conflicts.
         try await push(&s, names: Set(s.stamps.keys), extra: extra, deletes: hist.deletes)
+        s.pendingHistoryDeletes = []
         settle(&s)
         var built = build(s, local: local, history: hist.merged)
 
@@ -184,10 +205,11 @@ public struct SyncOutcome: Sendable, Equatable {
         }
 
         s.pendingRemoteHistory = []
+        s.pendingRemoteDeletes = []
         s.lastSyncedAt = t
         state = s
         persist()
-        lastInput = LastInput(localRecords: localRecords, adoptedHistory: hist.adopted)
+        lastInput = LastInput(localRecords: localRecords, adoptedHistory: hist.adopted, remoteDeleted: remoteDeleted)
         return SyncOutcome(merged: built == local ? nil : built, otherDevices: otherDevices(s, at: t))
     }
 
@@ -255,6 +277,7 @@ public struct SyncOutcome: Sendable, Equatable {
                 if id.recordType == RecordMapper.historyType {
                     if let u = UUID(uuidString: String(id.recordName.dropFirst("history-".count))) {
                         history[u] = nil
+                        if s.historySynced[u] != nil { s.pendingRemoteDeletes.insert(u) }
                         s.historySynced[u] = nil
                     }
                 } else {
@@ -284,7 +307,11 @@ public struct SyncOutcome: Sendable, Equatable {
         var fromRemote = Set<UUID>()
         var localIDs = Set<UUID>()
         var reordered = false
-        for e in local where localIDs.insert(e.id).inserted {
+        // Removed here by a ranged clear: never taken back from the server or the store.
+        let removedHere = s.pendingHistoryDeletes
+        // Deleted on the server by another Mac's clear, and this Mac had synced them.
+        let removedThere = s.pendingRemoteDeletes.subtracting(removedHere)
+        for e in local where localIDs.insert(e.id).inserted && !removedHere.contains(e.id) && !removedThere.contains(e.id) {
             // Take the server's version of an entry only if ours is unchanged since we last synced it.
             if let r = fetched[e.id], let synced = s.historySynced[e.id],
                RecordMapper.fingerprint(e) == synced, RecordMapper.fingerprint(r) != synced {
@@ -297,14 +324,16 @@ public struct SyncOutcome: Sendable, Equatable {
         // A fetched version we already know (our own upload coming back, or one applied before)
         // adds nothing; this is what keeps an entry removed locally from coming back.
         let extras = fetched.values.filter {
-            !localIDs.contains($0.id) && s.historySynced[$0.id] != RecordMapper.fingerprint($0)
+            !localIDs.contains($0.id) && !removedHere.contains($0.id) && !removedThere.contains($0.id) && s.historySynced[$0.id] != RecordMapper.fingerprint($0)
         }
         if !extras.isEmpty {
             merged += extras
             fromRemote.formUnion(extras.map(\.id))
             reordered = true
         }
-        var deletes: [SyncRecordID] = []
+        var deletes: [SyncRecordID] = removedHere.sorted { $0.uuidString < $1.uuidString }.map {
+            SyncRecordID(recordType: RecordMapper.historyType, recordName: RecordMapper.historyName($0))
+        }
         if let clearedAt {
             merged.removeAll { $0.visitedAt <= clearedAt }
             // Anyone who sees a cleared entry on the server removes it.
