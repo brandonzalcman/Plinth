@@ -27,7 +27,7 @@ struct AccessoryRow: View {
                     ForEach(groups) { group in
                         GroupChipView(group: group, isFiltering: focused == group.id, accent: app.accent,
                                       icon: { app.pool.favicons.image(for: $0) },
-                                      onToggle: { store.setFocus(focused == group.id ? nil : group.id, in: windowID) },
+                                      onToggle: { if focused == group.id { store.setFocus(nil, in: windowID) } else { store.showGroup(group.id, in: windowID) } },
                                       onRemove: { store.deleteGroup(group.id) })
                     }
                 }
@@ -36,7 +36,7 @@ struct AccessoryRow: View {
                                     icon: { app.pool.favicons.image(for: $0) },
                                     onGroup: {
                                         let id = store.acceptSuggestion(suggestion)
-                                        store.setFocus(id, in: windowID)
+                                        store.showGroup(id, in: windowID)
                                     },
                                     onNotNow: { store.dismissSuggestion(suggestion) })
             }

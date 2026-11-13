@@ -259,6 +259,26 @@ import PlinthModel
         r.ok()
     }
 
+    @Test func showGroupMovesSelectionOffASiteOutsideTheGroup() {
+        let (r, w, pages, g) = rig()
+        r.store.select(pages["d"]!, in: w)
+        r.store.showGroup(g, in: w)
+        #expect(r.store.window(w)?.focusedGroup == g)
+        #expect(r.store.visibleSites(in: w).map(\.key.host) == ["a.com", "c.com"])
+        let selected = r.store.window(w)?.selectedPageID
+        #expect(selected.flatMap { r.store.window(w)?.site(containing: $0)?.key.host }.map { ["a.com", "c.com"].contains($0) } == true)
+        r.ok()
+    }
+
+    @Test func showGroupKeepsASelectionInsideTheGroup() {
+        let (r, w, pages, g) = rig()
+        r.store.select(pages["c"]!, in: w)
+        r.store.showGroup(g, in: w)
+        #expect(r.store.window(w)?.selectedPageID == pages["c"])
+        #expect(r.store.visibleSites(in: w).map(\.key.host) == ["a.com", "c.com"])
+        r.ok()
+    }
+
     @Test func shortcutsCountOnlyVisibleSites() {
         let (r, w, pages, g) = rig()
         r.store.select(pages["a"]!, in: w)

@@ -126,7 +126,7 @@ enum DebugScript {
         case "fraction": if let wid, let f = Double(arg) { app.store.setSplitFraction(f, in: wid) }
         case "coopen": for _ in 0..<(Int(arg) ?? 25) { app.store.noteCoOpen(seconds: 60) }
         case "acceptgroup":
-            if let wid, let s = app.store.groupSuggestion(for: wid) { app.store.setFocus(app.store.acceptSuggestion(s), in: wid) }
+            if let wid, let s = app.store.groupSuggestion(for: wid) { app.store.showGroup(app.store.acceptSuggestion(s), in: wid) }
         case "unfocus": if let wid { app.store.setFocus(nil, in: wid) }
         case "pin": app.menuPinSite(nil)
         case "selectpin": if let wid, let pin = app.store.pins.first { app.store.selectPin(pin.id, in: wid) }
