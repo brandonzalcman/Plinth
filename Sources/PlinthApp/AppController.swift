@@ -44,7 +44,11 @@ final class AppController: NSObject, NSApplicationDelegate {
     /// Set by the Xcode app target (Sparkle). nil in the SwiftPM build.
     var checkForUpdates: (@MainActor () -> Void)?
     @objc func menuCheckForUpdates(_ sender: Any?) { checkForUpdates?() }
-    let accent = Color(red: 0x2F / 255, green: 0x5B / 255, blue: 0xEA / 255)
+    /// The accent colour chosen in Settings (SwiftUI views read it, so they follow changes).
+    var accent: Color {
+        let c = settings.value.accent.rgb
+        return Color(red: c.r / 255, green: c.g / 255, blue: c.b / 255)
+    }
 
     private var controllers: [WindowID: BrowserWindowController] = [:]
     private var fadeTimer: Timer?
@@ -69,6 +73,8 @@ final class AppController: NSObject, NSApplicationDelegate {
         storageDirectory = support
         connect()
         connectFeatures()
+        pool.apply(settings.value)
+        settings.observe { [weak self] _, new in self?.pool.apply(new) }
 
         NSApp.mainMenu = MainMenu.build()
 
