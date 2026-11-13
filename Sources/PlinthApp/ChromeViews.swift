@@ -27,6 +27,13 @@ struct BarHost: View {
             : BarDownloadsState(runningCount: running.count,
                                 progress: known.isEmpty ? nil : min(max(known.reduce(0, +) / Double(known.count), 0), 1))
 
+        // Reading `chrome.progress` keeps the buttons in step while a page loads; navigation changes
+        // the page's address, which the store reports, so back and forward follow too.
+        let nav = BarNavState(hasPage: selected != nil,
+                              canGoBack: selected.map(app.pool.canGoBack) ?? false,
+                              canGoForward: selected.map(app.pool.canGoForward) ?? false,
+                              isLoading: chrome.progress != nil)
+
         BottomBarView(
             layoutForWidth: { width in
                 engine.layout(input, barWidth: width, metrics: .standard, measure: BarTextMeasurer.width)
@@ -34,6 +41,7 @@ struct BarHost: View {
             accent: app.accent,
             icon: { app.pool.favicons.image(for: $0) },
             downloads: downloads,
+            nav: nav,
             onAction: { app.handle($0, in: windowID) }
         )
         .overlay(alignment: .top) {

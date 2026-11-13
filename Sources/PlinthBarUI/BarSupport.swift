@@ -186,3 +186,16 @@ public struct BarDownloadsState: Equatable, Sendable {
         return "Downloads, \(count) running"
     }
 }
+
+
+/// What the back, forward and reload buttons at the left of the bar need to know about the current page.
+public struct BarNavState: Equatable, Sendable {
+    public var hasPage: Bool
+    public var canGoBack: Bool
+    public var canGoForward: Bool
+    public var isLoading: Bool
+
+    public init(hasPage: Bool = false, canGoBack: Bool = false, canGoForward: Bool = false, isLoading: Bool = false) {
+        self.hasPage = hasPage; self.canGoBack = canGoBack; self.canGoForward = canGoForward; self.isLoading = isLoading
+    }
+}

@@ -300,6 +300,10 @@ final class AppController: NSObject, NSApplicationDelegate {
         case .selectPin(let id): store.selectPin(id, in: windowID)
         case .selectSite(let id): store.selectSite(id, in: windowID)
         case .newPage: controller.openCommandBar(newPage: true)
+        case .goBack: if let page = store.window(windowID)?.selectedPageID { pool.goBack(page) }
+        case .goForward: if let page = store.window(windowID)?.selectedPageID { pool.goForward(page) }
+        case .reload: if let page = store.window(windowID)?.selectedPageID { pool.reload(page) }
+        case .stopLoading: if let page = store.window(windowID)?.selectedPageID { pool.stopLoading(page) }
         case .openCommandBar: controller.openCommandBar(newPage: false)
         case .openShelf: controller.toggleShelf()
         case .openDownloads: controller.toggleDownloads()

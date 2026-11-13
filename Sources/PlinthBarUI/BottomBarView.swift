@@ -14,6 +14,7 @@ public struct BottomBarView: View {
     private let icon: (SiteKey) -> NSImage?
     private let onAction: (BarAction) -> Void
     private let downloads: BarDownloadsState?
+    private let nav: BarNavState
 
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -30,8 +31,10 @@ public struct BottomBarView: View {
                 accent: Color,
                 icon: @escaping (SiteKey) -> NSImage?,
                 downloads: BarDownloadsState? = nil,
+                nav: BarNavState = BarNavState(),
                 onAction: @escaping (BarAction) -> Void) {
         self.downloads = downloads
+        self.nav = nav
         self.layoutForWidth = layoutForWidth
         self.metrics = metrics
         self.accent = accent
@@ -46,7 +49,15 @@ public struct BottomBarView: View {
     /// Width the bar keeps back from the layout engine: the shelf button, its gap, and the
     /// gap on the far side of the flexible space.
     public static func reservedWidth(metrics: BarMetrics = .standard, withDownloads: Bool = false) -> CGFloat {
-        shelfWidth + shelfGap + metrics.itemGap + (withDownloads ? shelfWidth + shelfGap : 0)
+        navWidth(metrics: metrics) + shelfWidth + shelfGap + metrics.itemGap + (withDownloads ? shelfWidth + shelfGap : 0)
+    }
+
+    static let navButtonWidth: CGFloat = 28
+    static let navGap: CGFloat = 2
+
+    /// The back, forward and reload buttons and the gap after them.
+    static func navWidth(metrics: BarMetrics) -> CGFloat {
+        navButtonWidth * 3 + navGap * 2 + metrics.itemGap
     }
 
     /// Wires drops to actions. The model's closure is not observed, so setting it here is harmless.
@@ -73,7 +84,7 @@ public struct BottomBarView: View {
             let width = geo.size.width
             if width > 1 {
                 BarContent(layout: layoutForWidth(max(0, width - Self.reservedWidth(metrics: metrics, withDownloads: downloads != nil))),
-                           width: width, downloads: downloads, ctx: ctx)
+                           width: width, downloads: downloads, nav: nav, ctx: ctx)
             }
         }
         .frame(height: metrics.barHeight)
@@ -92,6 +103,7 @@ private struct BarContent: View {
     let layout: BarLayout
     let width: CGFloat
     let downloads: BarDownloadsState?
+    let nav: BarNavState
     let ctx: BarContext
 
     @State private var moreBefore = false
@@ -107,6 +119,7 @@ private struct BarContent: View {
         let m = ctx.metrics
         let pins = CGFloat(layout.pins.count)
         var fixed = m.barPadding * 2
+        fixed += BottomBarView.navWidth(metrics: m)                            // back, forward, reload
         fixed += pins * (m.tile + m.itemGap)                                   // pins, each with its gap
         if !layout.pins.isEmpty { fixed += m.dividerWidth + m.itemGap }        // divider
         fixed += m.itemGap + m.tile                                            // gap, new page
@@ -130,6 +143,7 @@ private struct BarContent: View {
         let viewport = min(layout.sitesWidth, room)
         let _ = { ctx.drag.layout = layout }()
         HStack(spacing: m.itemGap) {
+            NavButtons(state: nav, ctx: ctx)
             ForEach(layout.pins) { pin in
                 PinTileView(pin: pin, ctx: ctx).transition(itemTransition)
             }
@@ -392,5 +406,52 @@ private struct SearchButton: View {
             Button("Open Shelf") { ctx.onAction(.openShelf) }
         }
         .accessibilityLabel("Search")
+    }
+}
+
+
+/// Back, forward and reload (stop while loading), at the left of the bar.
+private struct NavButtons: View {
+    let state: BarNavState
+    let ctx: BarContext
+
+    var body: some View {
+        HStack(spacing: BottomBarView.navGap) {
+            NavButton(symbol: "chevron.left", help: "Back  ⌘[", label: "Back", enabled: state.canGoBack, ctx: ctx) { ctx.onAction(.goBack) }
+            NavButton(symbol: "chevron.right", help: "Forward  ⌘]", label: "Forward", enabled: state.canGoForward, ctx: ctx) { ctx.onAction(.goForward) }
+            if state.isLoading {
+                NavButton(symbol: "xmark", help: "Stop loading", label: "Stop", enabled: true, ctx: ctx) { ctx.onAction(.stopLoading) }
+            } else {
+                NavButton(symbol: "arrow.clockwise", help: "Reload  ⌘R", label: "Reload", enabled: state.hasPage, ctx: ctx) { ctx.onAction(.reload) }
+            }
+        }
+    }
+}
+
+private struct NavButton: View {
+    let symbol: String
+    let help: String
+    let label: String
+    let enabled: Bool
+    let ctx: BarContext
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        let m = ctx.metrics
+        let shape = RoundedRectangle(cornerRadius: m.tileCornerRadius, style: .continuous)
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 12.5, weight: .semibold))
+                .foregroundStyle(ctx.palette.text.opacity(enabled ? 1 : 0.32))
+                .frame(width: BottomBarView.navButtonWidth, height: m.tile)
+                .background { if hovering && enabled { shape.fill(ctx.palette.hover) } }
+                .contentShape(shape)
+        }
+        .buttonStyle(BarPressStyle())
+        .disabled(!enabled)
+        .onHover { over in withAnimation(ctx.hoverAnimation) { hovering = over } }
+        .help(help)
+        .accessibilityLabel(label)
     }
 }
