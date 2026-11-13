@@ -3,6 +3,7 @@ import SwiftUI
 import WebKit
 import Observation
 import PlinthModel
+import PlinthSettings
 import PlinthRules
 import PlinthBarUI
 import PlinthPanels
@@ -261,6 +262,13 @@ final class BrowserWindowController: NSObject, NSWindowDelegate {
     // MARK: Panels
 
     func openCommandBar(newPage: Bool) {
+        // A new page may open the homepage or a blank page (Settings) instead of the command bar.
+        if newPage, case .open(let url) = NewPageAction.decide(app.settings.value) {
+            dismissPanel()
+            app.store.openPage(url: url, in: windowID)
+            refreshContent()
+            return
+        }
         var text = ""
         if !newPage, let id = app.store.window(windowID)?.selectedPageID, let page = app.store.page(id) {
             text = page.url.absoluteString

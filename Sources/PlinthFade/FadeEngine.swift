@@ -34,7 +34,7 @@ public struct FadeEngine: FadeEvaluating {
     /// due on the next pass). Returns nil for a kept site, which never fades. A site that holds
     /// a visible page does not fade while it stays visible; that is the caller's to know.
     public func outlook(for site: Site, stats: Usage?, now: Date = Date()) -> (fadesAt: Date, shelvesAt: Date)? {
-        guard !site.isKept else { return nil }
+        guard !site.isKept, !policy.neverFades else { return nil }
         let span = siteSpan(site, stats: stats)
         return (span.fadesAt, span.shelvesAt)
     }
@@ -43,7 +43,7 @@ public struct FadeEngine: FadeEvaluating {
     /// clock does not apply: the site is kept, has a single page, does not hold the page, or
     /// the page is the site's most recently used one (see `outlook(for:stats:now:)` for that).
     public func pageOutlook(for page: PageID, in site: Site) -> (fadesAt: Date, shelvesAt: Date)? {
-        guard !site.isKept, site.pages.count >= 2, page != anchor(of: site),
+        guard !site.isKept, !policy.neverFades, site.pages.count >= 2, page != anchor(of: site),
               let p = site.pages.first(where: { $0.id == page }) else { return nil }
         let span = pageSpan(p)
         return (span.fadesAt, span.shelvesAt)
@@ -133,7 +133,7 @@ public struct FadeEngine: FadeEvaluating {
     private func run(sites: [Site], stats: [SiteKey: Usage], visible: Set<PageID>, now: Date) -> Pass {
         var pass = Pass()
         for site in sites {
-            if site.isKept {
+            if site.isKept || policy.neverFades {
                 pass.outcome.siteStages[site.id] = .live
                 for page in site.pages { pass.outcome.pageStages[page.id] = .live }
                 continue

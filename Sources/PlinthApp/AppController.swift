@@ -67,16 +67,21 @@ final class AppController: NSObject, NSApplicationDelegate {
 
         settings = SettingsStore(storageDirectory: support)
         resolver.engine = settings.value.searchEngine
-        store = BrowserStore(identity: identity, namer: PageNamer(), fader: FadeEngine(), storageDirectory: support)
+        store = BrowserStore(identity: identity, namer: PageNamer(), fader: Self.fader(for: settings.value.fadeBehavior),
+                             storageDirectory: support)
         pool = WebViewPool(storageDirectory: support)
         ai = AIService.makeDefault(storageDirectory: support)
         storageDirectory = support
         connect()
         connectFeatures()
         pool.apply(settings.value)
-        settings.observe { [weak self] _, new in self?.pool.apply(new) }
+        ai.semanticEnabled = settings.value.semanticSearchEnabled
+        ai.summariesEnabled = settings.value.pageSummariesEnabled
+        settings.observe { [weak self] old, new in self?.settingsDidChange(from: old, to: new) }
 
         NSApp.mainMenu = MainMenu.build()
+
+        if settings.value.startup == .startFresh { putEverythingAway() }
 
         // Time passed while Plinth was closed counts: apply fading before anything is shown.
         scheduleFade()
@@ -98,6 +103,33 @@ final class AppController: NSObject, NSApplicationDelegate {
         pendingOpenURLs = []
         for url in early { openFromOtherApp(url) }
         DebugScript.runIfRequested(self)
+    }
+
+    /// "Start fresh": every open page goes onto the shelf (nothing is lost), leaving one empty window.
+    /// Pins stay. Extra windows are closed the usual way, which shelves their sites too.
+    private func putEverythingAway() {
+        for window in store.windows.dropFirst() { store.closeWindow(window.id) }
+        guard let first = store.windows.first else { return }
+        for site in first.sites { store.shelve(site: site.id) }
+    }
+
+    static func fader(for behavior: FadeBehavior) -> FadeEngine {
+        FadeEngine(policy: FadePolicy.standard.scaled(by: behavior.lifetimeScale))
+    }
+
+    /// Everything that follows a settings change besides the web views (see `WebViewPool.apply`).
+    private func settingsDidChange(from old: AppSettings, to new: AppSettings) {
+        pool.apply(new)
+        if old.searchEngine != new.searchEngine { resolver.engine = new.searchEngine }
+        if old.fadeBehavior != new.fadeBehavior {
+            store.setFader(Self.fader(for: new.fadeBehavior))
+            scheduleFade()
+        }
+        ai.semanticEnabled = new.semanticSearchEnabled
+        ai.summariesEnabled = new.pageSummariesEnabled
+        if old.accent != new.accent {
+            for controller in controllers.values { controller.refreshContent() }
+        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }

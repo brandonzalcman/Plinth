@@ -36,7 +36,7 @@ public final class BrowserStore {
 
     @ObservationIgnored let identity: any SiteIdentifying
     @ObservationIgnored let namer: any PageNaming
-    @ObservationIgnored private let fader: any FadeEvaluating
+    @ObservationIgnored private var fader: any FadeEvaluating
     @ObservationIgnored private let storageDirectory: URL?
     @ObservationIgnored let now: @Sendable () -> Date
 
@@ -483,6 +483,9 @@ public final class BrowserStore {
     }
 
     // MARK: - Fading and the shelf
+
+    /// Replaces the fader (a settings change). Call `runFade()` afterwards to apply it.
+    public func setFader(_ fader: any FadeEvaluating) { self.fader = fader }
 
     /// Evaluates every window, applies the verdicts and returns the earliest `nextCheck`.
     /// Whatever the fader says, a page that is on screen (and the site holding it) is never shelved.
