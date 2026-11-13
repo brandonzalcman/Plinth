@@ -68,8 +68,67 @@ extension WebViewPool: WKNavigationDelegate {
                 let isHistoryMove = action.navigationType == .backForward || action.navigationType == .reload
                 if !isHistoryMove, !callbacks.shouldNavigate(entry.id, url) { return .cancel }
             }
+            if let rewritten = rewrittenMainFrameRequest(action, entry: entry) {
+                entry.poolInitiatedLoad = true
+                webView.load(rewritten)
+                return .cancel
+            }
         }
         return .allow
+    }
+
+    /// Shows the error page for `url`; the simulated load is not rewritten (it would fail again, forever).
+    private func showErrorPage(for url: URL, message: String, in webView: WKWebView, entry: Entry) {
+        entry.errorPageURL = url
+        webView.loadSimulatedRequest(URLRequest(url: url), responseHTML: Self.errorPage(for: url, message: message))
+    }
+
+    /// HTTPS-only and Global Privacy Control: the request to issue instead, or nil to let this one proceed.
+    /// Requests with a body (POST) and history moves are left alone: the former arrive without their
+    /// body here, the latter must keep their history entry.
+    private func rewrittenMainFrameRequest(_ action: WKNavigationAction, entry: Entry) -> URLRequest? {
+        guard action.navigationType != .backForward, (action.request.httpMethod ?? "GET") == "GET",
+              action.request.httpBody == nil, action.request.httpBodyStream == nil,
+              let url = action.request.url, url != entry.errorPageURL else { return nil }
+        var request = action.request
+        var changed = false
+        if settings.httpsOnly, let host = url.host(percentEncoded: false)?.lowercased(),
+           !entry.httpAllowedHosts.contains(host), let secure = HTTPSOnly.upgraded(url) {
+            request.url = secure
+            entry.upgrades[secure] = url
+            changed = true
+        }
+        let scheme = request.url?.scheme?.lowercased()
+        if settings.globalPrivacyControl, scheme == "http" || scheme == "https",
+           request.value(forHTTPHeaderField: "Sec-GPC") == nil {
+            request.setValue("1", forHTTPHeaderField: "Sec-GPC")
+            changed = true
+        }
+        return changed ? request : nil
+    }
+
+    /// An https load that HTTPS-only started has failed to connect: offer the http page, never silently.
+    private func offerHTTPFallback(for failedURL: URL, original: URL, in webView: WKWebView, entry: Entry) {
+        guard let window = webView.window else {
+            showErrorPage(for: failedURL, message: "HTTPS-only mode is on and this site doesn’t support a secure connection.", in: webView, entry: entry)
+            return
+        }
+        let host = original.host(percentEncoded: false) ?? original.absoluteString
+        let alert = NSAlert()
+        alert.messageText = "“\(host)” doesn’t support a secure connection"
+        alert.informativeText = "HTTPS-only mode tried https:// and couldn’t connect. Opening it over http means anyone on the network can read or change what you send and receive."
+        alert.addButton(withTitle: "Open with http anyway")
+        alert.addButton(withTitle: "Cancel")
+        alert.beginSheetModal(for: window) { [weak self, weak webView, weak entry] response in
+            guard let self, let webView, let entry else { return }
+            if response == .alertFirstButtonReturn {
+                entry.httpAllowedHosts.insert(host.lowercased())
+                entry.poolInitiatedLoad = true
+                webView.load(URLRequest(url: original))
+            } else if webView.url == nil {
+                self.showErrorPage(for: failedURL, message: "HTTPS-only mode is on and this site doesn’t support a secure connection.", in: webView, entry: entry)
+            }
+        }
     }
 
     public func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse) async -> WKNavigationResponsePolicy {
@@ -100,6 +159,7 @@ extension WebViewPool: WKNavigationDelegate {
         guard let entry = entry(for: webView) else { return }
         entry.reloadedAfterCrash = false
         entry.poolInitiatedLoad = false
+        entry.errorPageURL = nil
         guard let y = entry.pendingScrollY else { return }
         let script = "if (Math.abs(window.scrollY - \(y)) > 1) { window.scrollTo(0, \(y)); }"
         webView.evaluateJavaScript(script, completionHandler: nil)
@@ -125,9 +185,14 @@ extension WebViewPool: WKNavigationDelegate {
         if failure.domain == NSURLErrorDomain, failure.code == NSURLErrorCancelled { return }
         if failure.domain == "WebKitErrorDomain", [102, 204].contains(failure.code) { return }
         guard let url = failure.userInfo[NSURLErrorFailingURLErrorKey] as? URL else { return }
+        if settings.httpsOnly, failure.domain == NSURLErrorDomain, let original = entry.upgrades[url],
+           HTTPSOnly.isFallbackEligible(urlErrorCode: failure.code) {
+            offerHTTPFallback(for: url, original: original, in: webView, entry: entry)
+            return
+        }
         log.info("Load failed: \(failure.localizedDescription, privacy: .public)")
         entry.poolInitiatedLoad = true
-        webView.loadSimulatedRequest(URLRequest(url: url), responseHTML: Self.errorPage(for: url, message: failure.localizedDescription))
+        showErrorPage(for: url, message: failure.localizedDescription, in: webView, entry: entry)
     }
 
     public func webView(_ webView: WKWebView, didReceive challenge: URLAuthenticationChallenge) async -> (URLSession.AuthChallengeDisposition, URLCredential?) {

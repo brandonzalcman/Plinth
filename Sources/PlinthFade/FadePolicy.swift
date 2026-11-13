@@ -60,6 +60,8 @@ public struct FadePolicy: Sendable, Equatable {
     public var fadingFraction: Double
     /// The dashed stage is never shorter than this (unless the whole lifetime is). Standard: 1 hour.
     public var minFadingDuration: TimeInterval
+    /// When true nothing fades by itself: every site and page stays live until put away by hand.
+    public var neverFades: Bool
 
     public init(siteBaseLifetime: TimeInterval = 20 * 3600,
                 siteLifetimePerExtraDay: TimeInterval = 30 * 3600,
@@ -69,7 +71,8 @@ public struct FadePolicy: Sendable, Equatable {
                 visitBoostPerDoubling: Double = 0.25,
                 maxVisitBoost: Double = 2,
                 fadingFraction: Double = 0.25,
-                minFadingDuration: TimeInterval = 3600) {
+                minFadingDuration: TimeInterval = 3600,
+                neverFades: Bool = false) {
         self.siteBaseLifetime = siteBaseLifetime
         self.siteLifetimePerExtraDay = siteLifetimePerExtraDay
         self.siteMaxLifetime = siteMaxLifetime
@@ -79,9 +82,26 @@ public struct FadePolicy: Sendable, Equatable {
         self.maxVisitBoost = maxVisitBoost
         self.fadingFraction = fadingFraction
         self.minFadingDuration = minFadingDuration
+        self.neverFades = neverFades
     }
 
     public static let standard = FadePolicy()
+
+    /// The same policy with every lifetime multiplied by `factor` (the visit boost and dashed share are
+    /// unchanged). A factor of 1 returns the policy as is, and an infinite factor sets `neverFades`.
+    /// Other factors are kept finite and positive (at least 0.01).
+    public func scaled(by factor: Double) -> FadePolicy {
+        var policy = self
+        if factor == .infinity { policy.neverFades = true; return policy }
+        let f = factor.isFinite ? max(0.01, factor) : 1
+        policy.siteBaseLifetime *= f
+        policy.siteLifetimePerExtraDay *= f
+        policy.siteMaxLifetime *= f
+        policy.pageBaseLifetime *= f
+        policy.pageMaxLifetime *= f
+        policy.neverFades = false
+        return policy
+    }
 
     // MARK: Formula
 

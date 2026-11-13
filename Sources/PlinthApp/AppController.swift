@@ -10,6 +10,7 @@ import PlinthBarUI
 import PlinthWeb
 import PlinthAI
 import PlinthSync
+import PlinthSettings
 
 /// Owns the store and the web view pool, and connects the two. One per process.
 @MainActor
@@ -17,7 +18,11 @@ final class AppController: NSObject, NSApplicationDelegate {
     static var shared: AppController?
 
     let identity = SiteIdentity()
-    let resolver = AddressResolver()
+    var resolver = AddressResolver()
+    /// User settings (`settings.json`). Created at launch, before anything that reads it.
+    private(set) var settings: SettingsStore!
+    /// The one Settings window, created on first use (see SettingsWindowController.swift).
+    var settingsWindow: SettingsWindowController?
     let layoutEngine = BarLayoutEngine()
     private(set) var store: BrowserStore!
     private(set) var pool: WebViewPool!
@@ -39,7 +44,11 @@ final class AppController: NSObject, NSApplicationDelegate {
     /// Set by the Xcode app target (Sparkle). nil in the SwiftPM build.
     var checkForUpdates: (@MainActor () -> Void)?
     @objc func menuCheckForUpdates(_ sender: Any?) { checkForUpdates?() }
-    let accent = Color(red: 0x2F / 255, green: 0x5B / 255, blue: 0xEA / 255)
+    /// The accent colour chosen in Settings (SwiftUI views read it, so they follow changes).
+    var accent: Color {
+        let c = settings.value.accent.rgb
+        return Color(red: c.r / 255, green: c.g / 255, blue: c.b / 255)
+    }
 
     private var controllers: [WindowID: BrowserWindowController] = [:]
     private var fadeTimer: Timer?
@@ -56,14 +65,23 @@ final class AppController: NSObject, NSApplicationDelegate {
                 .appendingPathComponent("Plinth", isDirectory: true)
         try? FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
 
-        store = BrowserStore(identity: identity, namer: PageNamer(), fader: FadeEngine(), storageDirectory: support)
+        settings = SettingsStore(storageDirectory: support)
+        resolver.engine = settings.value.searchEngine
+        store = BrowserStore(identity: identity, namer: PageNamer(), fader: Self.fader(for: settings.value.fadeBehavior),
+                             storageDirectory: support)
         pool = WebViewPool(storageDirectory: support)
         ai = AIService.makeDefault(storageDirectory: support)
         storageDirectory = support
         connect()
         connectFeatures()
+        pool.apply(settings.value)
+        ai.semanticEnabled = settings.value.semanticSearchEnabled
+        ai.summariesEnabled = settings.value.pageSummariesEnabled
+        settings.observe { [weak self] old, new in self?.settingsDidChange(from: old, to: new) }
 
         NSApp.mainMenu = MainMenu.build()
+
+        if settings.value.startup == .startFresh { putEverythingAway() }
 
         // Time passed while Plinth was closed counts: apply fading before anything is shown.
         scheduleFade()
@@ -85,6 +103,33 @@ final class AppController: NSObject, NSApplicationDelegate {
         pendingOpenURLs = []
         for url in early { openFromOtherApp(url) }
         DebugScript.runIfRequested(self)
+    }
+
+    /// "Start fresh": every open page goes onto the shelf (nothing is lost), leaving one empty window.
+    /// Pins stay. Extra windows are closed the usual way, which shelves their sites too.
+    private func putEverythingAway() {
+        for window in store.windows.dropFirst() { store.closeWindow(window.id) }
+        guard let first = store.windows.first else { return }
+        for site in first.sites { store.shelve(site: site.id) }
+    }
+
+    static func fader(for behavior: FadeBehavior) -> FadeEngine {
+        FadeEngine(policy: FadePolicy.standard.scaled(by: behavior.lifetimeScale))
+    }
+
+    /// Everything that follows a settings change besides the web views (see `WebViewPool.apply`).
+    private func settingsDidChange(from old: AppSettings, to new: AppSettings) {
+        pool.apply(new)
+        if old.searchEngine != new.searchEngine { resolver.engine = new.searchEngine }
+        if old.fadeBehavior != new.fadeBehavior {
+            store.setFader(Self.fader(for: new.fadeBehavior))
+            scheduleFade()
+        }
+        ai.semanticEnabled = new.semanticSearchEnabled
+        ai.summariesEnabled = new.pageSummariesEnabled
+        if old.accent != new.accent {
+            for controller in controllers.values { controller.refreshContent() }
+        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
