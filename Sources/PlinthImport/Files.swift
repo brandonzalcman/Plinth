@@ -87,6 +87,11 @@ func httpURL(_ s: String) -> URL? {
 
 // MARK: - SQLite
 
+/// Where temporary database copies go. Tests bind this (per task) to a folder they own.
+enum ImportTemp {
+    @TaskLocal static var directory: URL?
+}
+
 /// Copies a SQLite database (and its -wal / -shm) to a temporary folder, opens the copy read-only,
 /// runs `body`, and removes the copy. The original is only ever read.
 func withDatabaseCopy<T>(_ original: URL, source: ImportSource, what: String,
@@ -97,7 +102,7 @@ func withDatabaseCopy<T>(_ original: URL, source: ImportSource, what: String,
     case .exists: break
     }
     let fm = FileManager.default
-    let dir = fm.temporaryDirectory.appendingPathComponent("plinth-import-\(UUID().uuidString)", isDirectory: true)
+    let dir = (ImportTemp.directory ?? fm.temporaryDirectory).appendingPathComponent("plinth-import-\(UUID().uuidString)", isDirectory: true)
     defer { try? fm.removeItem(at: dir) }
     let copy = dir.appendingPathComponent(original.lastPathComponent)
     do {

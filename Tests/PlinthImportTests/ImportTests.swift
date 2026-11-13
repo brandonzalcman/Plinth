@@ -135,11 +135,14 @@ func writeChromeHistory(_ home: FakeHome, profile: String = "Default", _ rows: [
         writeSafariHistory(home, [("https://a.com/", "A", 700_000_000)])
         let db = home.safari.appendingPathComponent("History.db")
         let before = try Data(contentsOf: db)
-        _ = try SafariReader.history(home: home.url, limit: 10)
+        // The reader's temp copy goes to a folder this test owns, so other tests can't interfere.
+        let own = FileManager.default.temporaryDirectory.appendingPathComponent("plinth-import-test-own-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: own, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: own) }
+        _ = try ImportTemp.$directory.withValue(own) { try SafariReader.history(home: home.url, limit: 10) }
         #expect(try Data(contentsOf: db) == before)
         // The temp copy is cleaned up.
-        let leftovers = (try? FileManager.default.contentsOfDirectory(atPath: FileManager.default.temporaryDirectory.path))?.filter { $0.hasPrefix("plinth-import-") && !$0.hasPrefix("plinth-import-test-") } ?? []
-        #expect(leftovers.isEmpty)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: own.path).isEmpty)
     }
 }
 
