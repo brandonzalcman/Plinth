@@ -130,7 +130,7 @@ enum DebugScript {
             if let wid, let s = app.store.groupSuggestion(for: wid) { app.store.showGroup(app.store.acceptSuggestion(s), in: wid) }
         case "unfocus": if let wid { app.store.setFocus(nil, in: wid) }
         case "pin": app.menuPinSite(nil)
-        case "selectpin": if let wid, let pin = app.store.pins.first { app.store.selectPin(pin.id, in: wid) }
+        case "selectpin": if let wid, let pin = app.store.pins.first { app.handle(.selectPin(pin.id), in: wid) }
         case "js": await js(app, arg)
         case "shiftclick":
             await js(app, "document.getElementById('\(arg)').dispatchEvent(new MouseEvent('click', {bubbles:true, cancelable:true, shiftKey:true}))")
