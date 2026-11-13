@@ -17,7 +17,8 @@ struct BarHost: View {
         // The bracket is drawn only while the split is on screen.
         let split = state?.split.flatMap { pair in selected.map(pair.contains) == true ? pair : nil }
         // A focused group hides the window's other sites from the bar (nothing is closed).
-        let input = BarInput(pins: app.store.pins, sites: app.store.visibleSites(in: windowID), selected: selected, split: split)
+        let isPrivate = state?.isPrivate ?? false
+        let input = BarInput(pins: app.store.pins(in: windowID), sites: app.store.visibleSites(in: windowID), selected: selected, split: split)
         let engine = app.layoutEngine
 
         let items = app.pool.downloads.items
@@ -44,6 +45,8 @@ struct BarHost: View {
             nav: nav,
             onAction: { app.handle($0, in: windowID) }
         )
+        // Midnight over the dark bar, so a private window is not mistaken for a normal one in dark mode.
+        .colorMultiply(isPrivate ? PrivateTint.barTint : .white)
         .overlay(alignment: .top) {
             if let progress = chrome.progress {
                 GeometryReader { proxy in
@@ -82,7 +85,7 @@ struct PanelLayer: View {
                     results: { query in
                         if query.isEmpty {
                             _ = app.store.suggestions(for: "") // forgets the last typed query
-                            return recentShelf()
+                            return controller.isPrivate ? [] : recentShelf()
                         }
                         // Ranked by frecency and past choices, one row per page, a few per site.
                         return app.store.suggestions(for: query, limit: 7)
@@ -204,23 +207,27 @@ struct PanelLayer: View {
 
 /// Shown in a window with no pages.
 struct EmptyWindowView: View {
+    var isPrivate = false
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         let dark = scheme == .dark
         VStack(spacing: 10) {
-            Text("Plinth")
+            Text(isPrivate ? "Private window" : "Plinth")
                 .font(.system(size: 34, weight: .semibold))
                 .kerning(-1.2)
-            Text("Press ⌘L to search or enter an address.")
+            Text(isPrivate ? "Nothing here is remembered. Press ⌘L to search or enter an address."
+                           : "Press ⌘L to search or enter an address.")
                 .font(.system(size: 13))
                 .opacity(0.7)
         }
-        .foregroundStyle(dark ? Color(red: 0xF4 / 255, green: 0xEE / 255, blue: 0xE6 / 255)
-                              : Color(red: 0x1C / 255, green: 0x1C / 255, blue: 0x1A / 255))
+        .foregroundStyle(isPrivate ? PrivateTint.text
+                         : dark ? Color(red: 0xF4 / 255, green: 0xEE / 255, blue: 0xE6 / 255)
+                                : Color(red: 0x1C / 255, green: 0x1C / 255, blue: 0x1A / 255))
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(dark ? Color(red: 0x1B / 255, green: 0x1A / 255, blue: 0x2E / 255)
-                         : Color(red: 0xFB / 255, green: 0xF8 / 255, blue: 0xF2 / 255))
+        .background(isPrivate ? Color(nsColor: PrivateTint.surface)
+                    : dark ? Color(red: 0x1B / 255, green: 0x1A / 255, blue: 0x2E / 255)
+                           : Color(red: 0xFB / 255, green: 0xF8 / 255, blue: 0xF2 / 255))
     }
 }
 

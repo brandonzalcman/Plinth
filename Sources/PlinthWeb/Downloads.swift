@@ -50,6 +50,10 @@ extension WebViewPool: WKDownloadDelegate {
         downloads.items.insert(DownloadItem(id: record.id, filename: filename, progress: nil, state: .running,
                                             fileURL: nil, startedAt: Date(), sourceURL: download.originalRequest?.url), at: 0)
 
+        if let store = download.webView?.configuration.websiteDataStore, !store.isPersistent {
+            privateDownloads[record.id] = ObjectIdentifier(store)
+        }
+
         let id = record.id
         record.observation = download.progress.observe(\.fractionCompleted) { [weak self] progress, _ in
             let total: Int64? = progress.totalUnitCount > 0 ? progress.totalUnitCount : nil
@@ -166,6 +170,16 @@ extension WebViewPool: WKDownloadDelegate {
 
     // MARK: Indicator commands
 
+    /// A private window closed: its downloads leave the tray (a running one is cancelled). Files that
+    /// were saved stay where they are; only the list entry, which names them, goes.
+    public func forgetDownloads(of store: WKWebsiteDataStore) {
+        let ids = Set(privateDownloads.filter { $0.value == ObjectIdentifier(store) }.keys)
+        guard !ids.isEmpty else { return }
+        for id in ids { cancelDownload(id: id) }
+        downloads.items.removeAll { ids.contains($0.id) }
+        for id in ids { privateDownloads[id] = nil }
+    }
+
     /// Removes every download that is no longer running from the list.
     public func clearFinishedDownloads() {
         downloads.items.removeAll { $0.state != .running }
@@ -189,6 +203,7 @@ extension WebViewPool: WKDownloadDelegate {
 
     /// Takes one finished, failed or cancelled download off the list. The file stays on disk.
     public func removeDownload(id: UUID) {
+        privateDownloads[id] = nil
         downloads.items.removeAll { $0.id == id && $0.state != .running }
     }
 

@@ -63,7 +63,7 @@ extension BrowserStore {
     }
 
     /// The URL a result points at right now, when it still exists.
-    private func url(of target: SearchResult.Target) -> URL? {
+    public func url(of target: SearchResult.Target) -> URL? {
         switch target {
         case .openPage(let id, _):
             return findPage(id).map { windows[$0.w].sites[$0.s].pages[$0.p].url }
