@@ -1,6 +1,8 @@
 import AppKit
 import WebKit
 import PlinthModel
+import PlinthRules
+import PlinthSettings
 import PlinthWeb
 
 /// Test-launch hook: `PLINTH_STEPS="wait 3; peek http://…; wait 4; promote; …"` drives features
@@ -218,6 +220,34 @@ enum DebugScript {
                 window.setFrame(NSRect(x: 200, y: 120, width: p[0], height: p[1]), display: true)
             }
         case "scroll": await js(app, "window.scrollTo(0, \(Double(arg) ?? 0))")
+        case "settings":
+            // settings <section id>: opens the Settings window on that section.
+            app.menuSettings(nil)
+            app.settingsWindow?.select(section: arg)
+        case "set":
+            // set <field> <value>: changes a setting through the store, like the Settings window does.
+            let p = arg.split(separator: " ", maxSplits: 1).map(String.init)
+            let v = p.count > 1 ? p[1] : ""
+            app.settings.update { s in
+                switch p.first ?? "" {
+                case "engine": s.searchEngine.kind = SearchEngine.Kind(rawValue: v) ?? .duckDuckGo
+                case "accent": s.accent = AccentChoice(rawValue: v) ?? .blue
+                case "fade": s.fadeBehavior = FadeBehavior(rawValue: v) ?? .standard
+                case "zoom": s.defaultZoom = Double(v) ?? 1
+                case "blocker": s.contentBlockerEnabled = v == "on"
+                case "https": s.httpsOnly = v == "on"
+                case "gpc": s.globalPrivacyControl = v == "on"
+                default: log("unknown setting \(p.first ?? "")")
+                }
+            }
+            log("search url for 'plinth test': \(app.resolver.searchURL(for: "plinth test"))")
+        case "settingsshot":
+            guard let window = app.settingsWindow?.window, let dir = ProcessInfo.processInfo.environment["PLINTH_SHOTS"] else { return }
+            let task = Process()
+            task.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+            task.arguments = ["-l", "\(window.windowNumber)", "-o", "\(dir)/\(arg).png"]
+            try? task.run()
+            task.waitUntilExit()
         case "shot":
             // shot <name> [mini]: captures the key main window (or the newest mini window).
             let parts = arg.split(separator: " ")
