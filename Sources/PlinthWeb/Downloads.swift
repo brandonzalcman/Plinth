@@ -1,0 +1,155 @@
+import AppKit
+import Observation
+import WebKit
+import PlinthModel
+
+/// Every download this session, newest first. Owned by the pool (`pool.downloads`); the shell
+/// reads `items` for the downloads indicator.
+@MainActor
+@Observable
+public final class DownloadsModel {
+    public internal(set) var items: [DownloadItem] = []
+
+    public init() {}
+
+    public var hasRunning: Bool { items.contains { $0.state == .running } }
+
+    func update(_ id: UUID, _ body: (inout DownloadItem) -> Void) {
+        guard let index = items.firstIndex(where: { $0.id == id }) else { return }
+        var item = items[index]
+        body(&item)
+        if item != items[index] { items[index] = item }
+    }
+}
+
+final class DownloadRecord {
+    let id: UUID
+    let download: WKDownload
+    var observation: NSKeyValueObservation?
+
+    init(id: UUID, download: WKDownload) {
+        self.id = id
+        self.download = download
+    }
+}
+
+extension WebViewPool: WKDownloadDelegate {
+    /// Starts tracking a download from any view (pooled or auxiliary).
+    func track(_ download: WKDownload) {
+        let key = ObjectIdentifier(download)
+        guard activeDownloads[key] == nil else { return }
+        download.delegate = self
+        let record = DownloadRecord(id: UUID(), download: download)
+        activeDownloads[key] = record
+
+        let guess = download.originalRequest?.url?.lastPathComponent ?? ""
+        let filename = guess.isEmpty || guess == "/" ? "Download" : guess
+        downloads.items.insert(DownloadItem(id: record.id, filename: filename, progress: nil, state: .running,
+                                            fileURL: nil, startedAt: Date()), at: 0)
+
+        let id = record.id
+        record.observation = download.progress.observe(\.fractionCompleted) { [weak self] progress, _ in
+            let fraction: Double? = progress.totalUnitCount > 0 ? min(max(progress.fractionCompleted, 0), 1) : nil
+            Task { @MainActor in self?.downloadProgressed(id, fraction) }
+        }
+    }
+
+    private func downloadProgressed(_ id: UUID, _ fraction: Double?) {
+        downloads.update(id) { item in
+            guard item.state == .running else { return }
+            // At most one update per percent.
+            if let fraction, let old = item.progress, abs(fraction - old) < 0.01, fraction < 1 { return }
+            item.progress = fraction
+        }
+    }
+
+    private func finishRecord(_ download: WKDownload) -> DownloadRecord? {
+        guard let record = activeDownloads.removeValue(forKey: ObjectIdentifier(download)) else { return nil }
+        record.observation?.invalidate()
+        record.observation = nil
+        return record
+    }
+
+    public func download(_ download: WKDownload, decideDestinationUsing response: URLResponse, suggestedFilename: String) async -> URL? {
+        let folder = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Downloads", isDirectory: true)
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let destination = Self.uniqueDestination(in: folder, suggested: suggestedFilename)
+        if let record = activeDownloads[ObjectIdentifier(download)] {
+            downloads.update(record.id) { item in
+                item.filename = destination.lastPathComponent
+                item.fileURL = destination
+                if response.expectedContentLength <= 0 { item.progress = nil }
+            }
+        }
+        return destination
+    }
+
+    public func downloadDidFinish(_ download: WKDownload) {
+        var fileURL = download.progress.fileURL
+        if let record = finishRecord(download) {
+            downloads.update(record.id) { item in
+                item.state = .finished
+                item.progress = 1
+                if let fileURL { item.fileURL = fileURL } else { fileURL = item.fileURL }
+            }
+        }
+        if let path = fileURL?.path {
+            // Bounces the Downloads stack in the Dock, as Safari does.
+            DistributedNotificationCenter.default().post(name: Notification.Name("com.apple.DownloadFileFinished"), object: path)
+        }
+    }
+
+    public func download(_ download: WKDownload, didFailWithError error: Error, resumeData: Data?) {
+        let failure = error as NSError
+        guard let record = finishRecord(download) else { return }
+        let cancelled = failure.domain == NSURLErrorDomain && failure.code == NSURLErrorCancelled
+        downloads.update(record.id) { item in
+            item.state = cancelled ? .cancelled : .failed(failure.localizedDescription)
+        }
+        if !cancelled { log.error("Download failed: \(failure.localizedDescription, privacy: .public)") }
+    }
+
+    // MARK: Indicator commands
+
+    /// Removes every download that is no longer running from the list.
+    public func clearFinishedDownloads() {
+        downloads.items.removeAll { $0.state != .running }
+    }
+
+    public func cancelDownload(id: UUID) {
+        guard let (key, record) = activeDownloads.first(where: { $0.value.id == id }) else { return }
+        activeDownloads[key] = nil
+        record.observation?.invalidate()
+        record.observation = nil
+        record.download.cancel(nil)
+        downloads.update(id) { $0.state = .cancelled }
+    }
+
+    /// Shows the file in Finder (its folder when the file has gone).
+    public func revealDownload(id: UUID) {
+        guard let url = downloads.items.first(where: { $0.id == id })?.fileURL else { return }
+        if FileManager.default.fileExists(atPath: url.path) {
+            NSWorkspace.shared.activateFileViewerSelecting([url])
+        } else {
+            NSWorkspace.shared.open(url.deletingLastPathComponent())
+        }
+    }
+
+    /// "report.pdf", then "report 2.pdf", "report 3.pdf", … Path separators and a leading dot are removed.
+    static func uniqueDestination(in folder: URL, suggested: String) -> URL {
+        var name = suggested.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        while name.hasPrefix(".") { name.removeFirst() }
+        if name.isEmpty { name = "download" }
+        let base = (name as NSString).deletingPathExtension
+        let ext = (name as NSString).pathExtension
+        var candidate = folder.appendingPathComponent(name)
+        var counter = 2
+        while FileManager.default.fileExists(atPath: candidate.path) {
+            candidate = folder.appendingPathComponent(ext.isEmpty ? "\(base) \(counter)" : "\(base) \(counter).\(ext)")
+            counter += 1
+        }
+        return candidate
+    }
+}

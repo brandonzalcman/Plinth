@@ -1,0 +1,9 @@
+.build/
+.build-*/
+build/
+.DS_Store
+.swiftpm/
+*.xcodeproj/xcuserdata/
+
+# Product plan stays private
+Design/feature-plan.md

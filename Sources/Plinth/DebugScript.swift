@@ -1,0 +1,134 @@
+import AppKit
+import WebKit
+import PlinthModel
+
+/// Test-launch hook: `PLINTH_STEPS="wait 3; peek http://…; wait 4; promote; …"` drives features
+/// through the same entry points the UI uses, logging to stdout. Inactive unless the variable is set.
+@MainActor
+enum DebugScript {
+    static func runIfRequested(_ app: AppController) {
+        guard let script = ProcessInfo.processInfo.environment["PLINTH_STEPS"] else { return }
+        let steps = script.split(separator: ";").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        Task { @MainActor in
+            for step in steps {
+                let parts = step.split(separator: " ", maxSplits: 1).map(String.init)
+                let arg = parts.count > 1 ? parts[1] : ""
+                log("step: \(step)")
+                await run(parts[0], arg, app)
+            }
+            log("done")
+        }
+    }
+
+    static func log(_ text: String) { print("[steps] \(text)"); fflush(stdout) }
+
+    private static func js(_ app: AppController, _ source: String) async {
+        guard let id = app.keyWindowID, let page = app.store.window(id)?.selectedPageID,
+              let view = app.pool.existingWebView(for: page) else { return }
+        _ = try? await view.evaluateJavaScript(source)
+    }
+
+    private static func run(_ verb: String, _ arg: String, _ app: AppController) async {
+        let controller = app.keyController
+        let wid = app.keyWindowID
+        switch verb {
+        case "wait": try? await Task.sleep(for: .seconds(Double(arg) ?? 1))
+        case "open": if let wid, let url = URL(string: arg) { app.store.openPage(url: url, in: wid) }
+        case "select":
+            if let wid, let n = Int(arg) { app.store.selectByShortcut(n, in: wid) }
+        case "peek": if let url = URL(string: arg) { controller?.showPeek(url) }
+        case "promote": controller?.promotePeek()
+        case "closepeek": controller?.closePeek()
+        case "ask":
+            controller?.openAsk()
+            if !arg.isEmpty { controller?.ask(arg) }
+        case "askscope": controller?.chrome.askScope = AskScope(rawValue: arg) ?? .page
+        case "dismiss": controller?.dismissPanel()
+        case "shelve": app.menuPutAway(nil)
+        case "restore":
+            if let entry = app.store.shelf.first, let page = entry.pages.first {
+                controller?.submit(.result(SearchResult(id: "x", target: .shelf(entry: entry.id, page: page.id),
+                                                        title: page.name, subtitle: "", key: entry.key)))
+            }
+        case "splitnext": app.menuSplitWithNext(nil)
+        case "endsplit": app.menuEndSplit(nil)
+        case "fraction": if let wid, let f = Double(arg) { app.store.setSplitFraction(f, in: wid) }
+        case "coopen": for _ in 0..<(Int(arg) ?? 25) { app.store.noteCoOpen(seconds: 60) }
+        case "acceptgroup":
+            if let wid, let s = app.store.groupSuggestion(for: wid) { app.store.setFocus(app.store.acceptSuggestion(s), in: wid) }
+        case "unfocus": if let wid { app.store.setFocus(nil, in: wid) }
+        case "pin": app.menuPinSite(nil)
+        case "selectpin": if let wid, let pin = app.store.pins.first { app.store.selectPin(pin.id, in: wid) }
+        case "js": await js(app, arg)
+        case "shiftclick":
+            await js(app, "document.getElementById('\(arg)').dispatchEvent(new MouseEvent('click', {bubbles:true, cancelable:true, shiftKey:true}))")
+        case "meaning":
+            let raw = await app.ai.semanticSearch(arg, limit: 8)
+            log("raw '\(arg)': " + raw.map { "\($0.title)=\(String(format: "%.2f", $0.score))" }.joined(separator: ", "))
+            let results = await app.semanticResults(for: arg)
+            log("meaning '\(arg)': " + results.map { "\($0.title) [\($0.byMeaning)]" }.joined(separator: " | "))
+            log("indexed so far: \(app.indexedHistory.count)")
+        case "dwell":
+            // Pretend the visible pages have been read for a while, then index them.
+            if let wid, let w = app.store.window(wid) {
+                for page in w.visiblePageIDs { app.store.recordDwell(page, seconds: Double(arg) ?? 40); app.indexForMeaningIfNeeded(page) }
+            }
+        case "state":
+            if let wid, let w = app.store.window(wid) {
+                let sites = app.store.visibleSites(in: wid).map { "\($0.name)(\($0.pages.map(\.name).joined(separator: ",")))" }
+                log("visible: \(sites) split: \(w.split != nil) focus: \(w.focusedGroup != nil) pins: \(app.store.pins.map { "\($0.name)@\($0.page.url.path)" }) shelf: \(app.store.shelf.map(\.name)) groups: \(app.store.groups.map(\.name)) downloads: \(app.pool.downloads.items.map { "\($0.filename) \($0.state)" }) ai: \(app.ai.availability) minis: \(app.miniWindows.count)")
+                if let c = controller { log("resume card: \(String(describing: c.chrome.resumeCard?.summary)) ask: \(c.chrome.askAnswer.prefix(300)) msg: \(c.chrome.askMessage ?? "-")") }
+            }
+        case "nsclick":
+            // nsclick <element id> [shift]: a real mouse click on the element, through AppKit.
+            let parts = arg.split(separator: " ").map(String.init)
+            guard let wid, let page = app.store.window(wid)?.selectedPageID, let view = app.pool.existingWebView(for: page),
+                  let window = view.window,
+                  let rect = try? await view.evaluateJavaScript("(()=>{const e=document.getElementById('\(parts[0])');e.scrollIntoView({block:'center'});const r=e.getBoundingClientRect();return [r.left+r.width/2, r.top+r.height/2]})()") as? [Double]
+            else { log("nsclick: no element"); return }
+            let zoom = view.pageZoom
+            let inView = NSPoint(x: rect[0] * zoom, y: rect[1] * zoom + view.obscuredContentInsets.top)
+            let point = view.convert(inView, to: nil)
+            let flags: NSEvent.ModifierFlags = parts.contains("shift") ? [.shift] : []
+            for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+                if let event = NSEvent.mouseEvent(with: type, location: point, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime,
+                                                  windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) {
+                    window.sendEvent(event)
+                }
+                try? await Task.sleep(for: .milliseconds(60))
+            }
+        case "mouse":
+            // mouse <down|drag|up|double> <x> <y-from-top> in window points.
+            let p = arg.split(separator: " ").map(String.init)
+            guard let window = controller?.window, p.count == 3, let x = Double(p[1]), let y = Double(p[2]) else { return }
+            let point = NSPoint(x: x, y: window.contentView!.bounds.height - y)
+            let kinds: [(NSEvent.EventType, Int)] = switch p[0] {
+                case "down": [(.leftMouseDown, 1)]
+                case "drag": [(.leftMouseDragged, 1)]
+                case "up": [(.leftMouseUp, 1)]
+                default: [(.leftMouseDown, 1), (.leftMouseUp, 1), (.leftMouseDown, 2), (.leftMouseUp, 2)]
+            }
+            for (type, count) in kinds {
+                if let e = NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                              windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: count, pressure: 1) {
+                    window.sendEvent(e)
+                }
+            }
+        case "frame":
+            if let w = controller?.window { log("frame: \(w.frame) split fraction: \(String(describing: wid.flatMap { app.store.window($0)?.split?.fraction })) bar hidden: \(controller?.barHost.isHidden ?? false)") }
+        case "promotemini": if let mini = app.miniWindows.last { app.promote(mini) }
+        case "toggleai": app.menuToggleAI(nil)
+        case "shot":
+            // shot <name> [mini]: captures the key main window (or the newest mini window).
+            let parts = arg.split(separator: " ")
+            let window = parts.count > 1 ? app.miniWindows.last?.window : controller?.window
+            guard let window, let dir = ProcessInfo.processInfo.environment["PLINTH_SHOTS"] else { return }
+            let task = Process()
+            task.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+            task.arguments = ["-l", "\(window.windowNumber)", "-o", "\(dir)/\(parts.first ?? "shot").png"]
+            try? task.run()
+            task.waitUntilExit()
+        default: log("unknown step \(verb)")
+        }
+    }
+}
