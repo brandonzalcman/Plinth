@@ -187,4 +187,27 @@ import PlinthModel
         #expect(r.store.isPrivate(page: page))
         #expect(!r.store.isPrivate(page: PageID()))
     }
+
+    @Test func privateWindowsHaveNoGroups() {
+        let r = Rig()
+        let normal = r.store.createWindow()
+        r.open("https://a.com/1", in: normal)
+        r.open("https://b.com/1", in: normal)
+        for _ in 0..<30 { r.store.noteCoOpen(seconds: 60) }
+        r.open("https://c.com/1", in: normal)
+        let suggestion = r.store.groupSuggestion(for: normal)!
+        let group = r.store.acceptSuggestion(suggestion)
+        #expect(r.store.groups(in: normal).count == 1)
+
+        let priv = r.store.createPrivateWindow()
+        r.open("https://a.com/2", in: priv)
+        r.open("https://b.com/2", in: priv)
+        #expect(r.store.groups(in: priv).isEmpty)
+        #expect(r.store.groupSuggestion(for: priv) == nil)
+        r.store.setFocus(group, in: priv)
+        r.store.showGroup(group, in: priv)
+        #expect(r.store.window(priv)!.focusedGroup == nil)
+        #expect(r.store.visibleSites(in: priv).count == 2)
+        r.ok()
+    }
 }

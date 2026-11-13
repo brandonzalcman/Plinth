@@ -265,7 +265,8 @@ extension BrowserStore {
 
     /// Groups with at least one site on this window's bar, in creation order.
     public func groups(in window: WindowID) -> [SiteGroup] {
-        guard let w = self.window(window) else { return [] }
+        // A private window has no groups: they are made from, and name, normal browsing.
+        guard let w = self.window(window), !w.isPrivate else { return [] }
         let keys = Set(w.sites.map(\.key))
         return groups.filter { $0.keys.contains(where: keys.contains) }
     }
@@ -278,7 +279,8 @@ extension BrowserStore {
     /// nil shows everything again. Nothing is closed or shelved. Ignored for an unknown group or
     /// one with no site on this window's bar.
     public func setFocus(_ group: GroupID?, in window: WindowID) {
-        guard let wi = windows.firstIndex(where: { $0.id == window }), windows[wi].focusedGroup != group else { return }
+        guard let wi = windows.firstIndex(where: { $0.id == window }), !windows[wi].isPrivate,
+              windows[wi].focusedGroup != group else { return }
         if let group {
             guard let g = self.group(group) else { return }
             let keys = Set(windows[wi].sites.map(\.key))
@@ -294,7 +296,7 @@ extension BrowserStore {
     /// when you pressed Group stays on the bar and the press seems to do nothing.
     public func showGroup(_ group: GroupID, in window: WindowID) {
         setFocus(group, in: window)
-        guard let w = self.window(window), w.focusedGroup == group, let g = self.group(group),
+        guard let w = self.window(window), !w.isPrivate, w.focusedGroup == group, let g = self.group(group),
               let selected = w.selectedPageID, let current = w.site(containing: selected),
               !g.keys.contains(current.key) else { return }
         var best: Page?
