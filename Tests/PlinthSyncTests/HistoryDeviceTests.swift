@@ -63,6 +63,63 @@ import PlinthModel
         #expect(a.local.history == [fresh])
     }
 
+    @Test func rangedClearDeletesJustThoseEntriesEverywhere() async throws {
+        let old = makeHistory("https://a.com/old", at: clock.t)
+        let recent1 = makeHistory("https://b.com/1", at: clock.t + 3_600)
+        let recent2 = makeHistory("https://c.com/1", at: clock.t + 3_700)
+        let a = Mac("A", server: server, clock: clock, local: SyncPayload(pins: [], shelf: [], history: [recent2, recent1, old]))
+        let b = Mac("B", server: server, clock: clock)
+        try await a.sync(); try await b.sync()
+        #expect(b.local.history.count == 3)
+        clock.advance(7_200)
+        // A clears "the last hour and a half": the two recent entries.
+        a.edit { $0.history = [old] }
+        a.engine.clearHistory(removing: [recent1.id, recent2.id])
+        try await a.sync()
+        #expect(await server.allRecords.filter { $0.recordType == RecordMapper.historyType }.count == 1)
+        #expect(a.local.history == [old])
+        try await b.sync()
+        #expect(b.local.history == [old])
+        // Neither Mac gets them back, and B does not re-upload them.
+        try await a.sync(); try await b.sync(); try await a.sync()
+        #expect(a.local.history == [old])
+        #expect(b.local.history == [old])
+        #expect(await server.allRecords.filter { $0.recordType == RecordMapper.historyType }.count == 1)
+    }
+
+    @Test func rangedClearSurvivesASyncThatWasNotApplied() async throws {
+        let h1 = makeHistory("https://a.com/1", at: clock.t)
+        let a = Mac("A", server: server, clock: clock, local: SyncPayload(pins: [], shelf: [], history: [h1]))
+        let b = Mac("B", server: server, clock: clock)
+        try await a.sync(); try await b.sync()
+        clock.advance()
+        a.edit { $0.history = [] }
+        a.engine.clearHistory(removing: [h1.id])
+        try await a.sync()
+        _ = try await b.engine.sync(local: b.local, openPages: [])
+        b.engine.mergeNotApplied()
+        try await b.sync()
+        #expect(b.local.history.isEmpty)
+        try await a.sync()
+        #expect(a.local.history.isEmpty)
+    }
+
+    @Test func clearHistoryPersistsUntilSyncedAndWorksAcrossRestart() async throws {
+        let h1 = makeHistory("https://a.com/1", at: clock.t)
+        let h2 = makeHistory("https://b.com/1", at: clock.t + 10)
+        let url = tempStateURL()
+        let a = Mac("A", server: server, clock: clock, stateURL: url, local: SyncPayload(pins: [], shelf: [], history: [h2, h1]))
+        let b = Mac("B", server: server, clock: clock)
+        try await a.sync(); try await b.sync()
+        a.edit { $0.history = [h1] }
+        a.engine.clearHistory(removing: [h2.id])
+        // The app quits before the next sync.
+        let a2 = Mac("A", server: server, clock: clock, stateURL: url, local: a.local)
+        try await a2.sync(); try await b.sync()
+        #expect(b.local.history == [h1])
+        #expect(a2.local.history == [h1])
+    }
+
     @Test func historyIsCappedAtTheNewest() async throws {
         var entries: [HistoryEntry] = []
         for i in 0..<8 { entries.insert(makeHistory("https://a.com/\(i)", at: clock.t + Double(i)), at: 0) }

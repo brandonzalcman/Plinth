@@ -91,7 +91,7 @@ struct PrivacySettingsView: View {
         result = nil
         Task { @MainActor in
             var removed = 0
-            if kinds.contains(.history) { removed = app.store.clearHistory(since: since) }
+            if kinds.contains(.history) { removed = app.clearHistory(since: since) }
             if !kinds.isDisjoint(with: [.cookiesAndSiteData, .cache]) {
                 await app.pool.clearWebsiteData(kinds, since: since)
             }
