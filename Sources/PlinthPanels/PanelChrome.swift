@@ -4,7 +4,7 @@ import PlinthModel
 
 // MARK: - Palette
 
-/// Colours shared by everything that floats above the page, from Design/brand-guide.md.
+/// Colours shared by everything that floats above the page, from docs/brand-guide.md.
 /// Light is the Sunrise palette (Ink, Stone, Sand, Sky, Haze, Dawn). Dark is not designed yet;
 /// it starts from the Dusk colourway (#1B1A2E surfaces, #F4EEE6 text) with the rest derived so
 /// that text keeps at least 4.5:1 against the surface it sits on.

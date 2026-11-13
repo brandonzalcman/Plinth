@@ -14,7 +14,7 @@ extension Color {
 }
 
 /// Every colour the bar uses, resolved once from the colour scheme.
-/// Light follows Design/brand-guide.md ("Bottom bar styling", Sunrise palette).
+/// Light follows docs/brand-guide.md ("Bottom bar styling", Sunrise palette).
 /// Dark is derived from the Dusk colourway: surfaces #1B1A2E, text #F4EEE6.
 struct BarPalette {
     var isDark: Bool

@@ -12,7 +12,7 @@ public enum BarTextStyle: Sendable, Hashable {
     case regular
 }
 
-/// Sizes in points, taken from the artboard (Design/BottomBar.dc.html).
+/// Sizes in points, taken from the bar artboard.
 public struct BarMetrics: Sendable, Equatable {
     public var barHeight: CGFloat = 64
     public var sideInset: CGFloat = 20

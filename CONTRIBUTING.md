@@ -45,7 +45,7 @@ If a change needs a new type shared between modules, add it to `PlinthModel` fir
 - **Language mode.** Swift 6 strict concurrency for the logic modules; the UI targets use Swift 5 language mode, as set in `Package.swift`.
 - **Warnings.** `swift build` should stay free of warnings.
 - **Tests.** Write them for new logic, using Swift Testing (`import Testing`, `@Test`, `#expect`). Tests must not touch the network or your real profile.
-- **Brand.** UI follows [Design/brand-guide.md](Design/brand-guide.md): system font, the Ink, Stone, Sand and Sky palette, light and dark.
+- **Brand.** UI follows [docs/brand-guide.md](docs/brand-guide.md): system font, the Ink, Stone, Sand and Sky palette, light and dark.
 - **Comments.** Keep them short and about *why*.
 - **AI features** must respect the master switch and degrade quietly when the model is unavailable. Keyword search must never depend on AI.
 
