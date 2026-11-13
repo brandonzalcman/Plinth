@@ -164,3 +164,38 @@ func shortcutSuffix(_ shortcut: Int?) -> String {
     guard let shortcut else { return "" }
     return "  ⌘\(shortcut)"
 }
+
+// MARK: - Downloads button state
+
+/// What the bar's downloads button shows. The shell passes nil while the list is empty, which
+/// hides the button.
+public struct BarDownloadsState: Equatable, Sendable {
+    /// Downloads in progress.
+    public var runningCount: Int
+    /// Average progress of the running downloads that know their size, 0...1; nil when none do.
+    public var progress: Double?
+
+    public init(runningCount: Int, progress: Double?) {
+        self.runningCount = runningCount; self.progress = progress
+    }
+
+    public var accessibilityText: String {
+        guard runningCount > 0 else { return "Downloads" }
+        let count = runningCount == 1 ? "1 download" : "\(runningCount) downloads"
+        if let progress { return "Downloads, \(count) running, \(Int((progress * 100).rounded())) percent" }
+        return "Downloads, \(count) running"
+    }
+}
+
+
+/// What the back, forward and reload buttons at the left of the bar need to know about the current page.
+public struct BarNavState: Equatable, Sendable {
+    public var hasPage: Bool
+    public var canGoBack: Bool
+    public var canGoForward: Bool
+    public var isLoading: Bool
+
+    public init(hasPage: Bool = false, canGoBack: Bool = false, canGoForward: Bool = false, isLoading: Bool = false) {
+        self.hasPage = hasPage; self.canGoBack = canGoBack; self.canGoForward = canGoForward; self.isLoading = isLoading
+    }
+}

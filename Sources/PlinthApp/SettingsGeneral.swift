@@ -45,7 +45,7 @@ struct GeneralSettingsView: View {
                 SettingsRow(title: isDefault ? "Plinth is your default browser" : "Plinth isn't your default browser",
                             caption: isDefault ? "Links from other apps open in Plinth." : "Links from other apps open in another browser.") {
                     if isDefault {
-                        Image(systemName: "checkmark.circle.fill").font(.system(size: 18)).foregroundStyle(t.accent)
+                        Image(systemName: "checkmark.circle.fill").font(.system(size: 18)).foregroundStyle(t.accentText)
                             .accessibilityLabel("Default browser")
                     } else {
                         SettingsButton(title: "Make Default", style: .accent) { DefaultBrowser.makeDefault() }
@@ -66,6 +66,14 @@ struct GeneralSettingsView: View {
                         SettingsTextField(label: "Custom search URL", placeholder: "https://example.com/?q=%s", text: Binding(get: { customDraft }, set: editCustom), width: 280)
                     }
                     customMessage
+                }
+            }
+
+            SettingsCard(heading: "About") {
+                SettingsRow(title: "Plinth", caption: AppVersion.current.displayString) {
+                    if let check = app.checkForUpdates {
+                        SettingsButton(title: "Check for Updates…", style: .quiet) { check() }
+                    }
                 }
             }
         }

@@ -35,7 +35,7 @@ private struct ImportCard: View {
             SettingsRow(title: source.displayName,
                         caption: installed ? "Found on this Mac." : "\(source.displayName) data wasn't found on this Mac.") {
                 Image(systemName: installed ? "checkmark.circle.fill" : "minus.circle").font(.system(size: 17))
-                    .foregroundStyle(installed ? t.accent : t.p.tertiary)
+                    .foregroundStyle(installed ? t.accentText : t.p.tertiary)
                     .accessibilityLabel(installed ? "Installed" : "Not installed")
             }
             SettingsDivider()

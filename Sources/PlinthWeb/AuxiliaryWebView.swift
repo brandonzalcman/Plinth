@@ -28,6 +28,8 @@ final class AuxiliaryController: NSObject, WKNavigationDelegate, WKUIDelegate {
     let state = AuxiliaryPageState()
     var observations: [NSKeyValueObservation] = []
     private var reloadedAfterCrash = false
+    /// Called when the page asks to close itself (`window.close()`).
+    var onClose: (() -> Void)?
 
     init(pool: WebViewPool) {
         self.pool = pool
@@ -125,6 +127,7 @@ final class AuxiliaryController: NSObject, WKNavigationDelegate, WKUIDelegate {
 
     func webViewDidClose(_ webView: WKWebView) {
         state.closeRequested = true
+        onClose?()
     }
 
     func webView(_ webView: WKWebView, runJavaScriptAlertPanelWithMessage message: String,
@@ -169,6 +172,18 @@ extension WebViewPool {
                 webView.load(URLRequest(url: url))
             }
         }
+        return webView
+    }
+
+    /// A popup the page opened with `window.open`. It must be built from the `configuration` WebKit
+    /// handed over (that is what keeps `window.opener` and the opener's session working), and it
+    /// loads whatever the page tells it to. `onClose` runs when the page calls `window.close()`.
+    func makePopupWebView(configuration: WKWebViewConfiguration, onClose: @escaping () -> Void) -> WKWebView {
+        let webView = makeWebView(configuration: configuration)
+        let controller = AuxiliaryController(pool: self)
+        controller.onClose = onClose
+        webView.auxiliary = controller
+        controller.attach(to: webView)
         return webView
     }
 

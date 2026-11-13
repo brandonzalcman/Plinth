@@ -3,6 +3,7 @@ import AppKit
 import PlinthModel
 import PlinthBarUI
 import PlinthPanels
+import PlinthStore
 
 /// The bottom bar for one window, fed from the store.
 struct BarHost: View {
@@ -19,12 +20,28 @@ struct BarHost: View {
         let input = BarInput(pins: app.store.pins, sites: app.store.visibleSites(in: windowID), selected: selected, split: split)
         let engine = app.layoutEngine
 
+        let items = app.pool.downloads.items
+        let running = items.filter { $0.state == .running }
+        let known = running.compactMap(\.progress)
+        let downloads = items.isEmpty ? nil
+            : BarDownloadsState(runningCount: running.count,
+                                progress: known.isEmpty ? nil : min(max(known.reduce(0, +) / Double(known.count), 0), 1))
+
+        // Reading `chrome.progress` keeps the buttons in step while a page loads; navigation changes
+        // the page's address, which the store reports, so back and forward follow too.
+        let nav = BarNavState(hasPage: selected != nil,
+                              canGoBack: selected.map(app.pool.canGoBack) ?? false,
+                              canGoForward: selected.map(app.pool.canGoForward) ?? false,
+                              isLoading: chrome.progress != nil)
+
         BottomBarView(
             layoutForWidth: { width in
                 engine.layout(input, barWidth: width, metrics: .standard, measure: BarTextMeasurer.width)
             },
             accent: app.accent,
             icon: { app.pool.favicons.image(for: $0) },
+            downloads: downloads,
+            nav: nav,
             onAction: { app.handle($0, in: windowID) }
         )
         .overlay(alignment: .top) {
@@ -63,19 +80,15 @@ struct PanelLayer: View {
                     opensNewPage: newPage,
                     accent: app.accent,
                     results: { query in
-                        if query.isEmpty { return recentShelf() }
-                        // A page that is open, pinned or on the shelf is not also listed from history.
-                        let found = app.store.search(query, limit: 16)
-                        let present = Set(found.compactMap { result -> String? in
-                            if case .history = result.target { return nil }
-                            return result.subtitle
-                        })
-                        return Array(found.filter { result in
-                            if case .history = result.target { return !present.contains(result.subtitle) }
-                            return true
-                        }.prefix(8))
+                        if query.isEmpty {
+                            _ = app.store.suggestions(for: "") // forgets the last typed query
+                            return recentShelf()
+                        }
+                        // Ranked by frecency and past choices, one row per page, a few per site.
+                        return app.store.suggestions(for: query, limit: 7)
                     },
                     semanticResults: { query in await app.semanticResults(for: query) },
+                    searchSuggestions: { query in await app.searchSuggestions(for: query) },
                     icon: { app.pool.favicons.image(for: $0) },
                     onSubmit: { controller.submit($0) },
                     onDismiss: { controller.dismissPanel() }
@@ -90,6 +103,7 @@ struct PanelLayer: View {
                     accent: app.accent,
                     icon: { app.pool.favicons.image(for: $0) },
                     snapshot: { app.pool.snapshot(for: $0) },
+                    hasSnapshot: { app.pool.hasSnapshot(for: $0) },
                     onRestore: { entry, page in
                         let ids = app.store.restore(entry: entry, page: page, into: controller.windowID)
                         controller.dismissPanel()
@@ -99,7 +113,47 @@ struct PanelLayer: View {
                     onRemove: { entry, page in app.store.removeFromShelf(entry: entry, page: page) },
                     onDismiss: { controller.dismissPanel() },
                     semanticResults: { query in await app.semanticResults(for: query) },
-                    onOpenResult: { controller.submit(.result($0)) }
+                    onOpenResult: { controller.submit(.result($0)) },
+                    onClearAll: { app.clearShelf() },
+                    undoCount: app.store.clearedShelfPageCount,
+                    onUndoClear: { app.undoClearShelf() }
+                )
+                .padding(.trailing, metrics.sideInset)
+                .padding(.bottom, lift)
+            }
+        case .downloads:
+            ZStack(alignment: .bottomTrailing) {
+                Color.black.opacity(0.001).onTapGesture { controller.dismissPanel() }
+                DownloadsTrayView(
+                    items: app.pool.downloads.items,
+                    accent: app.accent,
+                    onOpen: { app.pool.openDownload(id: $0) },
+                    onReveal: { app.pool.revealDownload(id: $0) },
+                    onCancel: { app.pool.cancelDownload(id: $0) },
+                    onRemove: { app.pool.removeDownload(id: $0) },
+                    onClear: { app.pool.clearFinishedDownloads() },
+                    onDismiss: { controller.dismissPanel() }
+                )
+                .padding(.trailing, metrics.sideInset)
+                .padding(.bottom, lift)
+            }
+        case .history:
+            ZStack(alignment: .bottomTrailing) {
+                Color.black.opacity(0.001).onTapGesture { controller.dismissPanel() }
+                HistoryView(
+                    accent: app.accent,
+                    icon: { app.pool.favicons.image(for: $0) },
+                    prepare: {
+                        // Built off the main thread from a snapshot of the history.
+                        let entries = app.store.history
+                        let index = await Task.detached(priority: .userInitiated) { HistoryIndex(entries) }.value
+                        return { filter in index.page(for: filter) }
+                    },
+                    onOpen: { row in
+                        controller.submit(.result(SearchResult(id: "history-\(row.id.uuidString)", target: .history(row.url),
+                                                               title: row.title, subtitle: row.url.absoluteString, key: row.key)))
+                    },
+                    onDismiss: { controller.dismissPanel() }
                 )
                 .padding(.trailing, metrics.sideInset)
                 .padding(.bottom, lift)

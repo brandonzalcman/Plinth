@@ -219,7 +219,7 @@ More detail is in [`docs/`](docs): the [brand guide](docs/brand-guide.md) and th
 
 ## Releasing
 
-Releases are a signed, notarized `Plinth.dmg` on GitHub Releases, with Sparkle auto-updates. Nothing ships on merge: running the Release workflow by hand, or pushing a tag like `v0.2.0`, runs the whole pipeline. One-time setup and details are in [RELEASING.md](RELEASING.md).
+Releases are a signed, notarized `Plinth-<version>.dmg` on GitHub Releases (also published as `Plinth.dmg` for the stable download link), with Sparkle auto-updates. Nothing ships on merge: running the Release workflow by hand, or pushing a tag like `v0.2.0`, runs the whole pipeline. One-time setup and details are in [RELEASING.md](RELEASING.md).
 
 ## Contributing
 

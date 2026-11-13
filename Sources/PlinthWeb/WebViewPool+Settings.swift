@@ -115,6 +115,13 @@ extension WebViewPool {
             userContent.addUserScript(WKUserScript(source: Self.fontSizeSource(settings.defaultFontSize),
                                                    injectionTime: .atDocumentStart, forMainFrameOnly: false, in: .defaultClient))
         }
+        for script in extraUserScripts { userContent.addUserScript(script) }
+    }
+
+    /// Registers a message handler on the shared content controller (every page, peek and mini window), for
+    /// features that live outside this module, like the password manager.
+    public func addMessageHandler(_ handler: WKScriptMessageHandler, name: String, world: WKContentWorld) {
+        userContent.add(handler, contentWorld: world, name: name)
     }
 
     static let gpcSource = """

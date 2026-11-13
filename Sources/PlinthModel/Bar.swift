@@ -160,6 +160,13 @@ public enum BarAction: Sendable, Equatable {
     case newPage
     case openCommandBar
     case openShelf
+    /// The downloads tray button, next to the shelf.
+    case openDownloads
+    /// The back, forward and reload buttons at the left of the bar (reload turns into stop while loading).
+    case goBack
+    case goForward
+    case reload
+    case stopLoading
     case setKept(SiteID, Bool)
     case pinSite(SiteID)
     case unpin(SiteID)

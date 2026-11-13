@@ -29,6 +29,11 @@ extension AppController: NSMenuItemValidation, NSMenuDelegate {
                 ?? self.store.windows.first(where: { $0.selectedPageID == opener })?.id ?? self.keyWindowID
             if let window { self.controller(for: window)?.showPeek(url) }
         }
+        pool.callbacks.popupCreated = { [weak self] view, size, opener in
+            guard let self else { return }
+            let parent = (self.store.windowID(containing: opener) ?? self.keyWindowID).flatMap { self.controller(for: $0)?.window }
+            self.popups.append(PopupWindowController(app: self, view: view, size: size, near: parent))
+        }
         pool.callbacks.splitRequest = { [weak self] url, opener in
             guard let self else { return }
             guard let window = self.store.windowID(containing: opener) ?? self.keyWindowID else { return }
@@ -66,6 +71,31 @@ extension AppController: NSMenuItemValidation, NSMenuDelegate {
         guard settings.value.semanticSearchEnabled, trimmed.count >= 3, ai.availability.isAvailable else { return [] }
         let matches = await ai.semanticSearch(trimmed, limit: 8)
         return store.semanticResults(matches, excluding: store.search(trimmed, limit: 16), limit: 4)
+    }
+
+    /// Search suggestions from the user's search engine for the command bar. Empty when switched
+    /// off, for an address-like query, for a custom engine, or on any network error. No cookies.
+    func searchSuggestions(for query: String) async -> [String] {
+        let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard settings.value.searchSuggestionsEnabled, SearchSuggestions.isWorthAsking(text),
+              let url = SearchSuggestions.endpoint(for: settings.value.searchEngine, query: text) else { return [] }
+        var request = URLRequest(url: url, timeoutInterval: 2)
+        request.httpShouldHandleCookies = false
+        request.setValue(nil, forHTTPHeaderField: "Referer")
+        guard let (data, response) = try? await Self.suggestionSession.data(for: request),
+              (response as? HTTPURLResponse)?.statusCode == 200 else { return [] }
+        return SearchSuggestions.parse(data, query: text)
+    }
+
+    private static let suggestionSession: URLSession = {
+        let config = URLSessionConfiguration.ephemeral
+        config.httpCookieStorage = nil
+        config.urlCache = nil
+        return URLSession(configuration: config)
+    }()
+
+    func popupClosed(_ popup: PopupWindowController) {
+        popups.removeAll { $0 === popup }
     }
 
     // MARK: Links from other apps

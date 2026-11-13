@@ -15,6 +15,8 @@ final class WindowChrome {
         case none
         case command(text: String, newPage: Bool)
         case shelf
+        case history
+        case downloads
         case find
         case ask
     }
@@ -65,6 +67,7 @@ final class BrowserWindowController: NSObject, NSWindowDelegate {
     private var stripObservation: NSKeyValueObservation?
     /// nil follows the system (used when the window has no page).
     var chromeAppearance: NSAppearance?
+    private var stripColoured = false
     var accessoryHosts: [NSView] = []
     var resumeTask: Task<Void, Never>?
     var askTask: Task<Void, Never>?
@@ -87,7 +90,7 @@ final class BrowserWindowController: NSObject, NSWindowDelegate {
         window.isReleasedWhenClosed = false
         window.minSize = NSSize(width: 520, height: 360)
         window.tabbingMode = .disallowed
-        window.backgroundColor = NSColor(red: 0xFB / 255, green: 0xF8 / 255, blue: 0xF2 / 255, alpha: 1)
+        window.backgroundColor = .plinthWindowBackground
         window.delegate = self
         if saved == nil { window.center() } else { window.setFrame(frame, display: false) }
 
@@ -142,7 +145,16 @@ final class BrowserWindowController: NSObject, NSWindowDelegate {
         }
     }
 
+    /// Debug measurement: how many times `refreshContent` ran and how long it took in all.
+    var refreshStats = (count: 0, seconds: 0.0)
+
     func refreshContent() {
+        let started = ContinuousClock.now
+        defer {
+            let d = ContinuousClock.now - started
+            refreshStats.count += 1
+            refreshStats.seconds += Double(d.components.seconds) + Double(d.components.attoseconds) / 1e18
+        }
         guard let state = app.store.window(windowID) else { return }
         var ordered: [PageID] = []
         splitFlipped = false
@@ -162,8 +174,13 @@ final class BrowserWindowController: NSObject, NSWindowDelegate {
         for view in views {
             // Let pages scroll clear of the floating bar.
             // The page starts below the traffic lights; WebKit fills the strip with the page's own colour.
-            view.obscuredContentInsets = NSEdgeInsets(top: titlebarHeight, left: 0,
-                                                     bottom: metrics.barHeight + metrics.bottomInset + 8, right: 0)
+            // WebKit re-lays the page out on every assignment, so only assign a change.
+            let insets = NSEdgeInsets(top: titlebarHeight, left: 0,
+                                      bottom: metrics.barHeight + metrics.bottomInset + 8, right: 0)
+            let old = view.obscuredContentInsets
+            if old.top != insets.top || old.bottom != insets.bottom || old.left != insets.left || old.right != insets.right {
+                view.obscuredContentInsets = insets
+            }
         }
         let fraction = state.split?.fraction ?? 0.5
         content.show(leading: views.first, trailing: views.count > 1 ? views[1] : nil,
@@ -191,27 +208,30 @@ final class BrowserWindowController: NSObject, NSWindowDelegate {
         topStrip.frame = NSRect(x: 0, y: root.bounds.height - height, width: root.bounds.width, height: height)
         topStrip.isHidden = height == 0
         if view == nil { topStrip.layer?.backgroundColor = NSColor.clear.cgColor }
-        if view == nil {
-            chromeAppearance = nil
-            barHost.appearance = nil
-            panelHost?.appearance = nil
-            applyAccessoryAppearance()
-        }
+        if view == nil { applyChromeAppearance() }
         stripObservation = view?.observe(\.underPageBackgroundColor, options: [.initial, .new]) { [weak self] view, _ in
             MainActor.assumeIsolated { self?.applyPageColour(of: view) }
         }
     }
 
-    /// The strip behind the traffic lights takes the page's colour, and the bar and panels go
-    /// light over light pages and dark over dark ones.
+    /// The strip behind the traffic lights takes the page's colour. The bar and panels follow the
+    /// Appearance setting (nil follows the Mac), so they stay legible and consistent in dark mode.
     private func applyPageColour(of view: WKWebView) {
         // A page that has not drawn anything yet reports a placeholder colour; keep what was there.
-        if view.isLoading, view.estimatedProgress < 0.5, chromeAppearance != nil { return }
+        if view.isLoading, view.estimatedProgress < 0.5, stripColoured { return }
+        stripColoured = true
         let colour = view.underPageBackgroundColor ?? .windowBackgroundColor
-        topStrip.layer?.backgroundColor = colour.cgColor
-        let rgb = colour.usingColorSpace(.sRGB)
-        let luminance = rgb.map { 0.2126 * $0.redComponent + 0.7152 * $0.greenComponent + 0.0722 * $0.blueComponent } ?? 1
-        chromeAppearance = NSAppearance(named: luminance > 0.5 ? .aqua : .darkAqua)
+        let cg = colour.cgColor
+        if topStrip.layer?.backgroundColor != cg { topStrip.layer?.backgroundColor = cg }
+        applyChromeAppearance()
+    }
+
+    /// Also called when the Appearance setting changes.
+    func applyChromeAppearance() {
+        let appearance = app.settings.value.appearance.nsAppearance
+        // Changing a host's appearance re-renders its whole SwiftUI tree, so only do it when it flips.
+        guard chromeAppearance?.name != appearance?.name || barHost.appearance?.name != appearance?.name else { return }
+        chromeAppearance = appearance
         barHost.appearance = chromeAppearance
         panelHost?.appearance = chromeAppearance
         applyAccessoryAppearance()
@@ -282,6 +302,16 @@ final class BrowserWindowController: NSObject, NSWindowDelegate {
         syncPanel()
     }
 
+    func toggleHistory() {
+        chrome.panel = chrome.panel == .history ? .none : .history
+        syncPanel()
+    }
+
+    func toggleDownloads() {
+        chrome.panel = chrome.panel == .downloads ? .none : .downloads
+        syncPanel()
+    }
+
     func openFind() {
         guard app.store.window(windowID)?.selectedPageID != nil else { return }
         chrome.findNotFound = false
@@ -338,11 +368,14 @@ final class BrowserWindowController: NSObject, NSWindowDelegate {
             guard !trimmed.isEmpty else { return }
             let url: URL
             switch app.resolver.resolve(trimmed) {
-            case .url(let resolved): url = resolved
+            case .url(let resolved):
+                url = resolved
+                store.recordSuggestionPick(url: resolved)
             case .search(let query): url = app.resolver.searchURL(for: query)
             }
             open(url, newPage: newPage || selected == nil, replacing: selected)
         case .result(let result):
+            store.recordSuggestionPick(result)
             switch result.target {
             case .openPage(let page, let otherWindow):
                 store.select(page, in: otherWindow)

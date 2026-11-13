@@ -76,10 +76,21 @@ public struct DownloadItem: Identifiable, Sendable, Equatable {
     /// Where the file is (or will be) written.
     public var fileURL: URL?
     public var startedAt: Date
+    /// Bytes written so far.
+    public var receivedBytes: Int64
+    /// The expected size, nil when the server did not say.
+    public var totalBytes: Int64?
+    /// A smoothed transfer rate while running, nil until it has been measured.
+    public var bytesPerSecond: Double?
+    /// Where it came from (shown as the host under the name).
+    public var sourceURL: URL?
 
-    public init(id: UUID = UUID(), filename: String, progress: Double?, state: State, fileURL: URL?, startedAt: Date) {
+    public init(id: UUID = UUID(), filename: String, progress: Double?, state: State, fileURL: URL?, startedAt: Date,
+                receivedBytes: Int64 = 0, totalBytes: Int64? = nil, bytesPerSecond: Double? = nil, sourceURL: URL? = nil) {
         self.id = id; self.filename = filename; self.progress = progress; self.state = state
         self.fileURL = fileURL; self.startedAt = startedAt
+        self.receivedBytes = receivedBytes; self.totalBytes = totalBytes
+        self.bytesPerSecond = bytesPerSecond; self.sourceURL = sourceURL
     }
 }
 

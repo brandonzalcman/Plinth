@@ -7,6 +7,15 @@ final class ContentAreaView: NSView {
     private var fraction: CGFloat = 0.5
     private let divider = DividerView()
     var onFractionChange: ((Double) -> Void)?
+    private var pendingFraction: Double?
+    private var lastPublished: TimeInterval = 0
+
+    private func publishFraction() {
+        guard let value = pendingFraction else { return }
+        pendingFraction = nil
+        lastPublished = ProcessInfo.processInfo.systemUptime
+        onFractionChange?(value)
+    }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -17,8 +26,14 @@ final class ContentAreaView: NSView {
             let value = min(max(x / self.bounds.width, 0.2), 0.8)
             self.fraction = value
             self.needsLayout = true
-            self.onFractionChange?(Double(value))
+            self.layoutSubtreeIfNeeded()
+            // The store (and everything observing it) hears about it at most ~10 times a second
+            // while dragging, and always about the final position.
+            self.pendingFraction = Double(value)
+            let now = ProcessInfo.processInfo.systemUptime
+            if now - self.lastPublished >= 0.1 { self.publishFraction() }
         }
+        divider.onDragEnd = { [weak self] in self?.publishFraction() }
         addSubview(divider)
     }
 
@@ -57,6 +72,7 @@ final class ContentAreaView: NSView {
 
 private final class DividerView: NSView {
     var onDrag: ((CGFloat) -> Void)?
+    var onDragEnd: (() -> Void)?
 
     override func draw(_ dirtyRect: NSRect) {
         NSColor.separatorColor.setFill()
@@ -71,4 +87,6 @@ private final class DividerView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {}
+
+    override func mouseUp(with event: NSEvent) { onDragEnd?() }
 }

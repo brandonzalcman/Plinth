@@ -19,6 +19,13 @@ public enum StartupBehavior: String, Codable, CaseIterable, Sendable {
     case startFresh
 }
 
+/// Whether Plinth's own chrome is light, dark or follows the Mac.
+public enum AppearanceChoice: String, Codable, CaseIterable, Sendable {
+    case system, light, dark
+
+    public var displayName: String { rawValue.capitalized }
+}
+
 public enum AccentChoice: String, Codable, CaseIterable, Sendable {
     case blue, purple, pink, red, orange, green, graphite
 
@@ -74,6 +81,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public var blockThirdPartyCookies = false
     public var httpsOnly = false
     public var globalPrivacyControl = false
+    /// Ask the search engine for suggestions while typing in the command bar (sends the text you type to it).
+    public var searchSuggestionsEnabled = true
 
     // Downloads
     /// Absolute path; nil means the system Downloads folder.
@@ -88,6 +97,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public var homepage = ""
 
     // Appearance & bar
+    public var appearance = AppearanceChoice.system
     public var accent = AccentChoice.blue
     public var fadeBehavior = FadeBehavior.standard
     /// 0.5 ... 3, 1 = 100%.
@@ -101,14 +111,19 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public var semanticSearchEnabled = true
     public var pageSummariesEnabled = true
 
+    // First run
+    /// Set once the welcome guide has been finished or skipped. "Reset to defaults" keeps it.
+    public var hasCompletedOnboarding = false
+
     public init() {}
 
     public static let defaults = AppSettings()
 
     private enum CodingKeys: String, CodingKey {
-        case searchEngine, contentBlockerEnabled, blockThirdPartyCookies, httpsOnly, globalPrivacyControl
+        case searchEngine, contentBlockerEnabled, blockThirdPartyCookies, httpsOnly, globalPrivacyControl, searchSuggestionsEnabled
         case downloadFolder, askWhereToSave, openSafeFilesAfterDownload
         case startup, newPage, homepage
+        case appearance, hasCompletedOnboarding
         case accent, fadeBehavior, defaultZoom, defaultFontSize, minimumFontSize
         case semanticSearchEnabled, pageSummariesEnabled
     }
@@ -122,12 +137,15 @@ public struct AppSettings: Codable, Equatable, Sendable {
         blockThirdPartyCookies = get(.blockThirdPartyCookies, d.blockThirdPartyCookies)
         httpsOnly = get(.httpsOnly, d.httpsOnly)
         globalPrivacyControl = get(.globalPrivacyControl, d.globalPrivacyControl)
+        searchSuggestionsEnabled = get(.searchSuggestionsEnabled, d.searchSuggestionsEnabled)
         downloadFolder = (try? c.decodeIfPresent(String.self, forKey: .downloadFolder)) ?? nil
         askWhereToSave = get(.askWhereToSave, d.askWhereToSave)
         openSafeFilesAfterDownload = get(.openSafeFilesAfterDownload, d.openSafeFilesAfterDownload)
         startup = get(.startup, d.startup)
         newPage = get(.newPage, d.newPage)
         homepage = get(.homepage, d.homepage)
+        appearance = get(.appearance, d.appearance)
+        hasCompletedOnboarding = get(.hasCompletedOnboarding, d.hasCompletedOnboarding)
         accent = get(.accent, d.accent)
         fadeBehavior = get(.fadeBehavior, d.fadeBehavior)
         defaultZoom = min(max(get(.defaultZoom, d.defaultZoom), 0.5), 3)

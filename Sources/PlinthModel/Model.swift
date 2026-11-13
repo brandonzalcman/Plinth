@@ -236,10 +236,13 @@ public struct SearchResult: Identifiable, Sendable, Equatable {
     /// Found by semantic (embedding) search rather than by keyword. Listed after keyword results,
     /// under a "By meaning" heading.
     public var byMeaning: Bool
+    /// The one result confident enough to be the default for what was typed (an inline-completion
+    /// quality match). Always first in its list.
+    public var isTopHit: Bool
 
-    public init(id: String, target: Target, title: String, subtitle: String, key: SiteKey, byMeaning: Bool = false) {
+    public init(id: String, target: Target, title: String, subtitle: String, key: SiteKey, byMeaning: Bool = false, isTopHit: Bool = false) {
         self.id = id; self.target = target; self.title = title; self.subtitle = subtitle; self.key = key
-        self.byMeaning = byMeaning
+        self.byMeaning = byMeaning; self.isTopHit = isTopHit
     }
 }
 

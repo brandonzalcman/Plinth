@@ -23,6 +23,7 @@ public struct CommandBarView: View {
     private let accent: Color
     private let results: (String) -> [SearchResult]
     private let semanticResults: ((String) async -> [SearchResult])?
+    private let searchSuggestions: ((String) async -> [String])?
     private let icon: (SiteKey) -> NSImage?
     private let onSubmit: (CommandSubmission) -> Void
     private let onDismiss: () -> Void
@@ -33,6 +34,8 @@ public struct CommandBarView: View {
     @State private var meaningStart = 0
     /// The latest by-meaning hits for the current query (cleared whenever the query changes).
     @State private var semanticHits: [SearchResult] = []
+    /// The search engine's suggestions for the current query (cleared whenever the query changes).
+    @State private var engineSuggestions: [String] = []
     /// False until the text first changes, so the pre-filled address never triggers a by-meaning search.
     @State private var hasEdited = false
     /// Index into `rows`; 0 is nearest the field.
@@ -43,6 +46,8 @@ public struct CommandBarView: View {
 
     static let maxRows = 8
     static let maxMeaningRows = 4
+    static let maxSuggestionRows = 3
+    static let suggestionDelay: Duration = .milliseconds(120)
     static let semanticDelay: Duration = .milliseconds(250)
     static let width: CGFloat = 640
 
@@ -51,11 +56,12 @@ public struct CommandBarView: View {
                 accent: Color,
                 results: @escaping (String) -> [SearchResult],
                 semanticResults: ((String) async -> [SearchResult])? = nil,
+                searchSuggestions: ((String) async -> [String])? = nil,
                 icon: @escaping (SiteKey) -> NSImage?,
                 onSubmit: @escaping (CommandSubmission) -> Void,
                 onDismiss: @escaping () -> Void) {
         self.initialText = initialText; self.opensNewPage = opensNewPage; self.accent = accent
-        self.results = results; self.semanticResults = semanticResults; self.icon = icon; self.onSubmit = onSubmit; self.onDismiss = onDismiss
+        self.results = results; self.semanticResults = semanticResults; self.searchSuggestions = searchSuggestions; self.icon = icon; self.onSubmit = onSubmit; self.onDismiss = onDismiss
         _text = State(initialValue: initialText)
     }
 
@@ -126,6 +132,7 @@ public struct CommandBarView: View {
         }
         .onChange(of: text) { hasEdited = true; refresh() }
         .task(id: trimmed) { await runSemanticSearch(for: trimmed) }
+        .task(id: trimmed) { await runEngineSuggestions(for: trimmed) }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Command bar")
     }
@@ -193,7 +200,8 @@ public struct CommandBarView: View {
                             .truncationMode(.middle)
                     }
                     Spacer(minLength: 8)
-                    Tag(text: Self.tag(for: result.target), palette: palette, onSelection: selected, warm: Self.isShelf(result.target))
+                    Tag(text: result.isTopHit ? "Top hit" : Self.tag(for: result.target), palette: palette, onSelection: selected,
+                        warm: Self.isShelf(result.target))
                 }
             }
             .padding(.horizontal, 10)
@@ -237,6 +245,7 @@ public struct CommandBarView: View {
 
     private func refresh() {
         semanticHits = []
+        engineSuggestions = []
         rebuild(resetSelection: true)
     }
 
@@ -260,13 +269,34 @@ public struct CommandBarView: View {
             showsRecents = !recent.isEmpty
             if resetSelection { selection = nil }
         } else {
-            let head = [Row.literal(query, isURL: Self.looksLikeURL(query))] + keyword.prefix(Self.maxRows - 1).map(Row.result)
+            // A confident top hit leads (and is what Return does); the literal "Go to" / "Search
+            // for" row stays right behind it.
+            let literal = Row.literal(query, isURL: Self.looksLikeURL(query))
+            // The engine's suggestions come right after the literal row, before history.
+            let suggested = engineSuggestions.prefix(Self.maxSuggestionRows).map { Row.literal($0, isURL: false) }
+            let head: [Row]
+            if let top = keyword.first, top.isTopHit {
+                let others = keyword.dropFirst().map(Row.result)
+                head = Array(([Row.result(top), literal] + suggested + others).prefix(Self.maxRows))
+            } else {
+                head = Array(([literal] + suggested + keyword.map(Row.result)).prefix(Self.maxRows))
+            }
             rows = head + meaningRows
             meaningStart = head.count
             showsRecents = false
             if resetSelection { selection = 0 }
         }
         if let current = selection, !rows.indices.contains(current) { selection = rows.isEmpty ? nil : rows.count - 1 }
+    }
+
+    /// Debounced: waits a moment, then asks the search engine for suggestions.
+    private func runEngineSuggestions(for query: String) async {
+        guard let searchSuggestions, hasEdited, !query.isEmpty else { return }
+        do { try await Task.sleep(for: Self.suggestionDelay) } catch { return }
+        let found = await searchSuggestions(query)
+        guard !Task.isCancelled, query == trimmed, !found.isEmpty else { return }
+        engineSuggestions = found
+        rebuild(resetSelection: false)
     }
 
     /// Debounced: waits `semanticDelay`, then asks for by-meaning hits. `.task(id:)` cancels this
@@ -354,7 +384,7 @@ public struct CommandBarView: View {
         case .literal(let value, let isURL):
             return isURL ? "Go to \(displayAddress(value))" : "Search for \(value)"
         case .result(let result):
-            return [result.title, result.subtitle, tag(for: result.target)].filter { !$0.isEmpty }.joined(separator: ", ")
+            return [result.title, result.subtitle, result.isTopHit ? "top hit" : tag(for: result.target)].filter { !$0.isEmpty }.joined(separator: ", ")
         }
     }
 

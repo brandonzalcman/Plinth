@@ -33,6 +33,8 @@ struct StoreSnapshot: Codable {
     var coOpen: [CoOpenRecord]? = nil
     /// Dismissed group suggestions, each a host list sorted ascending.
     var dismissedSuggestions: [[String]]? = nil
+    /// Command-bar choices by canonical address (see SuggestionResults.swift).
+    var picks: [String: PickRecord]? = nil
 
     private struct VersionProbe: Decodable { var version: Int }
 

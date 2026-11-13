@@ -133,3 +133,18 @@ import Testing
         #expect(a == b)
     }
 }
+
+struct PageNamerTaglineCapitalTests {
+    private func name(_ title: String, _ host: String = "getplinth.dev", site: String = "Plinth") -> String {
+        PageNamer().name(title: title, url: URL(string: "https://\(host)/")!, siteName: site)
+    }
+
+    @Test func aLowercaseTaglineAfterTheSiteNameGetsACapital() {
+        #expect(name("Plinth — a calm browser for Mac") == "A calm browser for Mac")
+    }
+
+    @Test func titlesThatStartWithTheirOwnNameAreLeftAlone() {
+        #expect(name("a calm browser for Mac", "example.com", site: "Example") == "a calm browser for Mac")
+        #expect(name("Example — iPhone 16 review", "example.com", site: "Example") == "iPhone 16 review")
+    }
+}
