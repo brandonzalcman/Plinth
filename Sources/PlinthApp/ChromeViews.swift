@@ -93,7 +93,7 @@ struct PanelLayer: View {
                         return app.bookmarks.results(for: query, amid: suggestions)
                     },
                     semanticResults: { query in await app.semanticResults(for: query) },
-                    searchSuggestions: { query in await app.searchSuggestions(for: query) },
+                    searchSuggestions: { query in await app.searchSuggestions(for: query, isPrivate: controller.isPrivate) },
                     icon: { app.pool.favicons.image(for: $0) },
                     onSubmit: { controller.submit($0) },
                     onDismiss: { controller.dismissPanel() }

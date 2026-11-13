@@ -74,11 +74,11 @@ extension AppController: NSMenuItemValidation, NSMenuDelegate {
     }
 
     /// Search suggestions from the user's search engine for the command bar. Empty when switched
-    /// off, for an address-like query, for a custom engine, or on any network error. No cookies.
-    func searchSuggestions(for query: String) async -> [String] {
+    /// off, in a private window, for an address-like query, for a custom engine, or on any network error. No cookies.
+    func searchSuggestions(for query: String, isPrivate: Bool) async -> [String] {
         let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard settings.value.searchSuggestionsEnabled, SearchSuggestions.isWorthAsking(text),
-              let url = SearchSuggestions.endpoint(for: settings.value.searchEngine, query: text) else { return [] }
+        guard let url = SearchSuggestions.request(for: text, engine: settings.value.searchEngine,
+                                                  enabled: settings.value.searchSuggestionsEnabled, isPrivate: isPrivate) else { return [] }
         var request = URLRequest(url: url, timeoutInterval: 2)
         request.httpShouldHandleCookies = false
         request.setValue(nil, forHTTPHeaderField: "Referer")
