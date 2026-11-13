@@ -4,6 +4,7 @@ import PlinthModel
 import PlinthRules
 import PlinthSettings
 import PlinthWeb
+import PlinthBarUI
 
 /// Test-launch hook: `PLINTH_STEPS="wait 3; peek http://…; wait 4; promote; …"` drives features
 /// through the same entry points the UI uses, logging to stdout. Inactive unless the variable is set.
@@ -56,9 +57,10 @@ enum DebugScript {
             default: key = part
             }
         }
-        let codes: [String: UInt16] = ["return": 36, "j": 38, "k": 40, "l": 37, "t": 17, "w": 13, "f": 3, "e": 14, "p": 35]
+        let codes: [String: UInt16] = ["return": 36, "j": 38, "k": 40, "l": 37, "t": 17, "w": 13, "f": 3, "e": 14, "p": 35, "d": 2, "b": 11, "y": 16]
         let chars = key == "return" ? "\r" : key
-        guard let window = NSApp.keyWindow else { log("key: no key window"); return }
+        // A scripted run may not be frontmost, so there may be no key window.
+        guard let window = NSApp.keyWindow ?? AppController.shared?.keyController?.window else { log("key: no key window"); return }
         let typed = flags.contains(.shift) && key != "return" ? chars.uppercased() : chars
         guard let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime,
                                            windowNumber: window.windowNumber, context: nil, characters: typed,
@@ -125,7 +127,7 @@ enum DebugScript {
         case "fraction": if let wid, let f = Double(arg) { app.store.setSplitFraction(f, in: wid) }
         case "coopen": for _ in 0..<(Int(arg) ?? 25) { app.store.noteCoOpen(seconds: 60) }
         case "acceptgroup":
-            if let wid, let s = app.store.groupSuggestion(for: wid) { app.store.setFocus(app.store.acceptSuggestion(s), in: wid) }
+            if let wid, let s = app.store.groupSuggestion(for: wid) { app.store.showGroup(app.store.acceptSuggestion(s), in: wid) }
         case "unfocus": if let wid { app.store.setFocus(nil, in: wid) }
         case "pin": app.menuPinSite(nil)
         case "selectpin": if let wid, let pin = app.store.pins.first { app.store.selectPin(pin.id, in: wid) }
@@ -190,7 +192,8 @@ enum DebugScript {
         case "type":
             // type <text>: inserts the text into the key window's first responder, one character at a
             // time (the command bar / shelf search field), so text-change handling really runs.
-            guard let window = NSApp.keyWindow, let client = window.firstResponder as? NSTextInputClient else { log("type: no text field focused"); return }
+            guard let window = NSApp.keyWindow ?? app.keyController?.window else { log("type: no window"); return }
+            guard let client = window.firstResponder as? NSTextInputClient else { log("type: no text field focused"); return }
             for ch in arg {
                 client.insertText(String(ch), replacementRange: NSRange(location: NSNotFound, length: 0))
                 try? await Task.sleep(for: .milliseconds(30))
@@ -202,9 +205,96 @@ enum DebugScript {
             await contextMenu(arg, app)
         case "frame":
             if let w = controller?.window { log("frame: \(w.frame) split fraction: \(String(describing: wid.flatMap { app.store.window($0)?.split?.fraction })) bar hidden: \(controller?.barHost.isHidden ?? false)") }
+        case "newprivate": app.newPrivateWindow(); app.lastMainWindowID = app.store.windows.last?.id
+        case "newwindow": app.newWindow(); app.lastMainWindowID = app.store.windows.last?.id
+        // focus <index in store.windows>: later steps act on that window (a test launch may have no key window).
+        case "focus": if let n = Int(arg), app.store.windows.indices.contains(n) { app.lastMainWindowID = app.store.windows[n].id }
+        case "closewin": app.keyController?.window.performClose(nil)
+        case "windows":
+            log("windows: \(app.store.windows.map { "\($0.isPrivate ? "private" : "normal"):\($0.sites.map(\.key.host).joined(separator: ","))" }) history: \(app.store.history.map { $0.url.host ?? "-" }) shelf: \(app.store.shelf.map(\.name)) downloads: \(app.pool.downloads.items.map(\.filename))")
+        case "cookies":
+            // The cookie names the key window's current page's data store holds, for any host.
+            if let wid, let page = app.store.window(wid)?.selectedPageID, let view = app.pool.existingWebView(for: page) {
+                let all = await view.configuration.websiteDataStore.httpCookieStore.allCookies()
+                // Only the test sites' cookies are listed: the default store is the real profile's.
+                let mine = all.filter { $0.domain.contains("example.") || $0.domain.contains("iana.org") }
+                log("cookies (\(view.configuration.websiteDataStore.isPersistent ? "persistent" : "private")): \(mine.map { "\($0.domain) \($0.name)" })")
+            }
         case "promotemini": if let mini = app.miniWindows.last { app.promote(mini) }
         case "toggleai": app.menuToggleAI(nil)
         case "shelf": controller?.toggleShelf()
+        case "history": controller?.toggleHistory()
+        case "bookmarks": controller?.toggleBookmarks()
+        case "bmfolder": app.bookmarks.addFolder(named: arg)
+        case "bmmove":
+            // bmmove <folder name>: the first top-level bookmark goes into that folder.
+            if let folder = app.bookmarks.folders.first(where: { $0.name == arg }), let mark = app.bookmarks.bookmarks(in: nil).first {
+                app.bookmarks.move(mark.id, to: folder.id)
+            }
+        case "bmrename": if let mark = app.bookmarks.bookmarks.first { app.bookmarks.rename(mark.id, to: arg) }
+        case "bmstate": log("bookmarks: \(app.bookmarks.bookmarks.map { "\($0.title)@\(app.bookmarks.path(of: $0.folder))" }) folders: \(app.bookmarks.folders.map(\.name))")
+        case "downloads": controller?.toggleDownloads()
+        case "clearshelf": app.clearShelf()
+        case "undoshelf": app.undoClearShelf()
+        case "benchlayout":
+            // benchlayout <sites> <pagesPerSite>: times the bar layout engine with the real text measurer.
+            let p = arg.split(separator: " ").compactMap { Int($0) }
+            let n = p.first ?? 60, per = p.count > 1 ? p[1] : 3
+            let t0 = Date()
+            let sites = (0..<n).map { i in
+                Site(key: SiteKey("site\(i).example.com"), name: "Site number \(i)",
+                     pages: (0..<per).map { j in
+                         Page(url: URL(string: "https://site\(i).example.com/page\(j)")!, name: "Some page title \(i)-\(j)",
+                              usage: Usage(at: t0.addingTimeInterval(Double(i * 10 + j))))
+                     })
+            }
+            let input = BarInput(pins: [], sites: sites, selected: sites.first?.pages.first?.id, split: nil)
+            var widths: [CGFloat] = []
+            for w in stride(from: 900.0, through: 1500.0, by: 5.0) { widths.append(w) }
+            let clock = ContinuousClock()
+            var samples: [Double] = []
+            for _ in 0..<5 {
+                let d = clock.measure { for w in widths { _ = app.layoutEngine.layout(input, barWidth: w, metrics: .standard, measure: BarTextMeasurer.width) } }
+                samples.append(Double(d.components.attoseconds) / 1e15 + Double(d.components.seconds) * 1000)
+            }
+            let per1 = samples.min()! / Double(widths.count)
+            log("benchlayout \(n) sites x \(per) pages: \(String(format: "%.3f", per1)) ms per layout (best of 5 sweeps of \(widths.count) widths)")
+        case "refreshstats":
+            if let c = controller { log("refreshContent calls: \(c.refreshStats.count) total \(String(format: "%.1f", c.refreshStats.seconds * 1000)) ms") }
+        case "benchdrag":
+            // benchdrag: with a split on screen, drags the divider across the page in 150 events.
+            guard let c = controller, let wid, let fraction = app.store.window(wid)?.split?.fraction else { log("benchdrag: no split"); return }
+            let height = c.window.contentView!.bounds.height, width = c.window.contentView!.bounds.width
+            let startX = width * fraction
+            func send(_ type: NSEvent.EventType, _ x: Double) {
+                if let e = NSEvent.mouseEvent(with: type, location: NSPoint(x: x, y: height / 2), modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                              windowNumber: c.window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) { c.window.sendEvent(e) }
+            }
+            log("benchdrag: startX \(startX) hit: \(String(describing: c.window.contentView?.hitTest(NSPoint(x: startX, y: height / 2)))) key: \(c.window.isKeyWindow)")
+            c.window.makeKeyAndOrderFront(nil)
+            try? await Task.sleep(for: .milliseconds(300))
+            c.refreshStats = (0, 0)
+            let clock = ContinuousClock()
+            let began = clock.now
+            send(.leftMouseDown, startX)
+            for i in 1...150 {
+                send(.leftMouseDragged, startX + 120 * sin(Double(i) / 150 * .pi * 2) + 150 * Double(i) / 150)
+                try? await Task.sleep(for: .milliseconds(8))   // ~120 Hz mouse
+            }
+            send(.leftMouseUp, startX)
+            let t = clock.now - began
+            try? await Task.sleep(for: .milliseconds(500))
+            log("benchdrag: 150 drag events sent in \(t); refreshContent calls: \(c.refreshStats.count) total \(String(format: "%.1f", c.refreshStats.seconds * 1000)) ms; fraction now \(app.store.window(wid)?.split?.fraction ?? -1)")
+        case "benchsnap":
+            // benchsnap: cost of the shelf's per-group "does any page have a thumbnail" check, old way vs new.
+            let dir = app.storageDirectory.appendingPathComponent("snapshots")
+            let files = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []
+            let clock = ContinuousClock()
+            func ms(_ d: Duration) -> Double { Double(d.components.seconds) * 1000 + Double(d.components.attoseconds) / 1e15 }
+            let old = clock.measure { for f in files { if let i = NSImage(contentsOf: f), i.isValid { _ = i.size } } }
+            let new = clock.measure { for f in files { _ = FileManager.default.fileExists(atPath: f.path) } }
+            log("benchsnap: \(files.count) snapshots: load \(String(format: "%.2f", ms(old))) ms vs exists-check \(String(format: "%.3f", ms(new))) ms")
+        case "cleardownloads": app.pool.clearFinishedDownloads()
         case "mini": if let url = URL(string: arg) { app.openFromOtherApp(url) }
         case "command":
             controller?.chrome.panel = .command(text: arg, newPage: true)
@@ -220,8 +310,13 @@ enum DebugScript {
                 window.setFrame(NSRect(x: 200, y: 120, width: p[0], height: p[1]), display: true)
             }
         case "scroll": await js(app, "window.scrollTo(0, \(Double(arg) ?? 0))")
+        case "clickcurrent": if let wid, let page = app.store.window(wid)?.selectedPageID { app.handle(.selectPage(page), in: wid) }
         case "closepage": if let wid, let page = app.store.window(wid)?.selectedPageID { app.store.closePage(page) }
         case "reopen": app.menuReopen(nil)
+        case "welcome":
+            // welcome [card index]: replays the welcome guide, from the intro or at that card.
+            app.showWelcomeGuide(startingAtCard: Int(arg))
+        case "pw": app.passwords.debug(arg)
         case "settings":
             // settings <section id>: opens the Settings window on that section.
             app.menuSettings(nil)
@@ -233,6 +328,7 @@ enum DebugScript {
             app.settings.update { s in
                 switch p.first ?? "" {
                 case "engine": s.searchEngine.kind = SearchEngine.Kind(rawValue: v) ?? .duckDuckGo
+                case "appearance": s.appearance = AppearanceChoice(rawValue: v) ?? .system
                 case "accent": s.accent = AccentChoice(rawValue: v) ?? .blue
                 case "fade": s.fadeBehavior = FadeBehavior(rawValue: v) ?? .standard
                 case "zoom": s.defaultZoom = Double(v) ?? 1
@@ -251,9 +347,14 @@ enum DebugScript {
             try? task.run()
             task.waitUntilExit()
         case "shot":
-            // shot <name> [mini]: captures the key main window (or the newest mini window).
+            // shot <name> [mini|welcome|settings]: captures the key main window (or the newest mini, welcome or settings window).
             let parts = arg.split(separator: " ")
-            let window = parts.count > 1 ? app.miniWindows.last?.window : controller?.window
+            let window: NSWindow? = switch parts.count > 1 ? parts[1] : "" {
+            case "mini": app.miniWindows.last?.window
+            case "welcome": app.welcome?.window
+            case "settings": app.settingsWindow?.window
+            default: controller?.window
+            }
             guard let window, let dir = ProcessInfo.processInfo.environment["PLINTH_SHOTS"] else { return }
             let task = Process()
             task.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")

@@ -27,6 +27,10 @@ public final class WebViewPool: NSObject {
         public var peekRequest: @MainActor (URL, _ opener: PageID) -> Void
         /// "Open Link in Split View" in the context menu.
         public var splitRequest: @MainActor (URL, _ opener: PageID) -> Void
+        /// A page called `window.open` for a popup (sign-in windows and the like). The view keeps its
+        /// link to the opening page (`window.opener`); the shell shows it in a window of its own.
+        /// `size` is the size the page asked for, when it asked.
+        public var popupCreated: @MainActor (_ view: WKWebView, _ size: CGSize?, _ opener: PageID) -> Void
 
         public init(
             didUpdate: @escaping @MainActor (PageID, _ url: URL?, _ title: String?, _ siteNameHint: String?) -> Void = { _, _, _, _ in },
@@ -38,7 +42,8 @@ public final class WebViewPool: NSObject {
             didClose: @escaping @MainActor (PageID) -> Void = { _ in },
             decideNavigation: @escaping @MainActor (PageID, NavigationRequest) -> Bool = { _, _ in true },
             peekRequest: @escaping @MainActor (URL, _ opener: PageID) -> Void = { _, _ in },
-            splitRequest: @escaping @MainActor (URL, _ opener: PageID) -> Void = { _, _ in }
+            splitRequest: @escaping @MainActor (URL, _ opener: PageID) -> Void = { _, _ in },
+            popupCreated: @escaping @MainActor (WKWebView, CGSize?, PageID) -> Void = { _, _, _ in }
         ) {
             self.didUpdate = didUpdate
             self.didScroll = didScroll
@@ -50,10 +55,18 @@ public final class WebViewPool: NSObject {
             self.decideNavigation = decideNavigation
             self.peekRequest = peekRequest
             self.splitRequest = splitRequest
+            self.popupCreated = popupCreated
         }
     }
 
     public var callbacks = Callbacks()
+    /// The data store a page's view is made with, nil for the default (persistent) one. The shell
+    /// answers with a window's non-persistent store for a page of a private window.
+    public var dataStoreForPage: @MainActor (PageID) -> WKWebsiteDataStore? = { _ in nil }
+    /// User scripts from other modules, kept across `rebuildUserScripts()` (loaded pages keep the scripts they ran).
+    public var extraUserScripts: [WKUserScript] = [] {
+        didSet { rebuildUserScripts() }
+    }
     public let favicons: FaviconStore
     public let storageDirectory: URL
     public let suspendedSiteLimit: Int
@@ -114,6 +127,8 @@ public final class WebViewPool: NSObject {
     var activeDownloads: [ObjectIdentifier: DownloadRecord] = [:]
     /// Every download this session, newest first, for the downloads indicator.
     public let downloads = DownloadsModel()
+    /// Downloads that came from a private window's view, by the data store they ran in.
+    var privateDownloads: [UUID: ObjectIdentifier] = [:]
     /// The same list as `downloads.items` (observable through it).
     public var downloadItems: [DownloadItem] { downloads.items }
 
@@ -149,9 +164,9 @@ public final class WebViewPool: NSObject {
 
     /// Every view (pooled or auxiliary) gets one of these: same data store, content controller,
     /// user agent and preferences.
-    func makeConfiguration() -> WKWebViewConfiguration {
+    func makeConfiguration(dataStore: WKWebsiteDataStore? = nil) -> WKWebViewConfiguration {
         let configuration = WKWebViewConfiguration()
-        configuration.websiteDataStore = .default()
+        configuration.websiteDataStore = dataStore ?? .default()
         configuration.userContentController = userContent
         configuration.applicationNameForUserAgent = "Version/26.0 Safari/605.1.15"
         configuration.preferences.isElementFullscreenEnabled = true
@@ -165,8 +180,8 @@ public final class WebViewPool: NSObject {
         return configuration
     }
 
-    func makeWebView() -> PlinthWebView {
-        let webView = PlinthWebView(frame: NSRect(x: 0, y: 0, width: 1200, height: 800), configuration: makeConfiguration())
+    func makeWebView(configuration: WKWebViewConfiguration? = nil) -> PlinthWebView {
+        let webView = PlinthWebView(frame: NSRect(x: 0, y: 0, width: 1200, height: 800), configuration: configuration ?? makeConfiguration())
         webView.autoresizingMask = [.width, .height]
         webView.allowsBackForwardNavigationGestures = true
         webView.allowsLinkPreview = true
@@ -177,7 +192,7 @@ public final class WebViewPool: NSObject {
     }
 
     private func makeEntry(for id: PageID) -> Entry {
-        register(makeWebView(), as: id)
+        register(makeWebView(configuration: makeConfiguration(dataStore: dataStoreForPage(id))), as: id)
     }
 
     /// Makes `webView` the pool's view for `id`: delegates, observations and the link menu.
@@ -349,6 +364,11 @@ public final class WebViewPool: NSObject {
 
     // MARK: Snapshots
 
+    /// Whether a snapshot exists, without loading it.
+    public func hasSnapshot(for id: PageID) -> Bool {
+        snapshotCache.object(forKey: id.raw as NSUUID) != nil || FileManager.default.fileExists(atPath: snapshotURL(for: id).path)
+    }
+
     /// The last saved snapshot, from memory or the disk cache.
     public func snapshot(for id: PageID) -> NSImage? {
         let cacheKey = id.raw as NSUUID
@@ -491,7 +511,9 @@ public final class WebViewPool: NSObject {
                 reportUpdate(entry.id)
             }
             guard ["http", "https"].contains(pageURL.scheme?.lowercased() ?? "") else { return }
-            favicons.noteIcon(candidates: PageMeta.iconCandidates(body), pageURL: pageURL, key: siteKey(pageURL))
+            // A private page's icon stays in memory: a file per host would be a record of where it went.
+            let persistent = entry.webView.configuration.websiteDataStore.isPersistent
+            favicons.noteIcon(candidates: PageMeta.iconCandidates(body), pageURL: pageURL, key: siteKey(pageURL), persist: persistent)
         default:
             break
         }

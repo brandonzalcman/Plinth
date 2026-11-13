@@ -54,15 +54,42 @@ enum ZenReader {
     static func bookmarks(home: URL) throws(ImportFailure) -> [ImportedBookmark] {
         let file = try file(home: home, what: "bookmarks")
         return try withDatabaseCopy(file, source: .zen, what: "bookmarks") { db throws(ImportFailure) in
+            // Folders (type 2) by id, so each bookmark's path can be walked up to the root.
+            var folders: [Int64: (parent: Int64, title: String)] = [:]
+            try query(db, "SELECT id, parent, title FROM moz_bookmarks WHERE type = 2", source: .zen, what: "bookmarks") { row in
+                folders[sqlite3_column_int64(row, 0)] = (sqlite3_column_int64(row, 1), text(row, 2))
+            }
+            func path(from parent: Int64) -> [String] {
+                var names: [String] = []
+                var at = parent
+                var steps = 0
+                while let f = folders[at], f.parent != 0, steps < 64 { // the root (parent 0) is not a folder to show
+                    names.insert(zenFolderName(f.title), at: 0)
+                    at = f.parent
+                    steps += 1
+                }
+                return names
+            }
             var out: [ImportedBookmark] = []
             try query(db, """
-                SELECT p.url, b.title FROM moz_bookmarks b JOIN moz_places p ON p.id = b.fk
+                SELECT p.url, b.title, b.parent FROM moz_bookmarks b JOIN moz_places p ON p.id = b.fk
                 WHERE b.type = 1 ORDER BY b.dateAdded
                 """, source: .zen, what: "bookmarks") { row in
                 guard let url = httpURL(text(row, 0)) else { return }
-                out.append(ImportedBookmark(title: text(row, 1), url: url))
+                out.append(ImportedBookmark(title: text(row, 1), url: url, folder: path(from: sqlite3_column_int64(row, 2))))
             }
             return out
+        }
+    }
+
+    /// Firefox's built-in folders have internal names.
+    private static func zenFolderName(_ title: String) -> String {
+        switch title {
+        case "menu": "Bookmarks Menu"
+        case "toolbar": "Bookmarks Toolbar"
+        case "unfiled": "Other Bookmarks"
+        case "mobile": "Mobile Bookmarks"
+        default: title
         }
     }
 

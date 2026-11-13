@@ -44,8 +44,11 @@ public final class SettingsStore {
         observers.append(handler)
     }
 
-    /// Restores every setting to its default.
-    public func resetToDefaults() { update { $0 = .defaults } }
+    /// Restores every setting to its default (the welcome guide is not shown again).
+    public func resetToDefaults() {
+        let seenWelcome = value.hasCompletedOnboarding
+        update { $0 = .defaults; $0.hasCompletedOnboarding = seenWelcome }
+    }
 
     private func save() {
         do {

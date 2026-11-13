@@ -30,6 +30,8 @@ struct PrivacySettingsView: View {
                 SettingsDivider()
                 SettingsToggleRow(title: "Always use HTTPS", caption: "Upgrades http links to https. If a site has no secure version, Plinth asks before opening it unsecured.", isOn: settings.binding(\.httpsOnly))
                 SettingsDivider()
+                SettingsToggleRow(title: "Search suggestions", caption: "Shows suggestions from your search engine as you type in the address bar. This sends what you type to that engine.", isOn: settings.binding(\.searchSuggestionsEnabled))
+                SettingsDivider()
                 SettingsToggleRow(title: "Send Global Privacy Control", caption: "Tells sites you don't want your data sold or shared.", isOn: settings.binding(\.globalPrivacyControl))
             }
 
@@ -89,7 +91,7 @@ struct PrivacySettingsView: View {
         result = nil
         Task { @MainActor in
             var removed = 0
-            if kinds.contains(.history) { removed = app.store.clearHistory(since: since) }
+            if kinds.contains(.history) { removed = app.clearHistory(since: since) }
             if !kinds.isDisjoint(with: [.cookiesAndSiteData, .cache]) {
                 await app.pool.clearWebsiteData(kinds, since: since)
             }

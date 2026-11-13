@@ -8,7 +8,7 @@ import PlinthWeb
 import PlinthAI
 
 // Version 1 features that float over one window: group prompt and chips, the resume card,
-// the downloads indicator, peek, and ask page / ask site.
+// peek, and ask page / ask site.
 
 /// The row just above the bar's left end: group chips or a group suggestion, then the resume card.
 struct AccessoryRow: View {
@@ -27,7 +27,7 @@ struct AccessoryRow: View {
                     ForEach(groups) { group in
                         GroupChipView(group: group, isFiltering: focused == group.id, accent: app.accent,
                                       icon: { app.pool.favicons.image(for: $0) },
-                                      onToggle: { store.setFocus(focused == group.id ? nil : group.id, in: windowID) },
+                                      onToggle: { if focused == group.id { store.setFocus(nil, in: windowID) } else { store.showGroup(group.id, in: windowID) } },
                                       onRemove: { store.deleteGroup(group.id) })
                     }
                 }
@@ -36,7 +36,7 @@ struct AccessoryRow: View {
                                     icon: { app.pool.favicons.image(for: $0) },
                                     onGroup: {
                                         let id = store.acceptSuggestion(suggestion)
-                                        store.setFocus(id, in: windowID)
+                                        store.showGroup(id, in: windowID)
                                     },
                                     onNotNow: { store.dismissSuggestion(suggestion) })
             }
@@ -50,23 +50,6 @@ struct AccessoryRow: View {
         }
         .animation(.easeOut(duration: 0.2), value: chrome.resumeCard)
         .fixedSize()
-    }
-}
-
-/// Bottom-right, above the bar: present only while there are downloads to show.
-struct DownloadsCorner: View {
-    let app: AppController
-
-    var body: some View {
-        let items = app.pool.downloads.items
-        if items.isEmpty {
-            Color.clear.frame(width: 0, height: 0)
-        } else {
-            DownloadsIndicatorView(items: items, accent: app.accent,
-                                   onReveal: { app.pool.revealDownload(id: $0) },
-                                   onCancel: { app.pool.cancelDownload(id: $0) },
-                                   onClear: { app.pool.clearFinishedDownloads() })
-        }
     }
 }
 
@@ -102,18 +85,24 @@ extension BrowserWindowController {
         accessory.sizingOptions = [.intrinsicContentSize]
         accessory.translatesAutoresizingMaskIntoConstraints = false
         root.addSubview(accessory, positioned: .below, relativeTo: barHost)
-        let downloads = NSHostingView(rootView: DownloadsCorner(app: app))
-        downloads.sizingOptions = [.intrinsicContentSize]
-        downloads.translatesAutoresizingMaskIntoConstraints = false
-        root.addSubview(downloads, positioned: .below, relativeTo: barHost)
         let lift = metrics.bottomInset + metrics.barHeight + 10
         NSLayoutConstraint.activate([
             accessory.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: metrics.sideInset),
             accessory.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -lift),
-            downloads.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -metrics.sideInset),
-            downloads.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -lift),
         ])
-        accessoryHosts = [accessory, downloads]
+        accessoryHosts = [accessory]
+    }
+
+    /// "Private" beside the traffic lights, over the strip behind them.
+    func installPrivateBadge() {
+        let badge = NSHostingView(rootView: PrivateBadge())
+        badge.sizingOptions = [.intrinsicContentSize]
+        badge.translatesAutoresizingMaskIntoConstraints = false
+        root.addSubview(badge)
+        NSLayoutConstraint.activate([
+            badge.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 82),
+            badge.topAnchor.constraint(equalTo: root.topAnchor, constant: 5),
+        ])
     }
 
     func applyAccessoryAppearance() {
@@ -181,7 +170,7 @@ extension BrowserWindowController {
     func showPeek(_ url: URL) {
         closePeek()
         dismissPanel()
-        let view = app.pool.makeAuxiliaryWebView(url: url)
+        let view = app.pool.makeAuxiliaryWebView(url: url, dataStore: app.privateDataStore(for: windowID))
         peekView = view
         let host = NSHostingView(rootView: PeekLayer(controller: self, webView: view,
                                                      state: app.pool.auxiliaryState(of: view), accent: app.accent))

@@ -25,12 +25,18 @@ final class AppController: NSObject, NSApplicationDelegate {
     var settingsWindow: SettingsWindowController?
     let layoutEngine = BarLayoutEngine()
     private(set) var store: BrowserStore!
+    /// Bookmarks and their folders (see BookmarkFeatures.swift).
+    private(set) var bookmarks: BookmarkStore!
     private(set) var pool: WebViewPool!
     private(set) var ai: AIService!
     let pinPolicy = PinLinkPolicy()
     /// A web view made outside the pool (peek, mini window) that the next matching `.pageOpened` takes over.
     var pendingAdoption: (url: URL, view: WKWebView)?
     var miniWindows: [MiniWindowController] = []
+    /// Windows for pages' `window.open` popups (sign-in windows and the like).
+    var popups: [PopupWindowController] = []
+    /// Each private window's own non-persistent data store (see PrivateWindows.swift).
+    var privateStores: [WindowID: WKWebsiteDataStore] = [:]
     /// Links handed to Plinth before it finished launching.
     var pendingOpenURLs: [URL] = []
     var didFinishLaunching = false
@@ -40,8 +46,14 @@ final class AppController: NSObject, NSApplicationDelegate {
     var indexedHistory = Set<UUID>()
     var sync: SyncCoordinator?
     var otherDevices: [DeviceOpenPages] = []
+    /// Ends the shelf's "Clear all" Undo window (see ShelfUndo.swift).
+    var shelfUndoTask: Task<Void, Never>?
     var storageDirectory: URL!
+    /// The built-in password manager (see PasswordsController.swift).
+    var passwords: PasswordsController!
     /// Set by the Xcode app target (Sparkle). nil in the SwiftPM build.
+    /// The first-launch animation and guide (see Onboarding.swift).
+    var welcome: WelcomeWindowController?
     var checkForUpdates: (@MainActor () -> Void)?
     @objc func menuCheckForUpdates(_ sender: Any?) { checkForUpdates?() }
     /// The accent colour chosen in Settings (SwiftUI views read it, so they follow changes).
@@ -66,12 +78,15 @@ final class AppController: NSObject, NSApplicationDelegate {
         try? FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
 
         settings = SettingsStore(storageDirectory: support)
+        NSApp.appearance = settings.value.appearance.nsAppearance
         resolver.engine = settings.value.searchEngine
         store = BrowserStore(identity: identity, namer: PageNamer(), fader: Self.fader(for: settings.value.fadeBehavior),
                              storageDirectory: support)
+        bookmarks = BookmarkStore(storageDirectory: support)
         pool = WebViewPool(storageDirectory: support)
         ai = AIService.makeDefault(storageDirectory: support)
         storageDirectory = support
+        setUpPasswords()
         connect()
         connectFeatures()
         pool.apply(settings.value)
@@ -85,6 +100,7 @@ final class AppController: NSObject, NSApplicationDelegate {
 
         // Time passed while Plinth was closed counts: apply fading before anything is shown.
         scheduleFade()
+        let profileHadWindows = !store.windows.isEmpty
         if store.windows.isEmpty { store.createWindow() }
         if let list = environment["PLINTH_OPEN"], let first = store.windows.first?.id {
             for text in list.split(separator: ",") {
@@ -102,6 +118,7 @@ final class AppController: NSObject, NSApplicationDelegate {
         let early = pendingOpenURLs
         pendingOpenURLs = []
         for url in early { openFromOtherApp(url) }
+        launchWelcomeIfNeeded(profileHadWindows: profileHadWindows)
         DebugScript.runIfRequested(self)
     }
 
@@ -127,6 +144,10 @@ final class AppController: NSObject, NSApplicationDelegate {
         }
         ai.semanticEnabled = new.semanticSearchEnabled
         ai.summariesEnabled = new.pageSummariesEnabled
+        if old.appearance != new.appearance {
+            NSApp.appearance = new.appearance.nsAppearance
+            for controller in controllers.values { controller.applyChromeAppearance() }
+        }
         if old.accent != new.accent {
             for controller in controllers.values { controller.refreshContent() }
         }
@@ -144,6 +165,7 @@ final class AppController: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         for controller in controllers.values { controller.saveFrame() }
         store.flush()
+        bookmarks.flush()
         let ai = ai
         let done = DispatchSemaphore(value: 0)
         Task.detached { await ai?.flush(); done.signal() }
@@ -156,6 +178,7 @@ final class AppController: NSObject, NSApplicationDelegate {
         store.onEvent = { [weak self] event in self?.handle(event) }
         let identity = identity
         pool.siteKey = { identity.key(for: $0) }
+        pool.dataStoreForPage = { [weak self] id in self?.dataStore(forPage: id) }
 
         pool.callbacks.didUpdate = { [weak self] id, url, title, hint in
             self?.store.pageDidUpdate(id, url: url, title: title, siteNameHint: hint)
@@ -242,9 +265,15 @@ final class AppController: NSObject, NSApplicationDelegate {
     }
 
     /// Closing the last window keeps its bar for next time; closing one of several puts its sites away.
+    /// A private window is always discarded, and never counts as "another window" for a normal one.
     func windowDidClose(_ id: WindowID) {
         controllers[id] = nil
-        if !controllers.isEmpty { store.closeWindow(id) }
+        if store.isPrivate(window: id) {
+            store.closeWindow(id)
+            privateWindowClosed(id)
+        } else if controllers.keys.contains(where: { !store.isPrivate(window: $0) }) {
+            store.closeWindow(id)
+        }
     }
 
     // MARK: Timers
@@ -273,13 +302,25 @@ final class AppController: NSObject, NSApplicationDelegate {
     func handle(_ action: BarAction, in windowID: WindowID) {
         guard let controller = controllers[windowID] else { return }
         switch action {
-        case .selectPage(let id): store.select(id, in: windowID)
+        case .selectPage(let id):
+            // Clicking the page you are already on opens the address editor with its URL selected.
+            if store.window(windowID)?.selectedPageID == id, case .none = controller.chrome.panel {
+                controller.openCommandBar(newPage: false)
+            } else {
+                store.select(id, in: windowID)
+            }
         case .closePage(let id): store.closePage(id)
         case .selectPin(let id): store.selectPin(id, in: windowID)
         case .selectSite(let id): store.selectSite(id, in: windowID)
+        case .toggleFold(let id): store.toggleFold(id, in: windowID)
         case .newPage: controller.openCommandBar(newPage: true)
+        case .goBack: if let page = store.window(windowID)?.selectedPageID { pool.goBack(page) }
+        case .goForward: if let page = store.window(windowID)?.selectedPageID { pool.goForward(page) }
+        case .reload: if let page = store.window(windowID)?.selectedPageID { pool.reload(page) }
+        case .stopLoading: if let page = store.window(windowID)?.selectedPageID { pool.stopLoading(page) }
         case .openCommandBar: controller.openCommandBar(newPage: false)
         case .openShelf: controller.toggleShelf()
+        case .openDownloads: controller.toggleDownloads()
         case .setKept(let id, let kept): store.setKept(id, kept)
         case .pinSite(let id): store.pin(site: id)
         case .unpin(let id): store.unpin(id, into: windowID)
@@ -302,10 +343,12 @@ final class AppController: NSObject, NSApplicationDelegate {
 
     // MARK: Menu actions (sent to the key window)
 
+    @objc func menuShowWelcome(_ sender: Any?) { showWelcomeGuide() }
     @objc func menuNewWindow(_ sender: Any?) { newWindow() }
     @objc func menuNewPage(_ sender: Any?) { keyController?.openCommandBar(newPage: true) }
     @objc func menuOpenLocation(_ sender: Any?) { keyController?.openCommandBar(newPage: false) }
     @objc func menuShelf(_ sender: Any?) { keyController?.toggleShelf() }
+    @objc func menuHistory(_ sender: Any?) { keyController?.toggleHistory() }
     @objc func menuFind(_ sender: Any?) { keyController?.openFind() }
     @objc func menuClosePage(_ sender: Any?) {
         guard let id = keyWindowID, let controller = controllers[id], controller.window === NSApp.keyWindow else {

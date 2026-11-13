@@ -29,6 +29,11 @@ extension AppController: NSMenuItemValidation, NSMenuDelegate {
                 ?? self.store.windows.first(where: { $0.selectedPageID == opener })?.id ?? self.keyWindowID
             if let window { self.controller(for: window)?.showPeek(url) }
         }
+        pool.callbacks.popupCreated = { [weak self] view, size, opener in
+            guard let self else { return }
+            let parent = (self.store.windowID(containing: opener) ?? self.keyWindowID).flatMap { self.controller(for: $0)?.window }
+            self.popups.append(PopupWindowController(app: self, view: view, size: size, near: parent))
+        }
         pool.callbacks.splitRequest = { [weak self] url, opener in
             guard let self else { return }
             guard let window = self.store.windowID(containing: opener) ?? self.keyWindowID else { return }
@@ -68,6 +73,31 @@ extension AppController: NSMenuItemValidation, NSMenuDelegate {
         return store.semanticResults(matches, excluding: store.search(trimmed, limit: 16), limit: 4)
     }
 
+    /// Search suggestions from the user's search engine for the command bar. Empty when switched
+    /// off, for an address-like query, for a custom engine, or on any network error. No cookies.
+    func searchSuggestions(for query: String) async -> [String] {
+        let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard settings.value.searchSuggestionsEnabled, SearchSuggestions.isWorthAsking(text),
+              let url = SearchSuggestions.endpoint(for: settings.value.searchEngine, query: text) else { return [] }
+        var request = URLRequest(url: url, timeoutInterval: 2)
+        request.httpShouldHandleCookies = false
+        request.setValue(nil, forHTTPHeaderField: "Referer")
+        guard let (data, response) = try? await Self.suggestionSession.data(for: request),
+              (response as? HTTPURLResponse)?.statusCode == 200 else { return [] }
+        return SearchSuggestions.parse(data, query: text)
+    }
+
+    private static let suggestionSession: URLSession = {
+        let config = URLSessionConfiguration.ephemeral
+        config.httpCookieStorage = nil
+        config.urlCache = nil
+        return URLSession(configuration: config)
+    }()
+
+    func popupClosed(_ popup: PopupWindowController) {
+        popups.removeAll { $0 === popup }
+    }
+
     // MARK: Links from other apps
 
     func application(_ application: NSApplication, open urls: [URL]) {
@@ -98,10 +128,11 @@ extension AppController: NSMenuItemValidation, NSMenuDelegate {
         let url = view.url ?? mini.initialURL
         mini.window.close()
         let target: WindowID
-        if let id = keyWindowID, controller(for: id) != nil {
+        // Never into a private window: the page was made with the normal profile's cookies.
+        if let id = keyWindowID, controller(for: id) != nil, !store.isPrivate(window: id) {
             target = id
         } else {
-            target = store.windows.first?.id ?? store.createWindow()
+            target = store.windows.first(where: { !$0.isPrivate })?.id ?? store.createWindow()
             showControllerPublic(for: target)
         }
         adoptNextOpen(view, url: url)
@@ -177,6 +208,8 @@ extension AppController: NSMenuItemValidation, NSMenuDelegate {
         case #selector(menuAsk(_:)):
             // A mini window has no bar to ask from; never reach through to a hidden main window.
             return keyMiniWindow == nil && keyController.flatMap { store.window($0.windowID)?.selectedPageID } != nil
+        case #selector(menuPinSite(_:)):
+            return keyWindowID.map { !store.isPrivate(window: $0) } ?? true
         case #selector(menuSplitWithNext(_:)):
             guard let id = keyWindowID else { return false }
             return store.visibleSites(in: id).reduce(0) { $0 + $1.pages.count } > 1
@@ -240,6 +273,18 @@ extension AppController: NSMenuItemValidation, NSMenuDelegate {
             }
             self.observeForSync()
         }
+    }
+
+    /// Clears history on this Mac and, with iCloud sync on, on the others. Everything clears with the
+    /// sync marker; a range deletes just those entries from the server. Returns how many were removed.
+    @discardableResult
+    func clearHistory(since date: Date?) -> Int {
+        let ids = store.history.filter { date == nil || $0.visitedAt >= date! }.map(\.id)
+        let removed = store.clearHistory(since: date)
+        if let engine = sync?.engine {
+            if date == nil { engine.clearHistory() } else { engine.clearHistory(removing: ids) }
+        }
+        return removed
     }
 
     private func observeForSync() {

@@ -16,6 +16,14 @@ struct AppearanceSettingsView: View {
 
     var body: some View {
         SettingsPage(title: "Appearance & Bar") {
+            SettingsCard(heading: "Appearance") {
+                SettingsRow(title: "Appearance", caption: appearanceCaption) {
+                    SettingsMenuPicker(label: "Appearance",
+                                       options: AppearanceChoice.allCases.map { ($0, $0.displayName) },
+                                       selection: settings.binding(\.appearance))
+                }
+            }
+
             SettingsCard(heading: "Accent colour") {
                 SettingsRow(title: "Accent", caption: "Used for the current page, buttons and switches. Applies immediately.") {
                     HStack(spacing: 9) {
@@ -37,7 +45,7 @@ struct AppearanceSettingsView: View {
                     HStack(spacing: 10) {
                         if zoomIndex != Self.zoomSteps.firstIndex(of: 1) {
                             Button("Reset") { settings.update { $0.defaultZoom = 1 } }.buttonStyle(.plain)
-                                .font(.system(size: 11.5, weight: .medium)).foregroundStyle(t.accent).fixedSize()
+                                .font(.system(size: 11.5, weight: .medium)).foregroundStyle(t.accentText).fixedSize()
                                 .accessibilityLabel("Reset default page zoom")
                         }
                         Slider(value: Binding(get: { Double(zoomIndex) }, set: { v in settings.update { s in s.defaultZoom = Self.zoomSteps[min(max(Int(v.rounded()), 0), Self.zoomSteps.count - 1)] } }),
@@ -66,6 +74,14 @@ struct AppearanceSettingsView: View {
                                     reset: { settings.update { $0.minimumFontSize = 0 } })
                 }
             }
+        }
+    }
+
+    private var appearanceCaption: String {
+        switch settings.value.appearance {
+        case .system: "Follows your Mac's light or dark appearance. Applies immediately."
+        case .light: "Plinth's bar, panels and settings stay light. Applies immediately."
+        case .dark: "Plinth's bar, panels and settings stay dark. Websites that support dark mode follow. Applies immediately."
         }
     }
 

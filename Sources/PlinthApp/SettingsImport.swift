@@ -4,7 +4,7 @@ import PlinthImport
 
 /// Plain-language statement of where imported bookmarks end up. Easy to change.
 enum ImportCopy {
-    static let bookmarksExplanation = "Plinth has no bookmark folders. Imported bookmarks are added to the shelf, grouped by site."
+    static let bookmarksExplanation = "Imported bookmarks are added to Bookmarks, in a folder named for the browser, keeping their folders. Open them with ⌥⌘B."
 }
 
 struct ImportSettingsView: View {
@@ -35,7 +35,7 @@ private struct ImportCard: View {
             SettingsRow(title: source.displayName,
                         caption: installed ? "Found on this Mac." : "\(source.displayName) data wasn't found on this Mac.") {
                 Image(systemName: installed ? "checkmark.circle.fill" : "minus.circle").font(.system(size: 17))
-                    .foregroundStyle(installed ? t.accent : t.p.tertiary)
+                    .foregroundStyle(installed ? t.accentText : t.p.tertiary)
                     .accessibilityLabel(installed ? "Installed" : "Not installed")
             }
             SettingsDivider()
@@ -94,7 +94,7 @@ private struct ImportCard: View {
         let source = source, bookmarks = bookmarks, history = history
         Task { @MainActor in
             do {
-                report = try await ImportService.run(source, bookmarks: bookmarks, history: history, into: app.store, identity: app.identity)
+                report = try await ImportService.run(source, bookmarks: bookmarks, history: history, into: app.store, identity: app.identity, bookmarkStore: app.bookmarks)
             } catch let error as ImportFailure {
                 failure = error
             } catch {

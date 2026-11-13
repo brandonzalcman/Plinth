@@ -14,10 +14,12 @@ public final class BrowserStore {
     public internal(set) var pins: [PinnedSite] = []
     /// Global, newest first.
     public internal(set) var shelf: [ShelfEntry] = []
+    /// What "Clear all" just took off the shelf, waiting on Undo. Not saved. See ShelfClear.swift.
+    public internal(set) var clearedShelf: [ShelfEntry] = []
     /// Global, newest first.
     public internal(set) var history: [HistoryEntry] = []
     /// Lifetime usage per site key.
-    public private(set) var siteStats: [SiteKey: Usage] = [:]
+    public internal(set) var siteStats: [SiteKey: Usage] = [:]
     /// Global, in the order they were created. See Groups.swift.
     public internal(set) var groups: [SiteGroup] = []
     @ObservationIgnored public var onEvent: ((StoreEvent) -> Void)?
@@ -30,6 +32,9 @@ public final class BrowserStore {
     var dismissedSuggestions: [[SiteKey]] = []
     @ObservationIgnored var coOpenUnsaved: TimeInterval = 0
     @ObservationIgnored var suggestionCache: [WindowID: (signature: Int, result: GroupSuggestion?)] = [:]
+    /// Site keys whose usage record exists only because a private window has the site open. They
+    /// are never counted, never saved and dropped when the private window goes (Private.swift).
+    @ObservationIgnored var transientStats: Set<SiteKey> = []
 
     static let historyCap = 20_000
     static let closedCap = 50
@@ -44,6 +49,10 @@ public final class BrowserStore {
     @ObservationIgnored private(set) var closed: [ClosedPage] = []
     /// The history entry for each page's current visit.
     @ObservationIgnored var latestHistory: [PageID: UUID] = [:]
+    /// What the user picked from the command bar, by canonical address (SuggestionResults.swift).
+    @ObservationIgnored var picks: [String: PickRecord] = [:]
+    @ObservationIgnored var suggestionIndex = SuggestionIndex()
+    @ObservationIgnored var lastSuggestionQuery = ""
     @ObservationIgnored private var pendingEvents: [StoreEvent] = []
     @ObservationIgnored private var saveTask: Task<Void, Never>?
     /// How long a change may wait before it is written to disk.
@@ -63,8 +72,9 @@ public final class BrowserStore {
 
     // MARK: - Windows
 
-    @discardableResult public func createWindow() -> WindowID {
-        let window = WindowState()
+    /// A private window (`isPrivate`) leaves no trace; see Private.swift.
+    @discardableResult public func createWindow(isPrivate: Bool = false) -> WindowID {
+        let window = WindowState(isPrivate: isPrivate)
         windows.append(window)
         commit()
         return window.id
@@ -75,8 +85,9 @@ public final class BrowserStore {
         guard let wi = windows.firstIndex(where: { $0.id == id }) else { return }
         let window = windows.remove(at: wi)
         for site in window.sites {
-            addToShelf(site.pages, key: site.key, name: site.name)
+            retire(site.pages, key: site.key, name: site.name, private: window.isPrivate)
         }
+        if window.isPrivate { forgetPrivate(window) }
         commit()
     }
 
@@ -108,7 +119,7 @@ public final class BrowserStore {
             emit(.selectionChanged(window))
         }
         windows[wi] = w
-        if let stored = w.page(page.id) { recordHistory(for: stored, key: key, title: stored.rawTitle) }
+        if !w.isPrivate, let stored = w.page(page.id) { recordHistory(for: stored, key: key, title: stored.rawTitle) }
         commit()
         return page.id
     }
@@ -119,7 +130,7 @@ public final class BrowserStore {
         guard let loc = findPage(id) else { return }
         var w = windows[loc.w]
         guard let d = detach(id, from: &w) else { return }
-        pushClosed(d, window: w.id)
+        if !w.isPrivate { pushClosed(d, window: w.id) } else { latestHistory[id] = nil }
         emit(.pageClosed(id))
         repair(&w, removed: [id], sameSite: d.siteRemoved ? nil : (d.siteID, d.pageIndex))
         windows[loc.w] = w
@@ -132,8 +143,10 @@ public final class BrowserStore {
         var w = windows[loc.w]
         let site = w.sites.remove(at: loc.s)
         for (index, page) in site.pages.enumerated() {
-            pushClosed(Detached(page: page, siteIndex: loc.s, pageIndex: index, siteID: site.id, key: site.key,
-                                siteName: site.name, siteRemoved: true), window: w.id)
+            if !w.isPrivate {
+                pushClosed(Detached(page: page, siteIndex: loc.s, pageIndex: index, siteID: site.id, key: site.key,
+                                    siteName: site.name, siteRemoved: true), window: w.id)
+            }
             emit(.pageClosed(page.id))
         }
         repair(&w, removed: Set(site.pages.map(\.id)))
@@ -145,7 +158,8 @@ public final class BrowserStore {
     /// position when its old site is still on that window's bar, otherwise where a newly opened
     /// page would go. Emits `.pageOpened`, `.navigate`, `.selectionChanged`.
     @discardableResult public func reopenClosedPage(in window: WindowID) -> PageID? {
-        guard let wi = windows.firstIndex(where: { $0.id == window }), let entry = closed.popLast() else { return nil }
+        guard let wi = windows.firstIndex(where: { $0.id == window }), !windows[wi].isPrivate,
+              let entry = closed.popLast() else { return nil }
         var w = windows[wi]
         var page = entry.page
         page.fade = .live
@@ -165,8 +179,15 @@ public final class BrowserStore {
     public func select(_ page: PageID, in window: WindowID) {
         guard let wi = windows.firstIndex(where: { $0.id == window }) else { return }
         var w = windows[wi]
-        guard w.selectedPageID != page else { return }
-        guard w.page(page) != nil || pins.contains(where: { $0.page.id == page }) else { return }
+        guard w.selectedPageID != page else {
+            // Already selected, but reaching it by any means still unfolds its site.
+            if let at = indices(of: page, in: w), w.sites[at.s].isFolded {
+                windows[wi].sites[at.s].isFolded = false
+                commit()
+            }
+            return
+        }
+        guard w.page(page) != nil || (!w.isPrivate && pins.contains(where: { $0.page.id == page })) else { return }
         focus(page, in: &w)
         emit(.selectionChanged(window))
         windows[wi] = w
@@ -179,16 +200,33 @@ public final class BrowserStore {
         select(s.currentPage.id, in: window)
     }
 
+    /// Folds a site with several pages down to its icon and a page count, or unfolds it. Nothing
+    /// is closed and the selection stays put (selecting any page of a folded site unfolds it).
+    /// One-page sites and a site holding a page of the split cannot be folded.
+    public func toggleFold(_ site: SiteID, in window: WindowID) {
+        guard let wi = windows.firstIndex(where: { $0.id == window }),
+              let si = windows[wi].sites.firstIndex(where: { $0.id == site }) else { return }
+        let s = windows[wi].sites[si]
+        if s.isFolded {
+            windows[wi].sites[si].isFolded = false
+        } else {
+            guard s.pages.count > 1 else { return }
+            if let split = windows[wi].split, s.pages.contains(where: { split.contains($0.id) }) { return }
+            windows[wi].sites[si].isFolded = true
+        }
+        commit()
+    }
+
     public func selectPin(_ pin: SiteID, in window: WindowID) {
         guard let p = pins.first(where: { $0.id == pin }) else { return }
-        select(p.page.id, in: window)
+        select(p.page.id, in: window) // a private window refuses it: pins live in the normal profile
     }
 
     /// ⌘1…⌘9: the number-th page in `BarOrder.pageOrder`. Out of range does nothing.
     /// While a group is focused only `visibleSites(in:)` count (pins still first).
     public func selectByShortcut(_ number: Int, in window: WindowID) {
         guard (1...9).contains(number), self.window(window) != nil else { return }
-        let order = BarOrder.pageOrder(pins: pins, sites: visibleSites(in: window))
+        let order = BarOrder.pageOrder(pins: pins(in: window), sites: visibleSites(in: window))
         guard number <= order.count else { return }
         select(order[number - 1], in: window)
     }
@@ -197,7 +235,7 @@ public final class BrowserStore {
     /// While a group is focused only `visibleSites(in:)` count.
     public func selectAdjacent(offset: Int, in window: WindowID) {
         guard offset != 0, let w = self.window(window) else { return }
-        let order = BarOrder.pageOrder(pins: pins, sites: visibleSites(in: window))
+        let order = BarOrder.pageOrder(pins: pins(in: window), sites: visibleSites(in: window))
         guard !order.isEmpty else { return }
         let target: Int
         if let selected = w.selectedPageID, let index = order.firstIndex(of: selected) {
@@ -229,7 +267,7 @@ public final class BrowserStore {
                 if w.selectedPageID == id, let at = indices(of: id, in: w) {
                     w.sites[at.s].currentPageID = id
                     w.sites[at.s].fade = .live
-                    visitStats(key)
+                    if !w.isPrivate { visitStats(key) }
                 }
             }
             if let at = indices(of: id, in: w) {
@@ -242,7 +280,9 @@ public final class BrowserStore {
                     w.sites[at.s].pages[at.p].name = displayName(w.sites[at.s].pages[at.p], siteName: w.sites[at.s].name)
                 }
                 let stored = w.sites[at.s].pages[at.p]
-                if urlChanged {
+                if w.isPrivate {
+                    // Nothing is recorded for a private page.
+                } else if urlChanged {
                     recordHistory(for: stored, key: key, title: title ?? "")
                 } else if title != nil {
                     syncHistoryTitle(stored, siteName: w.sites[at.s].name)
@@ -390,7 +430,7 @@ public final class BrowserStore {
     /// The site's current page becomes a pin (same page id, new site id); its other pages stay
     /// as an ordinary site. Does nothing when the site's key is already pinned.
     public func pin(site: SiteID) {
-        guard let loc = findSite(site) else { return }
+        guard let loc = findSite(site), !windows[loc.w].isPrivate else { return }
         var w = windows[loc.w]
         let s = w.sites[loc.s]
         guard !pins.contains(where: { $0.key == s.key }) else { return }
@@ -412,7 +452,7 @@ public final class BrowserStore {
     /// its key). Other windows that were showing the pin fall back to their most recent page.
     public func unpin(_ pin: SiteID, into window: WindowID) {
         guard let pi = pins.firstIndex(where: { $0.id == pin }),
-              let wi = windows.firstIndex(where: { $0.id == window }) else { return }
+              let wi = windows.firstIndex(where: { $0.id == window }), !windows[wi].isPrivate else { return }
         let removed = pins.remove(at: pi)
         let pageID = removed.page.id
         var w = windows[wi]
@@ -511,7 +551,7 @@ public final class BrowserStore {
                       !w.sites[si].pages.contains(where: { visible.contains($0.id) }) else { continue }
                 let site = w.sites.remove(at: si)
                 removed.formUnion(site.pages.map(\.id))
-                addToShelf(site.pages, key: site.key, name: site.name)
+                retire(site.pages, key: site.key, name: site.name, private: w.isPrivate)
             }
             let wanted = Set(verdict.pagesToShelve).subtracting(visible)
             if !wanted.isEmpty {
@@ -520,7 +560,7 @@ public final class BrowserStore {
                     guard !leaving.isEmpty else { continue }
                     for page in leaving { _ = detach(page.id, from: &w) }
                     removed.formUnion(leaving.map(\.id))
-                    addToShelf(leaving, key: site.key, name: site.name)
+                    retire(leaving, key: site.key, name: site.name, private: w.isPrivate)
                 }
             }
             repair(&w, removed: removed)
@@ -535,7 +575,7 @@ public final class BrowserStore {
         guard let loc = findSite(site) else { return }
         var w = windows[loc.w]
         let s = w.sites.remove(at: loc.s)
-        addToShelf(s.pages, key: s.key, name: s.name)
+        retire(s.pages, key: s.key, name: s.name, private: w.isPrivate)
         repair(&w, removed: Set(s.pages.map(\.id)))
         windows[loc.w] = w
         commit()
@@ -546,7 +586,7 @@ public final class BrowserStore {
     /// Emits `.pagesRestored` then `.selectionChanged`.
     @discardableResult public func restore(entry: SiteID, page: PageID?, into window: WindowID) -> [PageID] {
         guard let ei = shelf.firstIndex(where: { $0.id == entry }),
-              let wi = windows.firstIndex(where: { $0.id == window }) else { return [] }
+              let wi = windows.firstIndex(where: { $0.id == window }), !windows[wi].isPrivate else { return [] }
         var e = shelf[ei]
         var pages: [Page]
         if let page {
@@ -603,13 +643,14 @@ public final class BrowserStore {
         saveTask = nil
         guard let storageDirectory else { return }
         var stats: [String: Usage] = [:]
-        for (key, usage) in siteStats { stats[key.host] = usage }
+        for (key, usage) in siteStats where !transientStats.contains(key) { stats[key.host] = usage }
         var latest: [String: UUID] = [:]
         for (page, entry) in latestHistory { latest[page.raw.uuidString] = entry }
-        let snapshot = StoreSnapshot(version: StoreSnapshot.currentVersion, windows: windows, pins: pins, shelf: shelf,
+        let snapshot = StoreSnapshot(version: StoreSnapshot.currentVersion, windows: windows.filter { !$0.isPrivate }, pins: pins, shelf: shelf,
                                      history: history, siteStats: stats, closed: closed, latestHistory: latest,
                                      groups: groups, coOpen: coOpenRecordsForSaving(),
-                                     dismissedSuggestions: dismissedSuggestions.map { $0.map(\.host) })
+                                     dismissedSuggestions: dismissedSuggestions.map { $0.map(\.host) },
+                                     picks: picks.isEmpty ? nil : picks)
         let data = try snapshot.encoded()
         try FileManager.default.createDirectory(at: storageDirectory, withIntermediateDirectories: true)
         try data.write(to: storageDirectory.appendingPathComponent(StoreSnapshot.fileName), options: .atomic)
@@ -631,7 +672,7 @@ public final class BrowserStore {
             recoveredCorruptFile = StoreSnapshot.moveAside(file, now: now())
             return
         }
-        windows = snapshot.windows
+        windows = snapshot.windows.filter { !$0.isPrivate }
         pins = snapshot.pins
         shelf = snapshot.shelf
         history = snapshot.history
@@ -645,6 +686,7 @@ public final class BrowserStore {
         groups = snapshot.groups ?? []
         dismissedSuggestions = (snapshot.dismissedSuggestions ?? []).map { $0.map(SiteKey.init) }
         loadCoOpen(snapshot.coOpen ?? [])
+        picks = snapshot.picks ?? [:]
         sanitize()
     }
 
@@ -681,7 +723,7 @@ public final class BrowserStore {
                         var p = page
                         if p.name.isEmpty { p.name = displayName(p, siteName: site.name) }
                         w.sites.append(Site(id: id, key: key, name: site.name, pages: [p], currentPageID: site.currentPageID,
-                                            isKept: site.isKept, fade: site.fade))
+                                            isKept: site.isKept, fade: site.fade, isFolded: site.isFolded))
                     } else {
                         insert(page, key: key, siteName: key == site.key ? site.name : nil, into: &w, at: .end)
                     }
@@ -945,7 +987,8 @@ public final class BrowserStore {
             w.sites[at.s].pages[at.p].fade = .live
             w.sites[at.s].fade = .live
             w.sites[at.s].currentPageID = id
-            visitStats(w.sites[at.s].key)
+            w.sites[at.s].isFolded = false // any way of reaching a page unfolds its site
+            if !w.isPrivate { visitStats(w.sites[at.s].key) }
         } else if let pi = pins.firstIndex(where: { $0.page.id == id }) {
             if countPageVisit { pins[pi].page.usage.recordVisit(at: t) }
             visitStats(pins[pi].key)
@@ -992,7 +1035,7 @@ public final class BrowserStore {
     }
 
     /// One shelf entry per site key; the entry that just received pages moves to the front.
-    private func addToShelf(_ pages: [Page], key: SiteKey, name: String) {
+    func addToShelf(_ pages: [Page], key: SiteKey, name: String) {
         guard !pages.isEmpty else { return }
         let t = now()
         if let i = shelf.firstIndex(where: { $0.key == key }) {
@@ -1009,7 +1052,8 @@ public final class BrowserStore {
 
     // MARK: - Internals: usage and history
 
-    private func visitStats(_ key: SiteKey) {
+    func visitStats(_ key: SiteKey) {
+        transientStats.remove(key)
         let t = now()
         if var usage = siteStats[key] {
             usage.recordVisit(at: t)
@@ -1023,12 +1067,19 @@ public final class BrowserStore {
     private func ensureStats() {
         let t = now()
         for w in windows {
-            for site in w.sites where siteStats[site.key] == nil { siteStats[site.key] = Usage(at: t) }
+            for site in w.sites {
+                if siteStats[site.key] == nil {
+                    siteStats[site.key] = Usage(at: t)
+                    if w.isPrivate { transientStats.insert(site.key) }
+                } else if !w.isPrivate {
+                    transientStats.remove(site.key)
+                }
+            }
         }
         for pin in pins where siteStats[pin.key] == nil { siteStats[pin.key] = Usage(at: t) }
     }
 
-    private func recordHistory(for page: Page, key: SiteKey, title: String) {
+    func recordHistory(for page: Page, key: SiteKey, title: String) {
         // Blank pages are not somewhere the user has been.
         guard page.url.scheme?.lowercased() != "about" else {
             latestHistory[page.id] = nil

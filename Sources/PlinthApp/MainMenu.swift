@@ -16,6 +16,7 @@ enum MainMenu {
             add(app, "Check for Updates…", #selector(AppController.menuCheckForUpdates(_:)), "")
         }
         app.addItem(.separator())
+        add(app, "Show Welcome Guide", #selector(AppController.menuShowWelcome(_:)), "")
         add(app, "Settings…", #selector(AppController.menuSettings(_:)), ",")
         app.addItem(.separator())
         add(app, "Use On-Device AI", #selector(AppController.menuToggleAI(_:)), "")
@@ -31,6 +32,7 @@ enum MainMenu {
         let file = submenu(main, "File")
         add(file, "New Page", #selector(AppController.menuNewPage(_:)), "t")
         add(file, "New Window", #selector(AppController.menuNewWindow(_:)), "n")
+        add(file, "New Private Window", #selector(AppController.menuNewPrivateWindow(_:)), "n", [.command, .shift])
         add(file, "Search or Enter Address…", #selector(AppController.menuOpenLocation(_:)), "l")
         file.addItem(.separator())
         add(file, "Close Page", #selector(AppController.menuClosePage(_:)), "w")
@@ -61,6 +63,7 @@ enum MainMenu {
         add(view, "Actual Size", #selector(AppController.menuZoomReset(_:)), "0")
         view.addItem(.separator())
         add(view, "Show Shelf", #selector(AppController.menuShelf(_:)), "l", [.command, .shift])
+        add(view, "Show History", #selector(AppController.menuHistory(_:)), "y")
         dynamicSubmenu(view, splitMenuTitle)
         add(view, "Split View with Next Page", #selector(AppController.menuSplitWithNext(_:)), "\\", [.command, .option])
         add(view, "End Split View", #selector(AppController.menuEndSplit(_:)), "\\", [.command, .shift])
@@ -79,6 +82,10 @@ enum MainMenu {
             let item = add(go, "Page \(number)", #selector(AppController.menuSelectNumbered(_:)), "\(number)")
             item.tag = number
         }
+
+        let bookmarks = submenu(main, "Bookmarks")
+        add(bookmarks, "Bookmark This Page", #selector(AppController.menuBookmarkPage(_:)), "d")
+        add(bookmarks, "Show Bookmarks", #selector(AppController.menuShowBookmarks(_:)), "b", [.command, .option])
 
         let site = submenu(main, "Site")
         add(site, "Keep on Bar", #selector(AppController.menuKeepSite(_:)), "k", [.command, .shift])

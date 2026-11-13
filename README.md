@@ -75,12 +75,13 @@ Also included:
 - **Pinned sites.** A pin is a small resident app with one page. A link that leaves the pin's site opens as an ordinary page, and sign-in flows keep working.
 - **Mini window.** Links opened from other apps get a small window with no bar; ⌘⇧↩ moves the page into your main window.
 - **Content blocking.** A built-in ad and tracker blocker.
+- **Private window.** File ▸ New Private Window (⇧⌘N) opens a dark, separate window with its own bar. It keeps no history, shelf, resume cards or search index, discards its cookies and site data when it closes, and is neither restored at launch nor synced.
 - **Downloads, find in page, zoom,** and reopen closed page.
 - **iCloud sync.** Pins, the shelf and history sync, plus each Mac's open pages as a read-only list. This is built and tested but off by default; see [Known limits](#known-limits).
 
 ## Install
 
-**[Download Plinth for Mac](https://github.com/brandonzalcman/Plinth/releases/latest/download/Plinth.dmg)** (macOS 26 or later). Open the disk image and drag Plinth to Applications. It's signed and notarized, and it updates itself: you'll get new versions automatically, or choose **Plinth › Check for Updates…**.
+**[Download Plinth for Mac](https://github.com/brandonzalcman/Plinth/releases/latest)** (macOS 26 or later). Open the disk image and drag Plinth to Applications. It's signed and notarized, and it updates itself: you'll get new versions automatically, or choose **Plinth › Check for Updates…**.
 
 To make Plinth your default browser, choose it under System Settings › Desktop & Dock › Default web browser.
 
@@ -88,7 +89,7 @@ Prefer to build it yourself? See [Build from source](#build-from-source).
 
 ## Using Plinth
 
-**Open a page.** Press ⌘L or ⌘T and type an address or a search. The command bar also finds open pages, pins, shelved pages and history. Results found by meaning appear under their own heading.
+**Open a page.** Press ⌘L or ⌘T and type an address or a search. The command bar also finds open pages, pins, shelved pages, bookmarks and history. Results found by meaning appear under their own heading.
 
 <p align="center"><img src="docs/images/command-bar.jpg" alt="The command bar" width="720"></p>
 
@@ -97,6 +98,8 @@ Prefer to build it yourself? See [Build from source](#build-from-source).
 - Drag a page or a site to reorder it.
 - Rest one page on another to split them.
 - Right-click a page to rename it, keep its site, pin it, put it away or split with it.
+
+**Bookmarks.** Press ⌘D to bookmark the page you are on. A small card lets you rename it, choose a folder or remove it, and goes away on its own. Press ⌥⌘B to see them all: make folders, rename, move or remove bookmarks, and search. Bookmarks that match what you type also appear under their own heading in the command bar.
 
 **The shelf.** Sites you stop using drop onto the shelf. Click the tray at the right of the bar, or press ⇧⌘L. Pick a page to bring it back where it was.
 
@@ -111,10 +114,12 @@ Prefer to build it yourself? See [Build from source](#build-from-source).
 | Action | Keys |
 |---|---|
 | New page / search or enter address | ⌘T / ⌘L |
+| New private window | ⇧⌘N |
 | Close page, reopen closed page | ⌘W, ⇧⌘T |
 | Next / previous page | ⇧⌘] / ⇧⌘[ |
 | Go to page 1–9 (left to right) | ⌘1 … ⌘9 |
 | Show shelf | ⇧⌘L |
+| Bookmark this page, show bookmarks | ⌘D / ⌥⌘B |
 | Find in page | ⌘F |
 | Ask about this page | ⌘J |
 | Split with next page / end split | ⌥⌘\\ / ⇧⌘\\ |
@@ -219,7 +224,7 @@ More detail is in [`docs/`](docs): the [brand guide](docs/brand-guide.md) and th
 
 ## Releasing
 
-Releases are a signed, notarized `Plinth.dmg` on GitHub Releases, with Sparkle auto-updates. Nothing ships on merge: running the Release workflow by hand, or pushing a tag like `v0.2.0`, runs the whole pipeline. One-time setup and details are in [RELEASING.md](RELEASING.md).
+Releases are a signed, notarized `Plinth-<version>.dmg` on GitHub Releases, with Sparkle auto-updates. Nothing ships on merge: running the Release workflow by hand, or pushing a tag like `v0.2.0`, runs the whole pipeline. One-time setup and details are in [RELEASING.md](RELEASING.md).
 
 ## Contributing
 
@@ -233,7 +238,7 @@ Good first areas:
 ## Known limits
 
 - **iCloud sync** needs an Apple developer team. Choose your team and add the iCloud capability in `Plinth.xcodeproj`; the ad-hoc build can't use iCloud. [docs/icloud-sync.md](docs/icloud-sync.md) has the steps.
-- **System Passwords autofill** needs Apple's web-browser entitlement, which an open-source build does not have.
+- **System Passwords autofill** needs Apple's web-browser entitlement, which an open-source build does not have. [Design/passwords-autofill.md](Design/passwords-autofill.md) has how to request it.
 - **Semantic search** quality depends on Apple's NaturalLanguage sentence embeddings, so "By meaning" results come after keyword results.
 - **No extensions,** by design.
 

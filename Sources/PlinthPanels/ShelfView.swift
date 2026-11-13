@@ -16,12 +16,16 @@ public struct ShelfView: View {
     private let accent: Color
     private let icon: (SiteKey) -> NSImage?
     private let snapshot: (PageID) -> NSImage?
+    private let hasSnapshot: (PageID) -> Bool
     private let now: Date
     private let onRestore: (SiteID, PageID?) -> Void
     private let onRemove: (SiteID, PageID?) -> Void
     private let onDismiss: () -> Void
     private let semanticResults: ((String) async -> [SearchResult])?
     private let onOpenResult: ((SearchResult) -> Void)?
+    private let onClearAll: (() -> Void)?
+    private let undoCount: Int
+    private let onUndoClear: (() -> Void)?
 
     @State private var query = ""
     /// By-meaning hits for the current query (cleared whenever the query changes).
@@ -48,13 +52,18 @@ public struct ShelfView: View {
                 accent: Color,
                 icon: @escaping (SiteKey) -> NSImage?,
                 snapshot: @escaping (PageID) -> NSImage?,
+                hasSnapshot: ((PageID) -> Bool)? = nil,
                 now: Date = Date(),
                 onRestore: @escaping (_ entry: SiteID, _ page: PageID?) -> Void,
                 onRemove: @escaping (_ entry: SiteID, _ page: PageID?) -> Void,
                 onDismiss: @escaping () -> Void,
                 semanticResults: ((String) async -> [SearchResult])? = nil,
-                onOpenResult: ((SearchResult) -> Void)? = nil) {
-        self.entries = entries; self.accent = accent; self.icon = icon; self.snapshot = snapshot; self.now = now
+                onOpenResult: ((SearchResult) -> Void)? = nil,
+                onClearAll: (() -> Void)? = nil,
+                undoCount: Int = 0,
+                onUndoClear: (() -> Void)? = nil) {
+        self.onClearAll = onClearAll; self.undoCount = undoCount; self.onUndoClear = onUndoClear
+        self.entries = entries; self.accent = accent; self.icon = icon; self.snapshot = snapshot; self.hasSnapshot = hasSnapshot ?? { snapshot($0) != nil }; self.now = now
         self.onRestore = onRestore; self.onRemove = onRemove; self.onDismiss = onDismiss
         self.semanticResults = semanticResults; self.onOpenResult = onOpenResult
         let estimate = entries.reduce(CGFloat(12)) { $0 + Self.rowHeight * CGFloat(1 + $1.pages.count) + 6 }
@@ -152,6 +161,11 @@ public struct ShelfView: View {
                                focusOnAppear: true,
                                selectAllOnFocus: true,
                                onKey: { handle($0, groups: groups, meaning: meaning) })
+                if let onClearAll, !searching, !entries.allSatisfy({ $0.pages.isEmpty }) {
+                    PanelPillButton(title: "Clear all", style: .quiet, height: 24, palette: palette, action: onClearAll)
+                        .help("Remove every page from the shelf. You can undo this.")
+                        .accessibilityHint("Removes every page from the shelf. You can undo it.")
+                }
             }
             .padding(.horizontal, 14)
             .frame(height: Self.fieldHeight)
@@ -159,8 +173,20 @@ public struct ShelfView: View {
             Rectangle().fill(palette.divider).frame(height: 1)
 
             if entries.allSatisfy({ $0.pages.isEmpty }) {
-                message(symbol: "tray", title: "Nothing put away.", detail: "Sites you stop using land here.", palette: palette)
-                    .frame(height: Self.emptyHeight)
+                if undoCount > 0, let onUndoClear {
+                    VStack(spacing: 12) {
+                        message(symbol: "tray", title: "Shelf cleared.",
+                                detail: undoCount == 1 ? "1 page was removed." : "\(undoCount) pages were removed.", palette: palette)
+                        PanelPillButton(title: "Undo", systemImage: "arrow.uturn.backward", style: .accent(accent),
+                                        palette: palette, action: onUndoClear)
+                            .accessibilityHint("Puts the pages back on the shelf")
+                    }
+                    .padding(.bottom, 16)
+                    .frame(height: Self.emptyHeight + 24)
+                } else {
+                    message(symbol: "tray", title: "Nothing put away.", detail: "Sites you stop using land here.", palette: palette)
+                        .frame(height: Self.emptyHeight)
+                }
             } else if groups.isEmpty, meaning.isEmpty {
                 message(symbol: "magnifyingglass", title: "No matches.", detail: "Nothing on the shelf matches “\(query.trimmingCharacters(in: .whitespaces))”.", palette: palette)
                     .frame(height: max(min(naturalHeight, Self.maxListHeight), Self.emptyHeight))
@@ -183,7 +209,7 @@ public struct ShelfView: View {
                 LazyVStack(alignment: .leading, spacing: 0) {
                     ForEach(groups) { group in
                         header(group, palette: palette).id(RowID.site(group.id))
-                        let thumbnails = group.pages.contains { snapshot($0.id) != nil }
+                        let thumbnails = group.pages.contains { hasSnapshot($0.id) }
                         ForEach(group.pages) { page in
                             pageRow(page, in: group, thumbnails: thumbnails, palette: palette)
                                 .id(RowID.page(group.id, page.id))

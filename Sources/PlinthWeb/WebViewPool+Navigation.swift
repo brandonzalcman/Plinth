@@ -233,6 +233,17 @@ extension WebViewPool: WKNavigationDelegate {
 extension WebViewPool: WKUIDelegate {
     public func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,
                         for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
+        // A script popup (a sign-in window, say) needs a real view with `window.opener`, so the page
+        // can hand its result back. Ordinary links and tabs below are opened by the shell from a URL.
+        if let entry = entry(for: webView), Self.isScriptPopup(navigationAction, windowFeatures) {
+            let size: CGSize? = (windowFeatures.width != nil || windowFeatures.height != nil)
+                ? CGSize(width: windowFeatures.width?.doubleValue ?? 520, height: windowFeatures.height?.doubleValue ?? 680) : nil
+            weak var created: WKWebView?
+            let view = makePopupWebView(configuration: configuration, onClose: { created?.window?.close() })
+            created = view
+            callbacks.popupCreated(view, size, entry.id)
+            return view
+        }
         // The shell opens the page from its URL; the new page gets no `window.opener`.
         guard let entry = entry(for: webView), let url = navigationAction.request.url,
               !url.absoluteString.isEmpty, url.scheme?.lowercased() != "about" else { return nil }
@@ -248,6 +259,15 @@ extension WebViewPool: WKUIDelegate {
         let flags = navigationAction.modifierFlags
         callbacks.openRequest(url, entry.id, flags.contains(.command) && !flags.contains(.shift))
         return nil
+    }
+
+    /// `window.open(...)` from a script, with a window size or with no address yet (the script fills
+    /// it in afterwards). Link clicks (`target=_blank`, ⌘-click) are not popups.
+    static func isScriptPopup(_ action: WKNavigationAction, _ features: WKWindowFeatures) -> Bool {
+        guard action.navigationType == .other else { return false }
+        if features.width != nil || features.height != nil { return true }
+        let url = action.request.url
+        return url == nil || url?.absoluteString.isEmpty == true || url?.scheme?.lowercased() == "about"
     }
 
     public func webViewDidClose(_ webView: WKWebView) {

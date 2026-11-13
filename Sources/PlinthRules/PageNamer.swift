@@ -34,14 +34,26 @@ public struct PageNamer: PageNaming {
 
         let forms = Self.siteForms(siteName: site, url: url)
         let segments = Self.segments(of: cleaned)
+        var droppedSite = false
         for segment in segments {
             if let kept = Self.reduce(segment, forms: forms) {
-                return Self.cap(Self.dropSubtitleIfLong(kept))
+                // "Plinth — a calm browser for Mac": a tagline left standing alone starts with a capital.
+                let named = droppedSite ? Self.capitalisingPlainWord(kept) : kept
+                return Self.cap(Self.dropSubtitleIfLong(named))
             }
+            droppedSite = true
         }
         if !site.isEmpty { return Self.cap(site) }
         if let first = segments.first(where: Self.hasContent) { return Self.cap(first) }
         return Self.cap(Self.fallback(url: url, siteName: site))
+    }
+
+    /// Capitalises the first letter when the first word is plain lowercase letters ("a calm browser"),
+    /// leaving brand-style words ("iPhone", "eBay", "npm2") alone.
+    static func capitalisingPlainWord(_ text: String) -> String {
+        guard let first = text.first, first.isLowercase,
+              let word = text.split(separator: " ").first, word.allSatisfy({ $0.isLetter && $0.isLowercase }) else { return text }
+        return first.uppercased() + text.dropFirst()
     }
 
     // MARK: - Cleaning

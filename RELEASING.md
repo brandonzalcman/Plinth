@@ -1,17 +1,17 @@
 # Releasing Plinth
 
-Plinth ships as a signed, notarized `Plinth.dmg` on GitHub Releases. Installed copies update themselves with [Sparkle](https://sparkle-project.org), so people download the app once and get every later version automatically.
+Plinth ships as a signed, notarized disk image on GitHub Releases, named with its version (`Plinth-0.1.2.dmg`). Installed copies update themselves with [Sparkle](https://sparkle-project.org), so people download the app once and get every later version automatically.
 
-- **Landing page download link** (always the newest version):
-  `https://github.com/brandonzalcman/Plinth/releases/latest/download/Plinth.dmg`
+- **Download** (the address the landing page's button and the update feed both use):
+  `https://github.com/brandonzalcman/Plinth/releases/download/v<version>/Plinth-<version>.dmg`
 - **Update feed** that the app checks (built into `Scripts/Info.plist`):
   `https://github.com/brandonzalcman/Plinth/releases/latest/download/appcast.xml`
 
 ## How updates reach people
 
 1. You start a release yourself: run the **Release** workflow by hand, or push a tag such as `v0.2.0` (see [Cutting a release](#cutting-a-release)). Merging pull requests into `main` never publishes anything, so many small changes can land between releases.
-2. The **Release** workflow builds the app, signs it with your Developer ID, notarizes it with Apple and builds the DMG. It also writes `appcast.xml`, signed with your Sparkle key, and publishes both as a GitHub Release.
-3. The workflow ends by checking that `releases/latest/download/Plinth.dmg` and `appcast.xml` both answer, so the landing page's download button serves the new version as soon as the run is green. If the landing page links to those two addresses, nothing else needs updating.
+2. The **Release** workflow builds the app, signs it with your Developer ID, notarizes it with Apple and builds `Plinth-<version>.dmg`. It also writes `appcast.xml`, signed with your Sparkle key, whose download points at that DMG. It publishes the two files as a GitHub Release.
+3. The workflow ends by checking that the DMG and `appcast.xml` both answer. There is no fixed-name copy of the DMG: the landing page looks up the newest release when it loads and points its download button at that release's DMG, so it needs no change per release. (Its no-JavaScript fallback link is stamped when the site is deployed, so redeploy the site after a release to refresh that too.)
 
 Each installed Plinth checks the feed once a day. It downloads the update in the background and installs it when the app quits. People can also choose **Plinth › Check for Updates…**.
 
@@ -124,16 +124,35 @@ Then build a release. Sparkle signs with the key in your keychain:
 TEAM_ID=<TEAMID> SPARKLE_PUBLIC_KEY=<public key> NOTARY_PROFILE=plinth-notary Scripts/release.sh 0.2.0
 ```
 
-To publish it, upload the two files:
+To publish it, upload the two files (the DMG and the feed):
 
 ```bash
-gh release create v0.2.0 build/release/Plinth.dmg build/release/appcast.xml --title "Plinth 0.2.0" --generate-notes
+gh release create v0.2.0 build/release/Plinth-0.2.0.dmg build/release/appcast.xml --title "Plinth 0.2.0" --generate-notes
 ```
 
 ### Dry run
 
-`UNSIGNED=1 Scripts/release.sh 0.0.0` builds an ad-hoc signed DMG without notarization or a feed. It's useful for checking the packaging; CI runs it on pull requests that change the scripts, the Xcode project or the workflows.
+`UNSIGNED=1 Scripts/release.sh 0.0.0` builds an ad-hoc signed `Plinth-0.0.0.dmg` without notarization or a feed. It's useful for checking the packaging; CI runs it on pull requests that change the scripts, the Xcode project or the workflows.
 
-## Later: iCloud sync in releases
+## iCloud sync in releases (optional)
 
-When you add the iCloud capability (see [docs/icloud-sync.md](docs/icloud-sync.md)), Developer ID builds need a **Developer ID provisioning profile** that includes the iCloud container. Create it at developer.apple.com under Profiles. Then add it to the export options in `Scripts/release.sh` (`provisioningProfiles` → `app.plinth.Plinth`) and to the workflow as another secret.
+Signed releases carry the iCloud (CloudKit) entitlement only when the workflow has a **Developer ID provisioning profile** for `app.plinth.Plinth` that includes the container `iCloud.dev.getplinth.Plinth`. Without the profile secret a release is built exactly as before, with no iCloud, and the app's iCloud switch says it needs a developer team. So the release is safe to run at any point of this setup.
+
+How it fits together: `Scripts/release.sh` takes the profile in `PROVISIONING_PROFILE`. With it, the archive is signed with `App/Plinth.release.entitlements` (the iCloud keys; `App/Plinth.entitlements` stays empty so no-team builds work), the export options map `app.plinth.Plinth` to the profile and set the CloudKit environment to Production, and the script fails the release if the exported app lacks the container. The workflow decodes the profile from the `DEVELOPER_ID_PROFILE` secret.
+
+One-time setup (the account steps are done by you, on developer.apple.com and in CloudKit Console):
+
+1. **Register the container.** developer.apple.com › Certificates, Identifiers & Profiles › Identifiers › **+** › **iCloud Containers**. Description `Plinth`, identifier `iCloud.dev.getplinth.Plinth`.
+2. **Enable iCloud on the App ID.** Identifiers › `app.plinth.Plinth` (create it as a macOS App ID if it does not exist; if Apple says the bundle ID is taken, stop and tell the maintainers, because changing it would break updates for installed copies) › check **iCloud** › **Configure**, choose **Include CloudKit support**, tick `iCloud.dev.getplinth.Plinth` › Save.
+3. **Create the profile.** Profiles › **+** › Distribution › **Developer ID** › App ID `app.plinth.Plinth` › your Developer ID Application certificate › name it `Plinth Developer ID` › Generate and download it (`Plinth_Developer_ID.provisionprofile`).
+4. **Add it to GitHub** from the folder with the file:
+
+   ```bash
+   gh secret set DEVELOPER_ID_PROFILE --body "$(base64 -i Plinth_Developer_ID.provisionprofile)"
+   ```
+
+   Delete the local copy afterwards. The profile is invalidated if you change the App ID's capabilities; generate and upload it again then.
+5. **Deploy the schema to Production** (see "Deploying the CloudKit schema" in [docs/icloud-sync.md](docs/icloud-sync.md)). A release build talks to Production, which has no record types until you deploy them, so sync fails with "unknown record type" before that.
+6. Run a release. The log's "Exporting with Developer ID (with iCloud)" line confirms the profile was used.
+
+To release from your Mac, add `PROVISIONING_PROFILE=/path/to/Plinth_Developer_ID.provisionprofile` to the command above.

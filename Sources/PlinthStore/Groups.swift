@@ -77,7 +77,7 @@ extension BrowserStore {
         let dt = min(seconds, Self.coOpenMaxTick)
         let t = now()
         var pairs = Set<CoOpenPair>()
-        for w in windows {
+        for w in windows where !w.isPrivate {
             let keys = Array(Set(w.sites.map(\.key)))
             guard keys.count >= 2 else { continue }
             for i in 0..<(keys.count - 1) {
@@ -165,7 +165,7 @@ extension BrowserStore {
 
     /// The group to suggest for this window right now, if any. Deterministic. Ignoring it changes nothing.
     public func groupSuggestion(for window: WindowID) -> GroupSuggestion? {
-        guard let w = self.window(window), w.focusedGroup == nil else { return nil }
+        guard let w = self.window(window), w.focusedGroup == nil, !w.isPrivate else { return nil }
         var hasher = Hasher()
         for site in w.sites { hasher.combine(site.key); hasher.combine(site.name) }
         hasher.combine(qualifiedPairs)
@@ -286,6 +286,22 @@ extension BrowserStore {
         }
         windows[wi].focusedGroup = group
         commit()
+    }
+
+    /// What the shell's Group and chip buttons call: focuses the group and, when the selected page
+    /// sits on a bar site outside it, moves the selection to the group's most recently used page.
+    /// `visibleSites` always keeps the selected page's site, so without this the site you were on
+    /// when you pressed Group stays on the bar and the press seems to do nothing.
+    public func showGroup(_ group: GroupID, in window: WindowID) {
+        setFocus(group, in: window)
+        guard let w = self.window(window), w.focusedGroup == group, let g = self.group(group),
+              let selected = w.selectedPageID, let current = w.site(containing: selected),
+              !g.keys.contains(current.key) else { return }
+        var best: Page?
+        for site in w.sites where g.keys.contains(site.key) {
+            for page in site.pages where best == nil || page.usage.lastUsed > best!.usage.lastUsed { best = page }
+        }
+        if let best { select(best.id, in: window) }
     }
 
     /// Deletes the group and clears any focus on it. The sites are untouched.

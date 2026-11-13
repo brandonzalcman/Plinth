@@ -99,13 +99,31 @@ public struct Site: Identifiable, Codable, Sendable, Equatable {
     /// "Kept" sites never fade, and neither do their pages.
     public var isKept: Bool
     public var fade: FadeStage
+    /// Folded by hand: the bar draws a site with several pages as just its icon and a page count.
+    /// Selecting any of its pages unfolds it. Meaningless for a one-page site.
+    public var isFolded: Bool
 
     public init(id: SiteID = SiteID(), key: SiteKey, name: String, pages: [Page], currentPageID: PageID? = nil,
-                isKept: Bool = false, fade: FadeStage = .live) {
+                isKept: Bool = false, fade: FadeStage = .live, isFolded: Bool = false) {
         precondition(!pages.isEmpty, "A site needs at least one page")
         self.id = id; self.key = key; self.name = name; self.pages = pages
         self.currentPageID = currentPageID ?? pages[pages.count - 1].id
-        self.isKept = isKept; self.fade = fade
+        self.isKept = isKept; self.fade = fade; self.isFolded = isFolded
+    }
+
+    private enum CodingKeys: String, CodingKey { case id, key, name, pages, currentPageID, isKept, fade, isFolded }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(SiteID.self, forKey: .id)
+        key = try c.decode(SiteKey.self, forKey: .key)
+        name = try c.decode(String.self, forKey: .name)
+        pages = try c.decode([Page].self, forKey: .pages)
+        currentPageID = try c.decode(PageID.self, forKey: .currentPageID)
+        isKept = try c.decode(Bool.self, forKey: .isKept)
+        fade = try c.decode(FadeStage.self, forKey: .fade)
+        // Saved before folding existed: not folded.
+        isFolded = try c.decodeIfPresent(Bool.self, forKey: .isFolded) ?? false
     }
 
     public var currentPage: Page { pages.first { $0.id == currentPageID } ?? pages[0] }
@@ -161,11 +179,29 @@ public struct WindowState: Identifiable, Codable, Sendable, Equatable {
     /// When set, the bar shows only the sites of this group (plus the site of the selected page).
     /// Nothing is closed or shelved: clearing it shows everything again.
     public var focusedGroup: GroupID?
+    /// A private window leaves no trace: the store keeps its pages out of history, the shelf, the
+    /// closed-page stack, site stats, co-open time, saved state and sync, and discards them when the
+    /// window closes. Never written to disk.
+    public var isPrivate: Bool
 
     public init(id: WindowID = WindowID(), sites: [Site] = [], selectedPageID: PageID? = nil,
-                split: SplitPair? = nil, frame: [Double]? = nil, focusedGroup: GroupID? = nil) {
+                split: SplitPair? = nil, frame: [Double]? = nil, focusedGroup: GroupID? = nil, isPrivate: Bool = false) {
         self.id = id; self.sites = sites; self.selectedPageID = selectedPageID; self.split = split; self.frame = frame
-        self.focusedGroup = focusedGroup
+        self.focusedGroup = focusedGroup; self.isPrivate = isPrivate
+    }
+
+    private enum CodingKeys: String, CodingKey { case id, sites, selectedPageID, split, frame, focusedGroup, isPrivate }
+
+    /// `isPrivate` is newer than the first state files, so it may be missing.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(WindowID.self, forKey: .id)
+        sites = try c.decode([Site].self, forKey: .sites)
+        selectedPageID = try c.decodeIfPresent(PageID.self, forKey: .selectedPageID)
+        split = try c.decodeIfPresent(SplitPair.self, forKey: .split)
+        frame = try c.decodeIfPresent([Double].self, forKey: .frame)
+        focusedGroup = try c.decodeIfPresent(GroupID.self, forKey: .focusedGroup)
+        isPrivate = try c.decodeIfPresent(Bool.self, forKey: .isPrivate) ?? false
     }
 
     /// Every page on screen in this window: the selected page plus its split partner.
@@ -236,10 +272,13 @@ public struct SearchResult: Identifiable, Sendable, Equatable {
     /// Found by semantic (embedding) search rather than by keyword. Listed after keyword results,
     /// under a "By meaning" heading.
     public var byMeaning: Bool
+    /// The one result confident enough to be the default for what was typed (an inline-completion
+    /// quality match). Always first in its list.
+    public var isTopHit: Bool
 
-    public init(id: String, target: Target, title: String, subtitle: String, key: SiteKey, byMeaning: Bool = false) {
+    public init(id: String, target: Target, title: String, subtitle: String, key: SiteKey, byMeaning: Bool = false, isTopHit: Bool = false) {
         self.id = id; self.target = target; self.title = title; self.subtitle = subtitle; self.key = key
-        self.byMeaning = byMeaning
+        self.byMeaning = byMeaning; self.isTopHit = isTopHit
     }
 }
 

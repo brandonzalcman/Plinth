@@ -15,6 +15,11 @@ final class WindowChrome {
         case none
         case command(text: String, newPage: Bool)
         case shelf
+        case history
+        /// The card shown after ⌘D (see BookmarkFeatures.swift).
+        case bookmark(id: UUID, isNew: Bool)
+        case bookmarks
+        case downloads
         case find
         case ask
     }
@@ -65,15 +70,19 @@ final class BrowserWindowController: NSObject, NSWindowDelegate {
     private var stripObservation: NSKeyValueObservation?
     /// nil follows the system (used when the window has no page).
     var chromeAppearance: NSAppearance?
+    private var stripColoured = false
     var accessoryHosts: [NSView] = []
     var resumeTask: Task<Void, Never>?
     var askTask: Task<Void, Never>?
     var peekView: WKWebView?
     var peekHost: NSView?
+    /// True for a private window; fixed for the window's life.
+    let isPrivate: Bool
 
     init(app: AppController, windowID: WindowID) {
         self.app = app
         self.windowID = windowID
+        isPrivate = app.store.isPrivate(window: windowID)
         let saved = app.store.window(windowID)?.frame
         let frame = saved.flatMap { $0.count == 4 ? NSRect(x: $0[0], y: $0[1], width: $0[2], height: $0[3]) : nil }
             ?? NSRect(x: 0, y: 0, width: 1280, height: 820)
@@ -87,7 +96,7 @@ final class BrowserWindowController: NSObject, NSWindowDelegate {
         window.isReleasedWhenClosed = false
         window.minSize = NSSize(width: 520, height: 360)
         window.tabbingMode = .disallowed
-        window.backgroundColor = NSColor(red: 0xFB / 255, green: 0xF8 / 255, blue: 0xF2 / 255, alpha: 1)
+        window.backgroundColor = isPrivate ? PrivateTint.surface : .plinthWindowBackground
         window.delegate = self
         if saved == nil { window.center() } else { window.setFrame(frame, display: false) }
 
@@ -107,6 +116,7 @@ final class BrowserWindowController: NSObject, NSWindowDelegate {
         topStrip.autoresizingMask = [.width, .minYMargin]
         root.addSubview(topStrip)
 
+        if isPrivate { installPrivateBadge() }
         barHost = NSHostingView(rootView: BarHost(app: app, windowID: windowID, chrome: chrome))
         barHost.frame = NSRect(x: metrics.sideInset, y: metrics.bottomInset,
                                width: root.bounds.width - metrics.sideInset * 2, height: metrics.barHeight)
@@ -142,14 +152,23 @@ final class BrowserWindowController: NSObject, NSWindowDelegate {
         }
     }
 
+    /// Debug measurement: how many times `refreshContent` ran and how long it took in all.
+    var refreshStats = (count: 0, seconds: 0.0)
+
     func refreshContent() {
+        let started = ContinuousClock.now
+        defer {
+            let d = ContinuousClock.now - started
+            refreshStats.count += 1
+            refreshStats.seconds += Double(d.components.seconds) + Double(d.components.attoseconds) / 1e18
+        }
         guard let state = app.store.window(windowID) else { return }
         var ordered: [PageID] = []
         splitFlipped = false
         if let selected = state.selectedPageID {
             if let split = state.split, split.contains(selected) {
                 // Panes sit in the same left-to-right order as their buttons on the bar.
-                let order = BarOrder.pageOrder(pins: app.store.pins, sites: state.sites)
+                let order = BarOrder.pageOrder(pins: app.store.pins(in: windowID), sites: state.sites)
                 let leadingFirst = (order.firstIndex(of: split.leading) ?? 0) <= (order.firstIndex(of: split.trailing) ?? 0)
                 ordered = leadingFirst ? [split.leading, split.trailing] : [split.trailing, split.leading]
                 splitFlipped = !leadingFirst
@@ -162,8 +181,13 @@ final class BrowserWindowController: NSObject, NSWindowDelegate {
         for view in views {
             // Let pages scroll clear of the floating bar.
             // The page starts below the traffic lights; WebKit fills the strip with the page's own colour.
-            view.obscuredContentInsets = NSEdgeInsets(top: titlebarHeight, left: 0,
-                                                     bottom: metrics.barHeight + metrics.bottomInset + 8, right: 0)
+            // WebKit re-lays the page out on every assignment, so only assign a change.
+            let insets = NSEdgeInsets(top: titlebarHeight, left: 0,
+                                      bottom: metrics.barHeight + metrics.bottomInset + 8, right: 0)
+            let old = view.obscuredContentInsets
+            if old.top != insets.top || old.bottom != insets.bottom || old.left != insets.left || old.right != insets.right {
+                view.obscuredContentInsets = insets
+            }
         }
         let fraction = state.split?.fraction ?? 0.5
         content.show(leading: views.first, trailing: views.count > 1 ? views[1] : nil,
@@ -174,7 +198,7 @@ final class BrowserWindowController: NSObject, NSWindowDelegate {
         dropResumeCardIfStale()
         let changed = shownPages != pages.map(\.id)
         shownPages = pages.map(\.id)
-        window.title = state.selectedPageID.flatMap { app.store.page($0)?.name } ?? "Plinth"
+        window.title = (isPrivate ? "Private — " : "") + (state.selectedPageID.flatMap { app.store.page($0)?.name } ?? "Plinth")
         if changed {
             chrome.progress = nil
             if chrome.panel == .find { chrome.panel = .none; syncPanel() }
@@ -191,27 +215,32 @@ final class BrowserWindowController: NSObject, NSWindowDelegate {
         topStrip.frame = NSRect(x: 0, y: root.bounds.height - height, width: root.bounds.width, height: height)
         topStrip.isHidden = height == 0
         if view == nil { topStrip.layer?.backgroundColor = NSColor.clear.cgColor }
-        if view == nil {
-            chromeAppearance = nil
-            barHost.appearance = nil
-            panelHost?.appearance = nil
-            applyAccessoryAppearance()
-        }
+        if view == nil { applyChromeAppearance() }
         stripObservation = view?.observe(\.underPageBackgroundColor, options: [.initial, .new]) { [weak self] view, _ in
             MainActor.assumeIsolated { self?.applyPageColour(of: view) }
         }
     }
 
-    /// The strip behind the traffic lights takes the page's colour, and the bar and panels go
-    /// light over light pages and dark over dark ones.
+    /// The strip behind the traffic lights takes the page's colour. The bar and panels follow the
+    /// Appearance setting (nil follows the Mac), so they stay legible and consistent in dark mode.
     private func applyPageColour(of view: WKWebView) {
         // A page that has not drawn anything yet reports a placeholder colour; keep what was there.
-        if view.isLoading, view.estimatedProgress < 0.5, chromeAppearance != nil { return }
+        if view.isLoading, view.estimatedProgress < 0.5, stripColoured { return }
+        stripColoured = true
         let colour = view.underPageBackgroundColor ?? .windowBackgroundColor
-        topStrip.layer?.backgroundColor = colour.cgColor
-        let rgb = colour.usingColorSpace(.sRGB)
-        let luminance = rgb.map { 0.2126 * $0.redComponent + 0.7152 * $0.greenComponent + 0.0722 * $0.blueComponent } ?? 1
-        chromeAppearance = NSAppearance(named: luminance > 0.5 ? .aqua : .darkAqua)
+        let cg = colour.cgColor
+        if topStrip.layer?.backgroundColor != cg { topStrip.layer?.backgroundColor = cg }
+        applyChromeAppearance()
+    }
+
+    /// Also called when the Appearance setting changes.
+    func applyChromeAppearance() {
+        // A private window is always dark, whatever the Mac or the Appearance setting says.
+        let appearance = isPrivate ? NSAppearance(named: .darkAqua) : app.settings.value.appearance.nsAppearance
+        if isPrivate { window.appearance = appearance }
+        // Changing a host's appearance re-renders its whole SwiftUI tree, so only do it when it flips.
+        guard chromeAppearance?.name != appearance?.name || barHost.appearance?.name != appearance?.name else { return }
+        chromeAppearance = appearance
         barHost.appearance = chromeAppearance
         panelHost?.appearance = chromeAppearance
         applyAccessoryAppearance()
@@ -227,7 +256,7 @@ final class BrowserWindowController: NSObject, NSWindowDelegate {
 
     private func showEmptyState(_ show: Bool) {
         if show, emptyHost == nil {
-            let host = NSHostingView(rootView: EmptyWindowView())
+            let host = NSHostingView(rootView: EmptyWindowView(isPrivate: isPrivate))
             host.frame = root.bounds
             host.autoresizingMask = [.width, .height]
             root.addSubview(host, positioned: .below, relativeTo: topStrip)
@@ -278,7 +307,19 @@ final class BrowserWindowController: NSObject, NSWindowDelegate {
     }
 
     func toggleShelf() {
+        // The shelf belongs to the normal profile: nothing goes onto it from here or comes off it into here.
+        guard !isPrivate else { return }
         chrome.panel = chrome.panel == .shelf ? .none : .shelf
+        syncPanel()
+    }
+
+    func toggleHistory() {
+        chrome.panel = chrome.panel == .history ? .none : .history
+        syncPanel()
+    }
+
+    func toggleDownloads() {
+        chrome.panel = chrome.panel == .downloads ? .none : .downloads
         syncPanel()
     }
 
@@ -338,20 +379,32 @@ final class BrowserWindowController: NSObject, NSWindowDelegate {
             guard !trimmed.isEmpty else { return }
             let url: URL
             switch app.resolver.resolve(trimmed) {
-            case .url(let resolved): url = resolved
+            case .url(let resolved):
+                url = resolved
+                store.recordSuggestionPick(url: resolved)
             case .search(let query): url = app.resolver.searchURL(for: query)
             }
             open(url, newPage: newPage || selected == nil, replacing: selected)
         case .result(let result):
+            store.recordSuggestionPick(result)
             switch result.target {
             case .openPage(let page, let otherWindow):
                 store.select(page, in: otherWindow)
                 app.controller(for: otherWindow)?.window.makeKeyAndOrderFront(nil)
             case .pin(let pin):
-                store.selectPin(pin, in: windowID)
+                if isPrivate, let url = store.url(of: result.target) {
+                    open(url, newPage: true, replacing: selected)
+                } else {
+                    store.selectPin(pin, in: windowID)
+                }
             case .shelf(let entry, let page):
-                let ids = store.restore(entry: entry, page: page, into: windowID)
-                showResumeCard(forRestored: ids)
+                if isPrivate {
+                    // A private window opens the address; the shelf entry stays where it is.
+                    if let url = store.url(of: result.target) { open(url, newPage: true, replacing: selected) }
+                } else {
+                    let ids = store.restore(entry: entry, page: page, into: windowID)
+                    showResumeCard(forRestored: ids)
+                }
             case .history(let url):
                 open(url, newPage: true, replacing: selected)
             }
