@@ -4,7 +4,10 @@ import WebKit
 /// The pool's web view: adds "Peek Link" and "Open Link in Split View" to WebKit's link menu.
 /// The link URL comes from the page script's `contextmenu` listener, which posts before WebKit
 /// builds the menu (both travel over the same ordered connection from the web process).
-final class PlinthWebView: WKWebView {
+public final class PlinthWebView: WKWebView {
+    /// Test hook (PLINTH_STEPS `contextmenu`): called with the finished menu just before it shows.
+    nonisolated(unsafe) public static var menuObserver: ((NSMenu) -> Void)?
+
     enum LinkAction { case peek, split }
 
     /// Set by the pool for pooled pages; nil for auxiliary views (no link items then).
@@ -20,8 +23,9 @@ final class PlinthWebView: WKWebView {
         contextLinkAt = Date()
     }
 
-    override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
+    public override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
         super.willOpenMenu(menu, with: event)
+        defer { Self.menuObserver?(menu) }
         // A right-click in a subframe posts nothing, so only trust a capture from just now.
         let link = Date().timeIntervalSince(contextLinkAt) < 2 ? contextLink : nil
         contextLink = nil

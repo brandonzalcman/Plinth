@@ -113,7 +113,7 @@ extension AppController: NSMenuItemValidation, NSMenuDelegate {
 
     // MARK: Menu actions
 
-    @objc func menuAsk(_ sender: Any?) { keyController?.openAsk() }
+    @objc func menuAsk(_ sender: Any?) { if keyMiniWindow == nil { keyController?.openAsk() } }
 
     @objc func menuToggleAI(_ sender: Any?) {
         ai.setEnabled(!ai.isEnabled)
@@ -175,7 +175,8 @@ extension AppController: NSMenuItemValidation, NSMenuDelegate {
         case #selector(menuPromoteMini(_:)):
             return keyMiniWindow != nil || keyController?.isPeeking == true
         case #selector(menuAsk(_:)):
-            return keyController.flatMap { store.window($0.windowID)?.selectedPageID } != nil
+            // A mini window has no bar to ask from; never reach through to a hidden main window.
+            return keyMiniWindow == nil && keyController.flatMap { store.window($0.windowID)?.selectedPageID } != nil
         case #selector(menuSplitWithNext(_:)):
             guard let id = keyWindowID else { return false }
             return store.visibleSites(in: id).reduce(0) { $0 + $1.pages.count } > 1

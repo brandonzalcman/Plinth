@@ -1,6 +1,7 @@
 import AppKit
 import WebKit
 import PlinthModel
+import PlinthWeb
 
 /// Test-launch hook: `PLINTH_STEPS="wait 3; peek http://…; wait 4; promote; …"` drives features
 /// through the same entry points the UI uses, logging to stdout. Inactive unless the variable is set.
@@ -26,6 +27,73 @@ enum DebugScript {
         guard let id = app.keyWindowID, let page = app.store.window(id)?.selectedPageID,
               let view = app.pool.existingWebView(for: page) else { return }
         _ = try? await view.evaluateJavaScript(source)
+    }
+
+    private static func menuItemInfo(_ title: String) -> String {
+        guard let main = NSApp.mainMenu else { return "no main menu" }
+        for top in main.items {
+            guard let sub = top.submenu else { continue }
+            sub.update()
+            if let item = sub.items.first(where: { $0.title == title }) {
+                let key = item.keyEquivalent == "\r" ? "return" : item.keyEquivalent
+                return "menuitem '\(title)': enabled=\(item.isEnabled) key='\(key)' mask=\(item.keyEquivalentModifierMask.rawValue) keyWindow='\(NSApp.keyWindow?.title ?? "nil")'"
+            }
+        }
+        return "menuitem '\(title)': not found"
+    }
+
+    private static func sendKey(_ spec: String) {
+        var flags: NSEvent.ModifierFlags = []
+        var key = ""
+        for part in spec.split(separator: "+").map(String.init) {
+            switch part {
+            case "cmd": flags.insert(.command)
+            case "shift": flags.insert(.shift)
+            case "opt", "alt": flags.insert(.option)
+            case "ctrl": flags.insert(.control)
+            default: key = part
+            }
+        }
+        let codes: [String: UInt16] = ["return": 36, "j": 38, "k": 40, "l": 37, "t": 17, "w": 13, "f": 3, "e": 14, "p": 35]
+        let chars = key == "return" ? "\r" : key
+        guard let window = NSApp.keyWindow else { log("key: no key window"); return }
+        let typed = flags.contains(.shift) && key != "return" ? chars.uppercased() : chars
+        guard let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime,
+                                           windowNumber: window.windowNumber, context: nil, characters: typed,
+                                           charactersIgnoringModifiers: chars, isARepeat: false, keyCode: codes[key] ?? 0) else { return }
+        let handled = NSApp.mainMenu?.performKeyEquivalent(with: event) ?? false
+        log("key \(spec): mainMenu.performKeyEquivalent=\(handled) keyWindow='\(window.title)'")
+    }
+
+    /// contextmenu <element id> [<menu item title to invoke>]: a real right-click on the element in
+    /// the selected page; logs the web view's actual menu and invokes the named item.
+    private static func contextMenu(_ arg: String, _ app: AppController) async {
+        let parts = arg.split(separator: " ", maxSplits: 1).map(String.init)
+        guard let wid = app.keyWindowID, let page = app.store.window(wid)?.selectedPageID, let view = app.pool.existingWebView(for: page),
+              let window = view.window, let id = parts.first,
+              let rect = try? await view.evaluateJavaScript("(()=>{const e=document.getElementById('\(id)');e.scrollIntoView({block:'center'});const r=e.getBoundingClientRect();return [r.left+r.width/2, r.top+r.height/2]})()") as? [Double]
+        else { log("contextmenu: no element"); return }
+        let want = parts.count > 1 ? parts[1] : nil
+        PlinthWebView.menuObserver = { menu in
+            log("context menu: " + menu.items.map { $0.isSeparatorItem ? "--" : $0.title }.joined(separator: " | "))
+            nonisolated(unsafe) let menu = menu
+            let timer = Timer(timeInterval: 0.7, repeats: false) { _ in
+                MainActor.assumeIsolated {
+                    if let want, let index = menu.items.firstIndex(where: { $0.title == want }) {
+                        log("invoking '\(want)' enabled=\(menu.items[index].isEnabled)")
+                        menu.performActionForItem(at: index)
+                    }
+                    menu.cancelTracking()
+                }
+            }
+            RunLoop.main.add(timer, forMode: .common)
+        }
+        let point = view.convert(NSPoint(x: rect[0] * view.pageZoom, y: rect[1] * view.pageZoom + view.obscuredContentInsets.top), to: nil)
+        if let event = NSEvent.mouseEvent(with: .rightMouseDown, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                          windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) {
+            window.sendEvent(event) // WebKit builds and pops up the menu asynchronously
+        }
+        try? await Task.sleep(for: .seconds(3)) // the observer above acts when the menu appears
     }
 
     private static func run(_ verb: String, _ arg: String, _ app: AppController) async {
@@ -114,6 +182,22 @@ enum DebugScript {
                     window.sendEvent(e)
                 }
             }
+        case "key":
+            // key <cmd+shift+return|cmd+j|…>: a real key-down through the main menu's key-equivalent path.
+            sendKey(arg)
+        case "type":
+            // type <text>: inserts the text into the key window's first responder, one character at a
+            // time (the command bar / shelf search field), so text-change handling really runs.
+            guard let window = NSApp.keyWindow, let client = window.firstResponder as? NSTextInputClient else { log("type: no text field focused"); return }
+            for ch in arg {
+                client.insertText(String(ch), replacementRange: NSRange(location: NSNotFound, length: 0))
+                try? await Task.sleep(for: .milliseconds(30))
+            }
+        case "menuitem":
+            // menuitem <title>: logs whether the main-menu item exists, is enabled, its key equivalent.
+            log(menuItemInfo(arg))
+        case "contextmenu":
+            await contextMenu(arg, app)
         case "frame":
             if let w = controller?.window { log("frame: \(w.frame) split fraction: \(String(describing: wid.flatMap { app.store.window($0)?.split?.fraction })) bar hidden: \(controller?.barHost.isHidden ?? false)") }
         case "promotemini": if let mini = app.miniWindows.last { app.promote(mini) }
