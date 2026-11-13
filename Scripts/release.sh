@@ -109,7 +109,7 @@ PLIST
         -exportOptionsPlist "$OUT/ExportOptions.plist"
     codesign --verify --deep --strict "$APP"
     if [[ -n "$PROFILE_NAME" ]]; then
-        codesign -d --entitlements - "$APP" 2>&1 | grep -q "iCloud.app.plinth.Plinth" \
+        codesign -d --entitlements - "$APP" 2>&1 | grep -q "iCloud.dev.getplinth.Plinth" \
             || fail "the exported app has no iCloud container entitlement"
     fi
 fi

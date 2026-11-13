@@ -136,14 +136,14 @@ gh release create v0.2.0 build/release/Plinth-0.2.0.dmg build/release/appcast.xm
 
 ## iCloud sync in releases (optional)
 
-Signed releases carry the iCloud (CloudKit) entitlement only when the workflow has a **Developer ID provisioning profile** for `app.plinth.Plinth` that includes the container `iCloud.app.plinth.Plinth`. Without the profile secret a release is built exactly as before, with no iCloud, and the app's iCloud switch says it needs a developer team. So the release is safe to run at any point of this setup.
+Signed releases carry the iCloud (CloudKit) entitlement only when the workflow has a **Developer ID provisioning profile** for `app.plinth.Plinth` that includes the container `iCloud.dev.getplinth.Plinth`. Without the profile secret a release is built exactly as before, with no iCloud, and the app's iCloud switch says it needs a developer team. So the release is safe to run at any point of this setup.
 
 How it fits together: `Scripts/release.sh` takes the profile in `PROVISIONING_PROFILE`. With it, the archive is signed with `App/Plinth.release.entitlements` (the iCloud keys; `App/Plinth.entitlements` stays empty so no-team builds work), the export options map `app.plinth.Plinth` to the profile and set the CloudKit environment to Production, and the script fails the release if the exported app lacks the container. The workflow decodes the profile from the `DEVELOPER_ID_PROFILE` secret.
 
 One-time setup (the account steps are done by you, on developer.apple.com and in CloudKit Console):
 
-1. **Register the container.** developer.apple.com › Certificates, Identifiers & Profiles › Identifiers › **+** › **iCloud Containers**. Description `Plinth`, identifier `iCloud.app.plinth.Plinth`.
-2. **Enable iCloud on the App ID.** Identifiers › `app.plinth.Plinth` (create it as a macOS App ID if it does not exist) › check **iCloud** › **Configure**, choose **Include CloudKit support**, tick `iCloud.app.plinth.Plinth` › Save.
+1. **Register the container.** developer.apple.com › Certificates, Identifiers & Profiles › Identifiers › **+** › **iCloud Containers**. Description `Plinth`, identifier `iCloud.dev.getplinth.Plinth`.
+2. **Enable iCloud on the App ID.** Identifiers › `app.plinth.Plinth` (create it as a macOS App ID if it does not exist; if Apple says the bundle ID is taken, stop and tell the maintainers, because changing it would break updates for installed copies) › check **iCloud** › **Configure**, choose **Include CloudKit support**, tick `iCloud.dev.getplinth.Plinth` › Save.
 3. **Create the profile.** Profiles › **+** › Distribution › **Developer ID** › App ID `app.plinth.Plinth` › your Developer ID Application certificate › name it `Plinth Developer ID` › Generate and download it (`Plinth_Developer_ID.provisionprofile`).
 4. **Add it to GitHub** from the folder with the file:
 
