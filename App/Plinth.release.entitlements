@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	Used only by Scripts/release.sh, and only when a Developer ID provisioning profile is supplied
+	(PROVISIONING_PROFILE). It adds iCloud (CloudKit) for container iCloud.app.plinth.Plinth, which
+	the profile must include. App/Plinth.entitlements stays empty so local and no-team builds work.
+	See RELEASING.md and docs/icloud-sync.md.
+	-->
+	<key>com.apple.developer.icloud-services</key>
+	<array>
+		<string>CloudKit</string>
+	</array>
+	<key>com.apple.developer.icloud-container-identifiers</key>
+	<array>
+		<string>iCloud.app.plinth.Plinth</string>
+	</array>
+</dict>
+</plist>

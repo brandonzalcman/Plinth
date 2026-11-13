@@ -92,9 +92,17 @@ jobs:
           SPARKLE_PUBLIC_KEY: ${{ vars.SPARKLE_PUBLIC_KEY }}
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          PROFILE_B64: ${{ secrets.DEVELOPER_ID_PROFILE }}
         run: |
           V="${{ steps.version.outputs.version }}"
           [[ -f "release-notes/$V.md" ]] && export RELEASE_NOTES="release-notes/$V.md"
+          # Optional: a Developer ID provisioning profile adds iCloud. Without the secret, no iCloud.
+          if [[ -n "$PROFILE_B64" ]]; then
+            echo "$PROFILE_B64" | base64 --decode > "$RUNNER_TEMP/plinth.provisionprofile"
+            export PROVISIONING_PROFILE="$RUNNER_TEMP/plinth.provisionprofile"
+          else
+            echo "No DEVELOPER_ID_PROFILE secret: building without iCloud."
+          fi
           ASC_KEY_PATH="$RUNNER_TEMP/asc_key.p8" SPARKLE_KEY_FILE="$RUNNER_TEMP/sparkle_key" \
             Scripts/release.sh "$V"
 
@@ -132,5 +140,5 @@ jobs:
       - name: Clean up keys
         if: steps.version.outputs.skip != 'true' && always()
         run: |
-          rm -f "$RUNNER_TEMP/asc_key.p8" "$RUNNER_TEMP/sparkle_key"
+          rm -f "$RUNNER_TEMP/asc_key.p8" "$RUNNER_TEMP/sparkle_key" "$RUNNER_TEMP/plinth.provisionprofile"
           security delete-keychain "$RUNNER_TEMP/release.keychain-db" 2>/dev/null || true
