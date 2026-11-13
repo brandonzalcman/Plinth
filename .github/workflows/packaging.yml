@@ -1,0 +1,30 @@
+name: Packaging
+
+# Archives the Xcode app project and builds an unsigned disk image, the same way a release
+# does. It runs only for pull requests that change what packaging depends on: the scripts,
+# the Xcode project, the app shell, the package manifest or the workflows themselves.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - "Scripts/**"
+      - "Plinth.xcodeproj/**"
+      - "App/**"
+      - "Package.swift"
+      - ".github/workflows/**"
+  workflow_dispatch:
+
+concurrency:
+  group: packaging-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dry-run:
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode
+        run: sudo xcode-select -s "$(ls -d /Applications/Xcode_26*.app | sort -V | tail -1)"
+      - name: Release packaging dry run
+        run: UNSIGNED=1 Scripts/release.sh 0.0.0

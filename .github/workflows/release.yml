@@ -1,27 +1,28 @@
 name: Release
 
-# Merging a pull request into main releases Plinth when it carries a new version: the version
-# is MARKETING_VERSION in Plinth.xcodeproj, and if the tag v<version> already exists the run
-# stops quietly. A release builds, signs and notarizes Plinth-<version>.dmg, writes the Sparkle
-# feed (appcast.xml, whose enclosure is the versioned DMG) and publishes them as the newest
-# GitHub Release, together with a copy of the same DMG named Plinth.dmg. The landing page's
-# download button points at releases/latest/download/Plinth.dmg, so it serves the new DMG as
-# soon as the release is published; the last step checks that. Pushing a tag like v0.2.0 or running the
-# workflow by hand also works. One-time setup: see RELEASING.md.
+# Releases happen only when you ask for one. Merging to main never publishes anything.
+#   - Run this workflow by hand (Actions > Release > Run workflow, or `gh workflow run release.yml`).
+#     Leave the version empty to release the version in Plinth.xcodeproj (MARKETING_VERSION).
+#   - Or push a tag like v0.2.0.
+# If the release v<version> already exists the run stops quietly. A release builds, signs and
+# notarizes Plinth-<version>.dmg, writes the Sparkle feed (appcast.xml, whose enclosure is the
+# versioned DMG) and publishes them as the newest GitHub Release, together with a copy of the
+# same DMG named Plinth.dmg. The landing page's download button points at
+# releases/latest/download/Plinth.dmg, so it serves the new DMG as soon as the release is
+# published; the last step checks that. One-time setup: see RELEASING.md.
 on:
   push:
-    branches: [main]
     tags: ["v*"]
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to release, without the v (e.g. 0.2.0)"
-        required: true
+        description: "Version to release, without the v. Empty = the version in the Xcode project"
+        required: false
 
 permissions:
   contents: write
 
-# One release at a time; a second merge waits instead of racing the first.
+# One release at a time; a second request waits instead of racing the first.
 concurrency:
   group: release
   cancel-in-progress: false
@@ -39,10 +40,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if [[ "${{ github.event_name }}" == "push" && "${{ github.ref_type }}" == "branch" ]]; then
-            V="$(grep -m1 -oE 'MARKETING_VERSION = [^;]+' Plinth.xcodeproj/project.pbxproj | sed 's/.*= //')"
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            V="${{ github.ref_name }}"
           else
-            V="${{ github.event.inputs.version || github.ref_name }}"
+            V="${{ github.event.inputs.version }}"
+            [[ -n "$V" ]] || V="$(grep -m1 -oE 'MARKETING_VERSION = [^;]+' Plinth.xcodeproj/project.pbxproj | sed 's/.*= //')"
           fi
           V="${V#v}"
           [[ "$V" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]] || { echo "::error::Bad version '$V'"; exit 1; }
