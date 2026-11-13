@@ -1,9 +1,18 @@
 name: CI
 
-# Runs on pull requests only. A merge to main is not built again: the pull request already
-# passed these checks, and the Release workflow builds the app itself when a version ships.
+# Builds and tests every pull request that touches code. A merge to main is not built again:
+# the pull request already passed. Draft pull requests and ones that change only documents
+# are skipped. Packaging is checked separately, in packaging.yml, only when it could break.
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "release-notes/**"
+      - "Design/**"
+      - "marketing/**"
+      - "LICENSE"
   workflow_dispatch:
 
 # A new push to a pull request cancels the run for the push before it.
@@ -13,6 +22,7 @@ concurrency:
 
 jobs:
   build-and-test:
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
@@ -20,12 +30,17 @@ jobs:
         run: sudo xcode-select -s "$(ls -d /Applications/Xcode_26*.app | sort -V | tail -1)"
       - name: Versions
         run: swift --version && sw_vers
+      # Keeps downloaded dependencies and compiled modules between runs.
+      - name: Restore the Swift build folder
+        uses: actions/cache@v4
+        with:
+          path: .build
+          key: spm-${{ runner.os }}-${{ hashFiles('Package.swift', 'Plinth.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-${{ github.sha }}
+          restore-keys: |
+            spm-${{ runner.os }}-${{ hashFiles('Package.swift', 'Plinth.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}-
       - name: Build
         run: swift build --build-tests
       - name: Test
         run: swift test --skip-build
       - name: Bundle
         run: Scripts/bundle.sh
-      # Archives the Xcode app project and packages it, so it also proves the project builds.
-      - name: Release packaging dry run
-        run: UNSIGNED=1 Scripts/release.sh 0.0.0
