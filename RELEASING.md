@@ -124,7 +124,7 @@ gh release create v0.2.0 build/release/Plinth.dmg build/release/appcast.xml --ti
 
 ### Dry run
 
-`UNSIGNED=1 Scripts/release.sh 0.0.0` builds an ad-hoc signed DMG without notarization or a feed. It's useful for checking the packaging; CI runs it on every push.
+`UNSIGNED=1 Scripts/release.sh 0.0.0` builds an ad-hoc signed DMG without notarization or a feed. It's useful for checking the packaging; CI runs it on every pull request.
 
 ## Later: iCloud sync in releases
 
