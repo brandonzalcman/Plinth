@@ -9,7 +9,7 @@ Plinth ships as a signed, notarized `Plinth.dmg` on GitHub Releases. Installed c
 
 ## How updates reach people
 
-1. You merge a pull request into `main` that raises `MARKETING_VERSION` in `Plinth.xcodeproj` (and, ideally, adds `release-notes/<version>.md`). Merges that keep the same version do nothing: the workflow sees the release already exists and stops. (Pushing a tag such as `v0.2.0`, or running the workflow by hand, still works too.)
+1. You start a release yourself: run the **Release** workflow by hand, or push a tag such as `v0.2.0` (see [Cutting a release](#cutting-a-release)). Merging pull requests into `main` never publishes anything, so many small changes can land between releases.
 2. The **Release** workflow builds the app, signs it with your Developer ID, notarizes it with Apple and builds the DMG. It also writes `appcast.xml`, signed with your Sparkle key, and publishes both as a GitHub Release.
 3. The workflow ends by checking that `releases/latest/download/Plinth.dmg` and `appcast.xml` both answer, so the landing page's download button serves the new version as soon as the run is green. If the landing page links to those two addresses, nothing else needs updating.
 
@@ -91,16 +91,24 @@ The commands without `--body` prompt for the value, so it never lands in your sh
 
 ## Cutting a release
 
-1. Optionally write release notes in `release-notes/0.2.0.md`. They appear on the GitHub Release and in the update window.
-2. Tag and push:
+Nothing is released by merging. When `main` holds what you want to ship:
+
+1. Merge a small pull request that raises `MARKETING_VERSION` in `Plinth.xcodeproj` and adds `release-notes/<version>.md`. The notes appear on the GitHub Release and in the update window.
+2. Start the release, either way:
+
+   ```bash
+   gh workflow run release.yml
+   ```
+
+   or open the Actions tab, choose **Release** and press **Run workflow**. With the version box left empty it releases the version in the Xcode project; type a version to override it. Pushing a tag does the same thing:
 
    ```bash
    git tag v0.2.0 && git push origin v0.2.0
    ```
 
-3. Watch the **Release** workflow in the Actions tab. It takes about 10–15 minutes, most of it waiting for Apple's notary service.
+3. Watch the **Release** workflow in the Actions tab. It takes about 5 minutes, most of it the archive and Apple's notary service. If that version is already published, the run stops without doing anything.
 
-The version comes from the tag. The build number is the commit count, so it always increases, which Sparkle needs.
+A tag sets the version from its name. The build number is the commit count, so it always increases, which Sparkle needs.
 
 ### Releasing from your Mac instead
 
@@ -124,7 +132,7 @@ gh release create v0.2.0 build/release/Plinth.dmg build/release/appcast.xml --ti
 
 ### Dry run
 
-`UNSIGNED=1 Scripts/release.sh 0.0.0` builds an ad-hoc signed DMG without notarization or a feed. It's useful for checking the packaging; CI runs it on every pull request.
+`UNSIGNED=1 Scripts/release.sh 0.0.0` builds an ad-hoc signed DMG without notarization or a feed. It's useful for checking the packaging; CI runs it on pull requests that change the scripts, the Xcode project or the workflows.
 
 ## Later: iCloud sync in releases
 
