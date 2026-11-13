@@ -2,10 +2,11 @@ name: Release
 
 # Merging a pull request into main releases Plinth when it carries a new version: the version
 # is MARKETING_VERSION in Plinth.xcodeproj, and if the tag v<version> already exists the run
-# stops quietly. A release builds, signs and notarizes Plinth.dmg, writes the Sparkle feed
-# (appcast.xml) and publishes both as the newest GitHub Release. The landing page's download
-# button points at releases/latest/download/Plinth.dmg, so it serves the new DMG as soon as
-# the release is published; the last step checks that. Pushing a tag like v0.2.0 or running the
+# stops quietly. A release builds, signs and notarizes Plinth-<version>.dmg, writes the Sparkle
+# feed (appcast.xml, whose enclosure is the versioned DMG) and publishes them as the newest
+# GitHub Release, together with a copy of the same DMG named Plinth.dmg. The landing page's
+# download button points at releases/latest/download/Plinth.dmg, so it serves the new DMG as
+# soon as the release is published; the last step checks that. Pushing a tag like v0.2.0 or running the
 # workflow by hand also works. One-time setup: see RELEASING.md.
 on:
   push:
@@ -104,15 +105,17 @@ jobs:
           V="${{ steps.version.outputs.version }}"
           NOTES=(--generate-notes)
           [[ -f "release-notes/$V.md" ]] && NOTES=(--notes-file "release-notes/$V.md")
-          gh release create "v$V" build/release/Plinth.dmg build/release/appcast.xml \
+          gh release create "v$V" "build/release/Plinth-$V.dmg" build/release/Plinth.dmg build/release/appcast.xml \
             --title "Plinth $V" "${NOTES[@]}" --target "$GITHUB_SHA" --latest
 
       - name: Check the landing page download
         if: steps.version.outputs.skip != 'true'
         run: |
-          # The landing page links to these two addresses; both must now serve the new files.
-          for file in Plinth.dmg appcast.xml; do
-            URL="https://github.com/${{ github.repository }}/releases/latest/download/$file"
+          # The landing page links to the first two addresses and the feed's enclosure to the third;
+          # all must now serve the new files.
+          V="${{ steps.version.outputs.version }}"
+          BASE="https://github.com/${{ github.repository }}/releases"
+          for URL in "$BASE/latest/download/Plinth.dmg" "$BASE/latest/download/appcast.xml" "$BASE/download/v$V/Plinth-$V.dmg"; do
             for attempt in 1 2 3 4 5 6; do
               CODE="$(curl -sL -o /dev/null -w '%{http_code}' -I "$URL")"
               [[ "$CODE" == 200 ]] && break

@@ -68,6 +68,14 @@ struct GeneralSettingsView: View {
                     customMessage
                 }
             }
+
+            SettingsCard(heading: "About") {
+                SettingsRow(title: "Plinth", caption: AppVersion.current.displayString) {
+                    if let check = app.checkForUpdates {
+                        SettingsButton(title: "Check for Updates…", style: .quiet) { check() }
+                    }
+                }
+            }
         }
         .onAppear { isDefault = DefaultBrowser.isDefault() }
     }

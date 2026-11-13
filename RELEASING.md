@@ -1,17 +1,19 @@
 # Releasing Plinth
 
-Plinth ships as a signed, notarized `Plinth.dmg` on GitHub Releases. Installed copies update themselves with [Sparkle](https://sparkle-project.org), so people download the app once and get every later version automatically.
+Plinth ships as a signed, notarized disk image on GitHub Releases, named with its version (`Plinth-0.1.2.dmg`). Each release also carries the identical file as `Plinth.dmg`, so one link always points at the newest version. Installed copies update themselves with [Sparkle](https://sparkle-project.org), so people download the app once and get every later version automatically.
 
 - **Landing page download link** (always the newest version):
   `https://github.com/brandonzalcman/Plinth/releases/latest/download/Plinth.dmg`
+- **A specific version** (also the address the update feed hands to Sparkle):
+  `https://github.com/brandonzalcman/Plinth/releases/download/v<version>/Plinth-<version>.dmg`
 - **Update feed** that the app checks (built into `Scripts/Info.plist`):
   `https://github.com/brandonzalcman/Plinth/releases/latest/download/appcast.xml`
 
 ## How updates reach people
 
 1. You merge a pull request into `main` that raises `MARKETING_VERSION` in `Plinth.xcodeproj` (and, ideally, adds `release-notes/<version>.md`). Merges that keep the same version do nothing: the workflow sees the release already exists and stops. (Pushing a tag such as `v0.2.0`, or running the workflow by hand, still works too.)
-2. The **Release** workflow builds the app, signs it with your Developer ID, notarizes it with Apple and builds the DMG. It also writes `appcast.xml`, signed with your Sparkle key, and publishes both as a GitHub Release.
-3. The workflow ends by checking that `releases/latest/download/Plinth.dmg` and `appcast.xml` both answer, so the landing page's download button serves the new version as soon as the run is green. If the landing page links to those two addresses, nothing else needs updating.
+2. The **Release** workflow builds the app, signs it with your Developer ID, notarizes it with Apple and builds `Plinth-<version>.dmg`. It also writes `appcast.xml`, signed with your Sparkle key, whose download points at the versioned DMG. It publishes the versioned DMG, the same DMG again as `Plinth.dmg`, and the feed as a GitHub Release.
+3. The workflow ends by checking that `releases/latest/download/Plinth.dmg`, `appcast.xml` and the versioned DMG all answer, so the landing page's download button serves the new version as soon as the run is green. If the landing page links to those two addresses, nothing else needs updating.
 
 Each installed Plinth checks the feed once a day. It downloads the update in the background and installs it when the app quits. People can also choose **Plinth › Check for Updates…**.
 
@@ -116,15 +118,15 @@ Then build a release. Sparkle signs with the key in your keychain:
 TEAM_ID=<TEAMID> SPARKLE_PUBLIC_KEY=<public key> NOTARY_PROFILE=plinth-notary Scripts/release.sh 0.2.0
 ```
 
-To publish it, upload the two files:
+To publish it, upload the three files (the versioned DMG, the same DMG under the fixed name, and the feed):
 
 ```bash
-gh release create v0.2.0 build/release/Plinth.dmg build/release/appcast.xml --title "Plinth 0.2.0" --generate-notes
+gh release create v0.2.0 build/release/Plinth-0.2.0.dmg build/release/Plinth.dmg build/release/appcast.xml --title "Plinth 0.2.0" --generate-notes
 ```
 
 ### Dry run
 
-`UNSIGNED=1 Scripts/release.sh 0.0.0` builds an ad-hoc signed DMG without notarization or a feed. It's useful for checking the packaging; CI runs it on every push.
+`UNSIGNED=1 Scripts/release.sh 0.0.0` builds an ad-hoc signed `Plinth-0.0.0.dmg` (plus the `Plinth.dmg` copy) without notarization or a feed. It's useful for checking the packaging; CI runs it on every push.
 
 ## Later: iCloud sync in releases
 
