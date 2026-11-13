@@ -224,6 +224,15 @@ enum DebugScript {
         case "toggleai": app.menuToggleAI(nil)
         case "shelf": controller?.toggleShelf()
         case "history": controller?.toggleHistory()
+        case "bookmarks": controller?.toggleBookmarks()
+        case "bmfolder": app.bookmarks.addFolder(named: arg)
+        case "bmmove":
+            // bmmove <folder name>: the first top-level bookmark goes into that folder.
+            if let folder = app.bookmarks.folders.first(where: { $0.name == arg }), let mark = app.bookmarks.bookmarks(in: nil).first {
+                app.bookmarks.move(mark.id, to: folder.id)
+            }
+        case "bmrename": if let mark = app.bookmarks.bookmarks.first { app.bookmarks.rename(mark.id, to: arg) }
+        case "bmstate": log("bookmarks: \(app.bookmarks.bookmarks.map { "\($0.title)@\(app.bookmarks.path(of: $0.folder))" }) folders: \(app.bookmarks.folders.map(\.name))")
         case "downloads": controller?.toggleDownloads()
         case "clearshelf": app.clearShelf()
         case "undoshelf": app.undoClearShelf()

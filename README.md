@@ -99,7 +99,7 @@ Prefer to build it yourself? See [Build from source](#build-from-source).
 - Rest one page on another to split them.
 - Right-click a page to rename it, keep its site, pin it, put it away or split with it.
 
-**Bookmarks.** Press ⌘D to bookmark the page you are on. A small card lets you rename it, choose a folder or remove it, and goes away on its own. Bookmarks that match what you type appear under their own heading in the command bar.
+**Bookmarks.** Press ⌘D to bookmark the page you are on. A small card lets you rename it, choose a folder or remove it, and goes away on its own. Press ⌥⌘B to see them all: make folders, rename, move or remove bookmarks, and search. Bookmarks that match what you type also appear under their own heading in the command bar.
 
 **The shelf.** Sites you stop using drop onto the shelf. Click the tray at the right of the bar, or press ⇧⌘L. Pick a page to bring it back where it was.
 
@@ -119,7 +119,7 @@ Prefer to build it yourself? See [Build from source](#build-from-source).
 | Next / previous page | ⇧⌘] / ⇧⌘[ |
 | Go to page 1–9 (left to right) | ⌘1 … ⌘9 |
 | Show shelf | ⇧⌘L |
-| Bookmark this page | ⌘D |
+| Bookmark this page, show bookmarks | ⌘D / ⌥⌘B |
 | Find in page | ⌘F |
 | Ask about this page | ⌘J |
 | Split with next page / end split | ⌥⌘\\ / ⇧⌘\\ |
