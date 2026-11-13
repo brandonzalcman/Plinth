@@ -16,6 +16,7 @@ enum MainMenu {
             add(app, "Check for Updates…", #selector(AppController.menuCheckForUpdates(_:)), "")
         }
         app.addItem(.separator())
+        add(app, "Show Welcome Guide", #selector(AppController.menuShowWelcome(_:)), "")
         add(app, "Settings…", #selector(AppController.menuSettings(_:)), ",")
         app.addItem(.separator())
         add(app, "Use On-Device AI", #selector(AppController.menuToggleAI(_:)), "")

@@ -9,6 +9,10 @@ struct SettingsTheme {
     var accent: Color
     var amber: Color
     var danger: Color
+    /// Set by the root from the colour scheme.
+    var isDark = false
+    /// The accent where it is text or a thin icon on the window: lifted in dark mode so it keeps its contrast.
+    var accentText: Color { isDark ? accent.mix(with: .white, by: 0.38) : accent }
 }
 
 private struct SettingsThemeKey: EnvironmentKey {
@@ -139,7 +143,7 @@ struct SettingsNote: View {
     var body: some View {
         let color: Color = switch tone {
         case .plain: t.p.secondary
-        case .good: t.accent
+        case .good: t.accentText
         case .warning: t.amber
         case .error: t.danger
         }
@@ -287,7 +291,7 @@ struct SettingsStepper: View {
         HStack(spacing: 8) {
             if !isDefault {
                 Button("Reset", action: reset).buttonStyle(.plain).font(.system(size: 11.5, weight: .medium))
-                    .foregroundStyle(t.accent).accessibilityLabel("Reset \(label) to default")
+                    .foregroundStyle(t.accentText).accessibilityLabel("Reset \(label) to default")
             }
             HStack(spacing: 0) {
                 stepButton("minus", enabled: canDecrement, name: "Decrease \(label)", action: decrement)

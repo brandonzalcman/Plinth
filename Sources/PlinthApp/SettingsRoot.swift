@@ -41,7 +41,8 @@ struct SettingsRoot: View {
     var body: some View {
         let theme = SettingsTheme(p: PanelPalette(scheme), accent: app.accent,
                                   amber: scheme == .dark ? Color(red: 0.95, green: 0.70, blue: 0.30) : Color(red: 0.70, green: 0.42, blue: 0.0),
-                                  danger: scheme == .dark ? Color(red: 1.0, green: 0.45, blue: 0.45) : Color(red: 0.78, green: 0.18, blue: 0.18))
+                                  danger: scheme == .dark ? Color(red: 1.0, green: 0.45, blue: 0.45) : Color(red: 0.78, green: 0.18, blue: 0.18),
+                                  isDark: scheme == .dark)
         HStack(spacing: 0) {
             SettingsSidebar(navigation: navigation)
                 .frame(width: 206)
@@ -50,6 +51,8 @@ struct SettingsRoot: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .id(navigation.selected)
         }
+        // The window's vibrancy is a neutral grey in dark mode; tint it towards the panel surface so the cards sit on it.
+        .background(scheme == .dark ? theme.p.surface.opacity(0.8) : Color.clear)
         .environment(\.settingsTheme, theme)
         .tint(theme.accent)
         .frame(minWidth: 760, minHeight: 560)
@@ -114,7 +117,7 @@ private struct SidebarItem: View {
         Button(action: action) {
             HStack(spacing: 9) {
                 Image(systemName: section.symbol).font(.system(size: 12.5, weight: .medium))
-                    .frame(width: 18).foregroundStyle(selected ? t.p.onAccent : t.accent)
+                    .frame(width: 18).foregroundStyle(selected ? t.p.onAccent : t.accentText)
                 Text(section.title).font(.system(size: 13, weight: selected ? .semibold : .medium)).lineLimit(1)
                     .foregroundStyle(selected ? t.p.onAccent : t.p.primary)
                 Spacer(minLength: 0)

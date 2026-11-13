@@ -222,6 +222,9 @@ enum DebugScript {
         case "scroll": await js(app, "window.scrollTo(0, \(Double(arg) ?? 0))")
         case "closepage": if let wid, let page = app.store.window(wid)?.selectedPageID { app.store.closePage(page) }
         case "reopen": app.menuReopen(nil)
+        case "welcome":
+            // welcome [card index]: replays the welcome guide, from the intro or at that card.
+            app.showWelcomeGuide(startingAtCard: Int(arg))
         case "settings":
             // settings <section id>: opens the Settings window on that section.
             app.menuSettings(nil)
@@ -233,6 +236,7 @@ enum DebugScript {
             app.settings.update { s in
                 switch p.first ?? "" {
                 case "engine": s.searchEngine.kind = SearchEngine.Kind(rawValue: v) ?? .duckDuckGo
+                case "appearance": s.appearance = AppearanceChoice(rawValue: v) ?? .system
                 case "accent": s.accent = AccentChoice(rawValue: v) ?? .blue
                 case "fade": s.fadeBehavior = FadeBehavior(rawValue: v) ?? .standard
                 case "zoom": s.defaultZoom = Double(v) ?? 1
@@ -251,9 +255,14 @@ enum DebugScript {
             try? task.run()
             task.waitUntilExit()
         case "shot":
-            // shot <name> [mini]: captures the key main window (or the newest mini window).
+            // shot <name> [mini|welcome|settings]: captures the key main window (or the newest mini, welcome or settings window).
             let parts = arg.split(separator: " ")
-            let window = parts.count > 1 ? app.miniWindows.last?.window : controller?.window
+            let window: NSWindow? = switch parts.count > 1 ? parts[1] : "" {
+            case "mini": app.miniWindows.last?.window
+            case "welcome": app.welcome?.window
+            case "settings": app.settingsWindow?.window
+            default: controller?.window
+            }
             guard let window, let dir = ProcessInfo.processInfo.environment["PLINTH_SHOTS"] else { return }
             let task = Process()
             task.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
