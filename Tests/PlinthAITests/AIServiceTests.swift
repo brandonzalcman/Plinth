@@ -127,3 +127,76 @@ import PlinthModel
         #expect(service.availability != .turnedOff)
     }
 }
+
+
+@MainActor
+@Suite struct AIFeatureFlagTests {
+    @Test func semanticFlagGatesIndexingAndSearchOnly() async {
+        let fake = FakeTextGenerator(cannedAnswer: "answer")
+        let service = AIService(storageDirectory: tempDirectory(), generator: fake, embedder: FakeEmbedder())
+        let entry = visit("https://cooking.com/pasta", title: "Pasta recipe")
+        await service.indexIfNeeded(entry: entry, text: page(text: "fresh pasta"))
+        #expect(await service.semanticSearch("pasta", limit: 5).count == 1)
+
+        service.semanticEnabled = false
+        #expect(await service.semanticSearch("pasta", limit: 5).isEmpty)
+        await service.indexIfNeeded(entry: visit("https://other.com/x", title: "Other pasta"), text: page(text: "pasta"))
+        #expect(await service.semanticIndex.count == 1)
+        var last = ""
+        do { for try await partial in service.ask("Q", pages: [page(text: "t")], scope: .page) { last = partial } } catch {}
+        #expect(last == "answer")
+        #expect(await service.resumeCard(for: PageID(), text: page(text: "Body text here.")) != nil)
+        await service.removeFromSemanticIndex(url: entry.url)
+        #expect(await service.semanticIndex.count == 0)
+
+        service.semanticEnabled = true
+        await service.indexIfNeeded(entry: entry, text: page(text: "fresh pasta"))
+        #expect(await service.semanticSearch("pasta", limit: 5).count == 1)
+    }
+
+    @Test func summariesFlagGatesResumeCardsOnly() async {
+        let fake = FakeTextGenerator(cannedAnswer: "You were reading about pasta.")
+        let service = AIService(storageDirectory: tempDirectory(), generator: fake, embedder: FakeEmbedder())
+        #expect(await service.resumeCard(for: PageID(), text: page(text: "Body text here.")) != nil)
+        let before = fake.requests.count
+
+        service.summariesEnabled = false
+        #expect(await service.resumeCard(for: PageID(), text: page(text: "Other body text.")) == nil)
+        #expect(fake.requests.count == before)
+        var last = ""
+        do { for try await partial in service.ask("Q", pages: [page(text: "t")], scope: .page) { last = partial } } catch {}
+        #expect(!last.isEmpty)
+        await service.indexIfNeeded(entry: visit("https://cooking.com/pasta", title: "Pasta recipe"), text: page(text: "pasta"))
+        #expect(await service.semanticSearch("pasta", limit: 5).count == 1)
+    }
+
+    @Test func masterSwitchStillWinsOverFlags() async {
+        let service = AIService(storageDirectory: tempDirectory(), generator: FakeTextGenerator(cannedAnswer: "x"), embedder: FakeEmbedder())
+        service.setEnabled(false)
+        #expect(service.semanticEnabled && service.summariesEnabled)
+        #expect(await service.resumeCard(for: PageID(), text: page(text: "Body")) == nil)
+        #expect(await service.semanticSearch("pasta", limit: 5).isEmpty)
+    }
+}
+
+@MainActor
+@Suite struct AISettingsFileCompatibility {
+    @Test func existingFileFormatIsStillRead() throws {
+        let dir = tempDirectory()
+        try Data(#"{"isEnabled":false}"#.utf8).write(to: dir.appending(path: "ai-settings.json"))
+        #expect(!AISettings(storageDirectory: dir).isEnabled)
+        try Data(#"{"isEnabled":true}"#.utf8).write(to: dir.appending(path: "ai-settings.json"))
+        #expect(AISettings(storageDirectory: dir).isEnabled)
+        #expect(AISettings.fileName == "ai-settings.json")
+    }
+
+    @Test func settingsFileIsSeparateAndGarbageMeansOn() throws {
+        let dir = tempDirectory()
+        try Data("nope".utf8).write(to: dir.appending(path: "ai-settings.json"))
+        #expect(AISettings(storageDirectory: dir).isEnabled)
+        // Writing the switch writes exactly the old format, nothing else.
+        AISettings(storageDirectory: dir).setEnabled(false)
+        let json = try JSONSerialization.jsonObject(with: Data(contentsOf: dir.appending(path: "ai-settings.json"))) as? [String: Bool]
+        #expect(json == ["isEnabled": false])
+    }
+}

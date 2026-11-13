@@ -747,3 +747,61 @@ private let engine = FadeEngine()
         #expect(engine.pageOutlook(for: stale.id, in: site([stale])) == nil)
     }
 }
+
+
+@Suite struct ScaledPolicy {
+    private func evaluate(_ policy: FadePolicy, age: TimeInterval) -> FadeVerdict {
+        let s = site([page(used: t0)])
+        return FadeEngine(policy: policy).evaluate(sites: [s], stats: [s.key: usage(last: t0)], visible: [],
+                                                   now: t0.addingTimeInterval(age))
+    }
+
+    @Test func standardScaleChangesNothing() {
+        #expect(FadePolicy.standard.scaled(by: 1) == .standard)
+        #expect(FadePolicy.standard.scaled(by: 1).siteLifetime(for: usage()) == 20 * hour)
+    }
+
+    @Test func scalesEveryLifetime() {
+        let half = FadePolicy.standard.scaled(by: 0.5)
+        #expect(half.siteBaseLifetime == 10 * hour)
+        #expect(half.siteLifetimePerExtraDay == 15 * hour)
+        #expect(half.siteMaxLifetime == 7 * day)
+        #expect(half.pageBaseLifetime == 6 * hour)
+        #expect(half.pageMaxLifetime == 12 * hour)
+        #expect(FadePolicy.standard.scaled(by: 2).siteLifetime(for: usage()) == 40 * hour)
+        #expect(!half.neverFades)
+    }
+
+    @Test func shorterFadesSoonerAndLongerLater() {
+        #expect(evaluate(.standard, age: 12 * hour).sitesToShelve.isEmpty)
+        #expect(evaluate(FadePolicy.standard.scaled(by: 0.5), age: 12 * hour).sitesToShelve.count == 1)
+        #expect(evaluate(.standard, age: 25 * hour).sitesToShelve.count == 1)
+        #expect(evaluate(FadePolicy.standard.scaled(by: 2), age: 25 * hour).sitesToShelve.isEmpty)
+    }
+
+    @Test func neverKeepsAHundredDayOldPage() {
+        let never = FadePolicy.standard.scaled(by: .infinity)
+        #expect(never.neverFades)
+        let verdict = evaluate(never, age: 100 * day)
+        #expect(verdict.sitesToShelve.isEmpty && verdict.pagesToShelve.isEmpty)
+        #expect(verdict.nextCheck == nil)
+        #expect(verdict.siteStages.values.allSatisfy { $0 == .live })
+        let s = site([page(used: t0)])
+        #expect(FadeEngine(policy: never).outlook(for: s, stats: nil, now: t0) == nil)
+    }
+
+    @Test func neverAlsoKeepsExtraPagesInASite() {
+        let a = page("a", used: t0), b = page("b", used: t0.addingTimeInterval(1))
+        let s = site([a, b])
+        let verdict = FadeEngine(policy: FadePolicy.standard.scaled(by: .infinity))
+            .evaluate(sites: [s], stats: [:], visible: [], now: t0.addingTimeInterval(100 * day))
+        #expect(verdict.pagesToShelve.isEmpty && verdict.sitesToShelve.isEmpty)
+    }
+
+    @Test func nonsenseFactorsStayFinite() {
+        #expect(FadePolicy.standard.scaled(by: .nan) == .standard)
+        #expect(FadePolicy.standard.scaled(by: 0).siteBaseLifetime > 0)
+        #expect(FadePolicy.standard.scaled(by: -3).siteBaseLifetime > 0)
+        #expect(FadePolicy.standard.scaled(by: 0).siteLifetime(for: usage()).isFinite)
+    }
+}

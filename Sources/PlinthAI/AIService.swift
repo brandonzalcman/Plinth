@@ -15,6 +15,11 @@ public final class AIService {
     /// refresh (refreshed on every call and by `refreshAvailability()`).
     public private(set) var availability: AIAvailability
     public private(set) var isEnabled: Bool
+    /// Settings: "By meaning" search. When false nothing is indexed and `semanticSearch` returns no matches
+    /// (the master switch still applies on top). Removing pages from the index keeps working.
+    public var semanticEnabled = true
+    /// Settings: page summaries. When false `resumeCard` returns nil without calling the model.
+    public var summariesEnabled = true
 
     @ObservationIgnored public let generator: any TextGenerating
     @ObservationIgnored public let embedder: any TextEmbedding
@@ -74,7 +79,7 @@ public final class AIService {
     /// A one or two sentence "where you left off" card, or nil when off, unavailable or failed.
     public func resumeCard(for page: PageID, text: PageText) async -> String? {
         refreshAvailability()
-        guard availability.isAvailable else { return nil }
+        guard summariesEnabled, availability.isAvailable else { return nil }
         let card = await resumeCards.card(for: page, text: text)
         return isEnabled ? card : nil
     }
@@ -124,7 +129,7 @@ public final class AIService {
     /// Adds the visit to the semantic index when the switch is on, the embedder works, and the
     /// visit qualifies (`SemanticIndex.shouldIndex`: 30 s dwell, http/https).
     public func indexIfNeeded(entry: HistoryEntry, text: PageText) async {
-        guard isEnabled, embedder.isAvailable, SemanticIndex.shouldIndex(entry) else { return }
+        guard isEnabled, semanticEnabled, embedder.isAvailable, SemanticIndex.shouldIndex(entry) else { return }
         let index = semanticIndex
         let id = UUID()
         let task = Task { _ = await index.add(entry: entry, text: text.text) }
@@ -135,9 +140,9 @@ public final class AIService {
 
     /// Past pages by meaning, best first. Empty when off or the embedder is unavailable.
     public func semanticSearch(_ query: String, limit: Int) async -> [SemanticMatch] {
-        guard isEnabled, embedder.isAvailable else { return [] }
+        guard isEnabled, semanticEnabled, embedder.isAvailable else { return [] }
         let matches = await semanticIndex.search(query, limit: limit)
-        return isEnabled ? matches : []
+        return isEnabled && semanticEnabled ? matches : []
     }
 
     /// Removes a page from the semantic index (works even while the switch is off).

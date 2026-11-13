@@ -48,7 +48,7 @@ extension AppController: NSMenuItemValidation, NSMenuDelegate {
 
     /// Pages read for 30 s or more are embedded once, locally.
     func indexForMeaningIfNeeded(_ page: PageID) {
-        guard ai.availability.isAvailable, let entry = store.latestHistoryEntry(for: page),
+        guard settings.value.semanticSearchEnabled, ai.availability.isAvailable, let entry = store.latestHistoryEntry(for: page),
               SemanticIndex.shouldIndex(entry), !indexedHistory.contains(entry.id) else { return }
         indexedHistory.insert(entry.id)
         Task { @MainActor [weak self] in
@@ -63,7 +63,7 @@ extension AppController: NSMenuItemValidation, NSMenuDelegate {
     /// "By meaning" results for the command bar and shelf, after keyword results.
     func semanticResults(for query: String) async -> [SearchResult] {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.count >= 3, ai.availability.isAvailable else { return [] }
+        guard settings.value.semanticSearchEnabled, trimmed.count >= 3, ai.availability.isAvailable else { return [] }
         let matches = await ai.semanticSearch(trimmed, limit: 8)
         return store.semanticResults(matches, excluding: store.search(trimmed, limit: 16), limit: 4)
     }

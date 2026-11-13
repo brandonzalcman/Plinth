@@ -125,9 +125,21 @@ extension BrowserWindowController {
 
     /// Called after pages come back from the shelf into this window (and only then).
     func showResumeCard(forRestored ids: [PageID]) {
+        let summaries = app.settings.value.pageSummariesEnabled
         guard let selected = app.store.window(windowID)?.selectedPageID, ids.contains(selected),
               let page = app.store.page(selected), let site = app.store.window(windowID)?.site(containing: selected),
-              app.ai.availability.isAvailable else { return }
+              summaries ? app.ai.availability.isAvailable : app.ai.isEnabled else { return }
+        resumeTask?.cancel()
+        if !summaries {
+            // Summaries are off: the card still marks where you left off, with no summary.
+            chrome.resumeCard = .init(page: selected, key: site.key, siteName: site.name, pageName: page.name,
+                                      summary: nil, isLoading: false)
+            resumeTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .seconds(8))
+                if let self, !Task.isCancelled, self.chrome.resumeCard?.page == selected { self.chrome.resumeCard = nil }
+            }
+            return
+        }
         chrome.resumeCard = .init(page: selected, key: site.key, siteName: site.name, pageName: page.name,
                                   summary: nil, isLoading: true)
         resumeTask?.cancel()
