@@ -40,6 +40,8 @@ final class AppController: NSObject, NSApplicationDelegate {
     var indexedHistory = Set<UUID>()
     var sync: SyncCoordinator?
     var otherDevices: [DeviceOpenPages] = []
+    /// Ends the shelf's "Clear all" Undo window (see ShelfUndo.swift).
+    var shelfUndoTask: Task<Void, Never>?
     var storageDirectory: URL!
     /// Set by the Xcode app target (Sparkle). nil in the SwiftPM build.
     var checkForUpdates: (@MainActor () -> Void)?
@@ -280,6 +282,7 @@ final class AppController: NSObject, NSApplicationDelegate {
         case .newPage: controller.openCommandBar(newPage: true)
         case .openCommandBar: controller.openCommandBar(newPage: false)
         case .openShelf: controller.toggleShelf()
+        case .openDownloads: controller.toggleDownloads()
         case .setKept(let id, let kept): store.setKept(id, kept)
         case .pinSite(let id): store.pin(site: id)
         case .unpin(let id): store.unpin(id, into: windowID)

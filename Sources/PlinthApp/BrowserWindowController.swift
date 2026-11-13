@@ -15,6 +15,7 @@ final class WindowChrome {
         case none
         case command(text: String, newPage: Bool)
         case shelf
+        case downloads
         case find
         case ask
     }
@@ -279,6 +280,11 @@ final class BrowserWindowController: NSObject, NSWindowDelegate {
 
     func toggleShelf() {
         chrome.panel = chrome.panel == .shelf ? .none : .shelf
+        syncPanel()
+    }
+
+    func toggleDownloads() {
+        chrome.panel = chrome.panel == .downloads ? .none : .downloads
         syncPanel()
     }
 

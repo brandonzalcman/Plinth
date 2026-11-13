@@ -160,6 +160,8 @@ public enum BarAction: Sendable, Equatable {
     case newPage
     case openCommandBar
     case openShelf
+    /// The downloads tray button, next to the shelf.
+    case openDownloads
     case setKept(SiteID, Bool)
     case pinSite(SiteID)
     case unpin(SiteID)

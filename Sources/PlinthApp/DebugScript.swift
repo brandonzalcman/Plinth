@@ -205,6 +205,10 @@ enum DebugScript {
         case "promotemini": if let mini = app.miniWindows.last { app.promote(mini) }
         case "toggleai": app.menuToggleAI(nil)
         case "shelf": controller?.toggleShelf()
+        case "downloads": controller?.toggleDownloads()
+        case "clearshelf": app.clearShelf()
+        case "undoshelf": app.undoClearShelf()
+        case "cleardownloads": app.pool.clearFinishedDownloads()
         case "mini": if let url = URL(string: arg) { app.openFromOtherApp(url) }
         case "command":
             controller?.chrome.panel = .command(text: arg, newPage: true)

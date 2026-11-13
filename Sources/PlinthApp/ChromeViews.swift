@@ -19,12 +19,20 @@ struct BarHost: View {
         let input = BarInput(pins: app.store.pins, sites: app.store.visibleSites(in: windowID), selected: selected, split: split)
         let engine = app.layoutEngine
 
+        let items = app.pool.downloads.items
+        let running = items.filter { $0.state == .running }
+        let known = running.compactMap(\.progress)
+        let downloads = items.isEmpty ? nil
+            : BarDownloadsState(runningCount: running.count,
+                                progress: known.isEmpty ? nil : min(max(known.reduce(0, +) / Double(known.count), 0), 1))
+
         BottomBarView(
             layoutForWidth: { width in
                 engine.layout(input, barWidth: width, metrics: .standard, measure: BarTextMeasurer.width)
             },
             accent: app.accent,
             icon: { app.pool.favicons.image(for: $0) },
+            downloads: downloads,
             onAction: { app.handle($0, in: windowID) }
         )
         .overlay(alignment: .top) {
@@ -99,7 +107,26 @@ struct PanelLayer: View {
                     onRemove: { entry, page in app.store.removeFromShelf(entry: entry, page: page) },
                     onDismiss: { controller.dismissPanel() },
                     semanticResults: { query in await app.semanticResults(for: query) },
-                    onOpenResult: { controller.submit(.result($0)) }
+                    onOpenResult: { controller.submit(.result($0)) },
+                    onClearAll: { app.clearShelf() },
+                    undoCount: app.store.clearedShelfPageCount,
+                    onUndoClear: { app.undoClearShelf() }
+                )
+                .padding(.trailing, metrics.sideInset)
+                .padding(.bottom, lift)
+            }
+        case .downloads:
+            ZStack(alignment: .bottomTrailing) {
+                Color.black.opacity(0.001).onTapGesture { controller.dismissPanel() }
+                DownloadsTrayView(
+                    items: app.pool.downloads.items,
+                    accent: app.accent,
+                    onOpen: { app.pool.openDownload(id: $0) },
+                    onReveal: { app.pool.revealDownload(id: $0) },
+                    onCancel: { app.pool.cancelDownload(id: $0) },
+                    onRemove: { app.pool.removeDownload(id: $0) },
+                    onClear: { app.pool.clearFinishedDownloads() },
+                    onDismiss: { controller.dismissPanel() }
                 )
                 .padding(.trailing, metrics.sideInset)
                 .padding(.bottom, lift)
