@@ -304,6 +304,9 @@ final class BrowserWindowController: NSObject, NSWindowDelegate {
 
     func toggleHistory() {
         chrome.panel = chrome.panel == .history ? .none : .history
+        syncPanel()
+    }
+
     func toggleDownloads() {
         chrome.panel = chrome.panel == .downloads ? .none : .downloads
         syncPanel()
