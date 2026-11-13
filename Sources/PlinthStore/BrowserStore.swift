@@ -1075,3 +1075,19 @@ public final class BrowserStore {
         }
     }
 }
+
+// MARK: - Clearing history
+
+extension BrowserStore {
+    /// Removes history entries from `date` on (all of them when nil). Open pages are untouched.
+    /// Returns how many entries were removed.
+    @discardableResult
+    public func clearHistory(since date: Date?) -> Int {
+        let before = history.count
+        if let date { history.removeAll { $0.visitedAt >= date } } else { history.removeAll() }
+        let alive = Set(history.map(\.id))
+        latestHistory = latestHistory.filter { alive.contains($0.value) }
+        commit()
+        return before - history.count
+    }
+}
