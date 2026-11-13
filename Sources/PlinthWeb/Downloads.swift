@@ -70,11 +70,45 @@ extension WebViewPool: WKDownloadDelegate {
         return record
     }
 
-    public func download(_ download: WKDownload, decideDestinationUsing response: URLResponse, suggestedFilename: String) async -> URL? {
+    /// The folder downloads go to: the chosen one when it exists, else the system Downloads folder.
+    func downloadFolderURL() -> URL {
+        if let path = settings.downloadFolder, !path.isEmpty {
+            var isDirectory: ObjCBool = false
+            if FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory), isDirectory.boolValue {
+                return URL(fileURLWithPath: path, isDirectory: true)
+            }
+            log.info("Download folder missing, using the system Downloads folder")
+        }
         let folder = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
             ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Downloads", isDirectory: true)
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        let destination = Self.uniqueDestination(in: folder, suggested: suggestedFilename)
+        return folder
+    }
+
+    public func download(_ download: WKDownload, decideDestinationUsing response: URLResponse, suggestedFilename: String) async -> URL? {
+        let folder = downloadFolderURL()
+        var destination = Self.uniqueDestination(in: folder, suggested: suggestedFilename)
+        if settings.askWhereToSave {
+            let panel = NSSavePanel()
+            panel.directoryURL = folder
+            panel.nameFieldStringValue = destination.lastPathComponent
+            panel.canCreateDirectories = true
+            let result: NSApplication.ModalResponse
+            if let window = download.webView?.window {
+                result = await panel.beginSheetModal(for: window)
+            } else {
+                result = panel.runModal()
+            }
+            guard result == .OK, let chosen = panel.url else {
+                if let record = finishRecord(download) {
+                    downloads.update(record.id) { $0.state = .cancelled }
+                }
+                return nil
+            }
+            // The panel already confirmed replacing an existing file; WebKit needs the path free.
+            try? FileManager.default.removeItem(at: chosen)
+            destination = chosen
+        }
         if let record = activeDownloads[ObjectIdentifier(download)] {
             downloads.update(record.id) { item in
                 item.filename = destination.lastPathComponent
@@ -97,6 +131,9 @@ extension WebViewPool: WKDownloadDelegate {
         if let path = fileURL?.path {
             // Bounces the Downloads stack in the Dock, as Safari does.
             DistributedNotificationCenter.default().post(name: Notification.Name("com.apple.DownloadFileFinished"), object: path)
+        }
+        if settings.openSafeFilesAfterDownload, let fileURL, DownloadSafety.isSafeToOpen(filename: fileURL.lastPathComponent) {
+            NSWorkspace.shared.open(fileURL)
         }
     }
 

@@ -1,6 +1,7 @@
 import AppKit
 import WebKit
 import PlinthModel
+import PlinthSettings
 import os
 
 /// Owns every page's `WKWebView`: creation, navigation plumbing, suspension on the shelf,
@@ -83,6 +84,14 @@ public final class WebViewPool: NSObject {
         var suspendedKey: SiteKey?
         var isDemoting = false
         var lastFullscreen = false
+        /// The user zoomed this page by hand, so the default zoom no longer applies to it.
+        var manualZoom = false
+        /// https URL -> the http URL it was upgraded from (HTTPS-only), for the fallback prompt.
+        var upgrades: [URL: URL] = [:]
+        /// Hosts the user chose to open over http despite HTTPS-only (this page only).
+        var httpAllowedHosts: Set<String> = []
+        /// The URL whose error page is being shown (not rewritten by HTTPS-only / GPC).
+        var errorPageURL: URL?
 
         init(id: PageID, webView: WKWebView) {
             self.id = id
@@ -94,7 +103,13 @@ public final class WebViewPool: NSObject {
     private var idsByView: [ObjectIdentifier: PageID] = [:]
     /// Suspended sites, least recently shelved first.
     private var suspendedOrder: [SiteKey] = []
-    private var ruleList: WKContentRuleList?
+    var ruleList: WKContentRuleList?
+    var cookieRuleList: WKContentRuleList?
+    /// The settings last handed to `apply(_:)`.
+    var settings = AppSettings.defaults
+    /// Bumped on every blocker/cookie-list sync so a slow compile cannot undo a newer decision.
+    var blockerGeneration = 0
+    var cookieGeneration = 0
     /// Downloads still running, by `WKDownload`.
     var activeDownloads: [ObjectIdentifier: DownloadRecord] = [:]
     /// Every download this session, newest first, for the downloads indicator.
@@ -102,13 +117,13 @@ public final class WebViewPool: NSObject {
     /// The same list as `downloads.items` (observable through it).
     public var downloadItems: [DownloadItem] { downloads.items }
 
-    private let userContent = WKUserContentController()
+    let userContent = WKUserContentController()
     private let snapshotDirectory: URL
     private let snapshotCache = NSCache<NSUUID, NSImage>()
     let log = Logger(subsystem: "Plinth", category: "web")
 
     nonisolated static let messageName = "plinth"
-    private static let zoomSteps: [Double] = [0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3]
+    static let zoomSteps: [Double] = [0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3]
 
     // MARK: Lifecycle
 
@@ -125,20 +140,8 @@ public final class WebViewPool: NSObject {
         let relay = MessageRelay()
         relay.pool = self
         userContent.add(relay, contentWorld: .defaultClient, name: Self.messageName)
-        userContent.addUserScript(WKUserScript(source: PageScript.source, injectionTime: .atDocumentEnd,
-                                               forMainFrameOnly: true, in: .defaultClient))
-
-        // Every view shares `userContent`, so adding the list once covers views made before and after.
-        Task { [weak self] in
-            do {
-                let list = try await ContentBlocker.ruleList()
-                guard let self else { return }
-                self.ruleList = list
-                self.userContent.add(list)
-            } catch {
-                self?.log.error("Content blocker unavailable, browsing unblocked: \(String(describing: error), privacy: .public)")
-            }
-        }
+        rebuildUserScripts()
+        syncContentBlocker()
     }
 
     /// True once the block list is compiled and attached.
@@ -158,6 +161,7 @@ public final class WebViewPool: NSObject {
         // Inline playback is the only mode on macOS; `allowsInlineMediaPlayback` exists on iOS alone.
         configuration.mediaTypesRequiringUserActionForPlayback = []
         configuration.suppressesIncrementalRendering = false
+        configuration.preferences.minimumFontSize = CGFloat(settings.minimumFontSize)
         return configuration
     }
 
@@ -168,6 +172,7 @@ public final class WebViewPool: NSObject {
         webView.allowsLinkPreview = true
         webView.allowsMagnification = true
         webView.isInspectable = true
+        webView.pageZoom = CGFloat(Self.clampedZoom(settings.defaultZoom))
         return webView
     }
 
@@ -408,8 +413,15 @@ public final class WebViewPool: NSObject {
 
     public func zoom(_ id: PageID) -> Double { entries[id].map { Double($0.webView.pageZoom) } ?? 1 }
 
+    static func clampedZoom(_ zoom: Double) -> Double {
+        min(max(zoom, zoomSteps[0]), zoomSteps[zoomSteps.count - 1])
+    }
+
+    /// A zoom the user chose: the page keeps it even when the default zoom changes.
     public func setZoom(_ zoom: Double, for id: PageID) {
-        entries[id]?.webView.pageZoom = CGFloat(min(max(zoom, Self.zoomSteps[0]), Self.zoomSteps[Self.zoomSteps.count - 1]))
+        guard let entry = entries[id] else { return }
+        entry.manualZoom = true
+        entry.webView.pageZoom = CGFloat(Self.clampedZoom(zoom))
     }
 
     public func zoomIn(_ id: PageID) {
@@ -422,7 +434,12 @@ public final class WebViewPool: NSObject {
         setZoom(Self.zoomSteps.last { $0 < current - 0.001 } ?? current, for: id)
     }
 
-    public func resetZoom(_ id: PageID) { setZoom(1, for: id) }
+    /// "Actual Size": back to the default zoom from Settings, which the page follows again.
+    public func resetZoom(_ id: PageID) {
+        guard let entry = entries[id] else { return }
+        entry.manualZoom = false
+        entry.webView.pageZoom = CGFloat(Self.clampedZoom(settings.defaultZoom))
+    }
 
     // MARK: Reporting
 
