@@ -1,6 +1,7 @@
 import AppKit
 import Observation
 import PlinthModel
+import PlinthWebCore
 import os
 
 /// Site icons, one per `SiteKey`, cached in memory and under `<storageDirectory>/favicons`.
@@ -57,15 +58,7 @@ public final class FaviconStore {
             return
         }
 
-        var urls = candidates.filter { ["http", "https"].contains($0.scheme?.lowercased() ?? "") }
-        if let scheme = pageURL.scheme?.lowercased(), ["http", "https"].contains(scheme), let host = pageURL.host {
-            var origin = URLComponents()
-            origin.scheme = scheme
-            origin.host = host
-            origin.port = pageURL.port
-            origin.path = "/favicon.ico"
-            if let fallback = origin.url, !urls.contains(fallback) { urls.append(fallback) }
-        }
+        let urls = PageMeta.fetchOrder(candidates: candidates, pageURL: pageURL)
         guard !urls.isEmpty else { return }
 
         inFlight.insert(key)

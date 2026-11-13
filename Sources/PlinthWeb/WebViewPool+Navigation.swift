@@ -132,12 +132,8 @@ extension WebViewPool: WKNavigationDelegate {
     }
 
     public func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse) async -> WKNavigationResponsePolicy {
-        if let http = navigationResponse.response as? HTTPURLResponse,
-           let disposition = http.value(forHTTPHeaderField: "Content-Disposition"),
-           disposition.lowercased().hasPrefix("attachment") {
-            return .download
-        }
-        return navigationResponse.canShowMIMEType ? .allow : .download
+        DownloadPolicy.shouldDownload(navigationResponse.response, canShowMIMEType: navigationResponse.canShowMIMEType)
+            ? .download : .allow
     }
 
     public func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
