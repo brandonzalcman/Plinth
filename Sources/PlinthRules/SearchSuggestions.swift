@@ -21,6 +21,15 @@ public enum SearchSuggestions {
         return URL(string: template.replacingOccurrences(of: "%s", with: encoded))
     }
 
+    /// The request to send for text typed in the command bar, or nil when nothing may be sent:
+    /// the setting is off, the window is private, the text looks like an address, or the engine
+    /// has no endpoint.
+    public static func request(for query: String, engine: SearchEngine, enabled: Bool, isPrivate: Bool) -> URL? {
+        let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard enabled, !isPrivate, isWorthAsking(text) else { return nil }
+        return endpoint(for: engine, query: text)
+    }
+
     /// The OpenSearch suggestion format all of these share: `["query", ["a", "b", ...], ...]`.
     /// Anything else (or an empty answer) gives no suggestions.
     public static func parse(_ data: Data, query: String, limit: Int = 5) -> [String] {

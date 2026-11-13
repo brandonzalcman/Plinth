@@ -70,6 +70,8 @@ public struct CommandBarView: View {
 
     enum Row: Equatable {
         case literal(String, isURL: Bool)
+        /// A phrase the search engine suggests for what is typed; choosing it searches for it.
+        case suggestion(String)
         case result(SearchResult)
     }
 
@@ -196,6 +198,23 @@ public struct CommandBarView: View {
                             .foregroundStyle(soft)
                             .accessibilityHidden(true)
                     }
+                case .suggestion(let phrase):
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(soft)
+                        .frame(width: 16, height: 16)
+                        .accessibilityHidden(true)
+                    Self.suggestionText(phrase, typed: trimmed, strong: strong, soft: soft)
+                        .font(.system(size: 13))
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    Spacer(minLength: 8)
+                    if selected {
+                        Text("↩")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(soft)
+                            .accessibilityHidden(true)
+                    }
                 case .result(let result):
                     SiteIconView(key: result.key, name: result.key.host,
                                  image: icon(result.key), size: 16)
@@ -288,7 +307,7 @@ public struct CommandBarView: View {
             // for" row stays right behind it.
             let literal = Row.literal(query, isURL: Self.looksLikeURL(query))
             // The engine's suggestions come right after the literal row, before history.
-            let suggested = engineSuggestions.prefix(Self.maxSuggestionRows).map { Row.literal($0, isURL: false) }
+            let suggested = engineSuggestions.prefix(Self.maxSuggestionRows).map { Row.suggestion($0) }
             let head: [Row]
             if let top = keyword.first, top.isTopHit {
                 let others = keyword.dropFirst().map(Row.result)
@@ -366,7 +385,7 @@ public struct CommandBarView: View {
 
     private func submit(_ row: Row, newPage: Bool) {
         switch row {
-        case .literal(let value, _):
+        case .literal(let value, _), .suggestion(let value):
             onSubmit(.text(value, newPage: opensNewPage || newPage))
         case .result(let result):
             // `.result` cannot carry "in a new page". A history hit is just an address, so with
@@ -399,10 +418,25 @@ public struct CommandBarView: View {
         return false
     }
 
+    /// The part of a suggestion that continues what was typed is bold, the typed part is soft.
+    static func suggestionText(_ phrase: String, typed: String, strong: Color, soft: Color) -> Text {
+        var out = AttributedString(phrase)
+        out.foregroundColor = strong
+        out.font = .system(size: 13, weight: .medium)
+        if !typed.isEmpty, phrase.lowercased().hasPrefix(typed.lowercased()) {
+            let end = out.index(out.startIndex, offsetByCharacters: typed.count)
+            out[out.startIndex..<end].foregroundColor = soft
+            out[out.startIndex..<end].font = .system(size: 13)
+        }
+        return Text(out)
+    }
+
     static func spokenLabel(for row: Row) -> String {
         switch row {
         case .literal(let value, let isURL):
             return isURL ? "Go to \(displayAddress(value))" : "Search for \(value)"
+        case .suggestion(let phrase):
+            return "Suggested search, \(phrase)"
         case .result(let result):
             return [result.title, result.subtitle, result.isTopHit ? "top hit" : tag(for: result)].filter { !$0.isEmpty }.joined(separator: ", ")
         }

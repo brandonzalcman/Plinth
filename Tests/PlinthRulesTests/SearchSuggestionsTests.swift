@@ -29,4 +29,14 @@ struct SearchSuggestionsTests {
         #expect(!SearchSuggestions.isWorthAsking("https://github.com/x"))
         #expect(!SearchSuggestions.isWorthAsking("localhost:3000"))
     }
+
+    @Test func sendsNothingInAPrivateWindowOrWhenOffOrForAnAddress() {
+        let google = SearchEngine(kind: .google)
+        let url = SearchSuggestions.request(for: " github ", engine: google, enabled: true, isPrivate: false)
+        #expect(url?.host == "suggestqueries.google.com")
+        #expect(SearchSuggestions.request(for: "github", engine: google, enabled: true, isPrivate: true) == nil)
+        #expect(SearchSuggestions.request(for: "github", engine: google, enabled: false, isPrivate: false) == nil)
+        #expect(SearchSuggestions.request(for: "github.com/login", engine: google, enabled: true, isPrivate: false) == nil)
+        #expect(SearchSuggestions.request(for: "github", engine: SearchEngine(kind: .custom), enabled: true, isPrivate: false) == nil)
+    }
 }
