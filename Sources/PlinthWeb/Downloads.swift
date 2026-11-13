@@ -26,6 +26,9 @@ final class DownloadRecord {
     let id: UUID
     let download: WKDownload
     var observation: NSKeyValueObservation?
+    var rate = DownloadRate()
+    /// When the model last got a live update (throttles the UI to a few per second).
+    var lastPublished: TimeInterval = 0
 
     init(id: UUID, download: WKDownload) {
         self.id = id
@@ -45,21 +48,30 @@ extension WebViewPool: WKDownloadDelegate {
         let guess = download.originalRequest?.url?.lastPathComponent ?? ""
         let filename = guess.isEmpty || guess == "/" ? "Download" : guess
         downloads.items.insert(DownloadItem(id: record.id, filename: filename, progress: nil, state: .running,
-                                            fileURL: nil, startedAt: Date()), at: 0)
+                                            fileURL: nil, startedAt: Date(), sourceURL: download.originalRequest?.url), at: 0)
 
         let id = record.id
         record.observation = download.progress.observe(\.fractionCompleted) { [weak self] progress, _ in
-            let fraction: Double? = progress.totalUnitCount > 0 ? min(max(progress.fractionCompleted, 0), 1) : nil
-            Task { @MainActor in self?.downloadProgressed(id, fraction) }
+            let total: Int64? = progress.totalUnitCount > 0 ? progress.totalUnitCount : nil
+            let fraction: Double? = total != nil ? min(max(progress.fractionCompleted, 0), 1) : nil
+            let received = progress.completedUnitCount
+            Task { @MainActor in self?.downloadProgressed(id, fraction, received: received, total: total) }
         }
     }
 
-    private func downloadProgressed(_ id: UUID, _ fraction: Double?) {
+    /// Live progress: at most about four model updates a second per download.
+    private func downloadProgressed(_ id: UUID, _ fraction: Double?, received: Int64, total: Int64?) {
+        guard let record = activeDownloads.values.first(where: { $0.id == id }) else { return }
+        let now = ProcessInfo.processInfo.systemUptime
+        guard now - record.lastPublished >= 0.25 else { return }
+        record.lastPublished = now
+        let speed = record.rate.sample(bytes: received, at: now)
         downloads.update(id) { item in
             guard item.state == .running else { return }
-            // At most one update per percent.
-            if let fraction, let old = item.progress, abs(fraction - old) < 0.01, fraction < 1 { return }
             item.progress = fraction
+            item.receivedBytes = received
+            item.totalBytes = total
+            item.bytesPerSecond = speed
         }
     }
 
@@ -125,6 +137,10 @@ extension WebViewPool: WKDownloadDelegate {
             downloads.update(record.id) { item in
                 item.state = .finished
                 item.progress = 1
+                item.bytesPerSecond = nil
+                if let size = fileURL.flatMap({ try? $0.resourceValues(forKeys: [.fileSizeKey]).fileSize }) {
+                    item.receivedBytes = Int64(size); item.totalBytes = Int64(size)
+                } else if let total = item.totalBytes { item.receivedBytes = total }
                 if let fileURL { item.fileURL = fileURL } else { fileURL = item.fileURL }
             }
         }
@@ -143,6 +159,7 @@ extension WebViewPool: WKDownloadDelegate {
         let cancelled = failure.domain == NSURLErrorDomain && failure.code == NSURLErrorCancelled
         downloads.update(record.id) { item in
             item.state = cancelled ? .cancelled : .failed(failure.localizedDescription)
+            item.bytesPerSecond = nil
         }
         if !cancelled { log.error("Download failed: \(failure.localizedDescription, privacy: .public)") }
     }
@@ -160,7 +177,25 @@ extension WebViewPool: WKDownloadDelegate {
         record.observation?.invalidate()
         record.observation = nil
         record.download.cancel(nil)
-        downloads.update(id) { $0.state = .cancelled }
+        downloads.update(id) { $0.state = .cancelled; $0.bytesPerSecond = nil }
+    }
+
+    /// Opens the finished file in its default app. Nothing happens when it has gone.
+    public func openDownload(id: UUID) {
+        guard let item = downloads.items.first(where: { $0.id == id }), item.state == .finished,
+              let url = item.fileURL, FileManager.default.fileExists(atPath: url.path) else { return }
+        NSWorkspace.shared.open(url)
+    }
+
+    /// Takes one finished, failed or cancelled download off the list. The file stays on disk.
+    public func removeDownload(id: UUID) {
+        downloads.items.removeAll { $0.id == id && $0.state != .running }
+    }
+
+    /// Whether the downloaded file is still where it was saved.
+    public func downloadFileExists(id: UUID) -> Bool {
+        guard let url = downloads.items.first(where: { $0.id == id })?.fileURL else { return false }
+        return FileManager.default.fileExists(atPath: url.path)
     }
 
     /// Shows the file in Finder (its folder when the file has gone).

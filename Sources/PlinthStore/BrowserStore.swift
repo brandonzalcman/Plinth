@@ -14,6 +14,8 @@ public final class BrowserStore {
     public internal(set) var pins: [PinnedSite] = []
     /// Global, newest first.
     public internal(set) var shelf: [ShelfEntry] = []
+    /// What "Clear all" just took off the shelf, waiting on Undo. Not saved. See ShelfClear.swift.
+    public internal(set) var clearedShelf: [ShelfEntry] = []
     /// Global, newest first.
     public internal(set) var history: [HistoryEntry] = []
     /// Lifetime usage per site key.

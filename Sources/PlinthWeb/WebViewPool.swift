@@ -349,6 +349,11 @@ public final class WebViewPool: NSObject {
 
     // MARK: Snapshots
 
+    /// Whether a snapshot exists, without loading it.
+    public func hasSnapshot(for id: PageID) -> Bool {
+        snapshotCache.object(forKey: id.raw as NSUUID) != nil || FileManager.default.fileExists(atPath: snapshotURL(for: id).path)
+    }
+
     /// The last saved snapshot, from memory or the disk cache.
     public func snapshot(for id: PageID) -> NSImage? {
         let cacheKey = id.raw as NSUUID

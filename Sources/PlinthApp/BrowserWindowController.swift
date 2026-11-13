@@ -16,6 +16,7 @@ final class WindowChrome {
         case command(text: String, newPage: Bool)
         case shelf
         case history
+        case downloads
         case find
         case ask
     }
@@ -144,7 +145,16 @@ final class BrowserWindowController: NSObject, NSWindowDelegate {
         }
     }
 
+    /// Debug measurement: how many times `refreshContent` ran and how long it took in all.
+    var refreshStats = (count: 0, seconds: 0.0)
+
     func refreshContent() {
+        let started = ContinuousClock.now
+        defer {
+            let d = ContinuousClock.now - started
+            refreshStats.count += 1
+            refreshStats.seconds += Double(d.components.seconds) + Double(d.components.attoseconds) / 1e18
+        }
         guard let state = app.store.window(windowID) else { return }
         var ordered: [PageID] = []
         splitFlipped = false
@@ -164,8 +174,13 @@ final class BrowserWindowController: NSObject, NSWindowDelegate {
         for view in views {
             // Let pages scroll clear of the floating bar.
             // The page starts below the traffic lights; WebKit fills the strip with the page's own colour.
-            view.obscuredContentInsets = NSEdgeInsets(top: titlebarHeight, left: 0,
-                                                     bottom: metrics.barHeight + metrics.bottomInset + 8, right: 0)
+            // WebKit re-lays the page out on every assignment, so only assign a change.
+            let insets = NSEdgeInsets(top: titlebarHeight, left: 0,
+                                      bottom: metrics.barHeight + metrics.bottomInset + 8, right: 0)
+            let old = view.obscuredContentInsets
+            if old.top != insets.top || old.bottom != insets.bottom || old.left != insets.left || old.right != insets.right {
+                view.obscuredContentInsets = insets
+            }
         }
         let fraction = state.split?.fraction ?? 0.5
         content.show(leading: views.first, trailing: views.count > 1 ? views[1] : nil,
@@ -206,13 +221,17 @@ final class BrowserWindowController: NSObject, NSWindowDelegate {
         if view.isLoading, view.estimatedProgress < 0.5, stripColoured { return }
         stripColoured = true
         let colour = view.underPageBackgroundColor ?? .windowBackgroundColor
-        topStrip.layer?.backgroundColor = colour.cgColor
+        let cg = colour.cgColor
+        if topStrip.layer?.backgroundColor != cg { topStrip.layer?.backgroundColor = cg }
         applyChromeAppearance()
     }
 
     /// Also called when the Appearance setting changes.
     func applyChromeAppearance() {
-        chromeAppearance = app.settings.value.appearance.nsAppearance
+        let appearance = app.settings.value.appearance.nsAppearance
+        // Changing a host's appearance re-renders its whole SwiftUI tree, so only do it when it flips.
+        guard chromeAppearance?.name != appearance?.name || barHost.appearance?.name != appearance?.name else { return }
+        chromeAppearance = appearance
         barHost.appearance = chromeAppearance
         panelHost?.appearance = chromeAppearance
         applyAccessoryAppearance()
@@ -285,6 +304,8 @@ final class BrowserWindowController: NSObject, NSWindowDelegate {
 
     func toggleHistory() {
         chrome.panel = chrome.panel == .history ? .none : .history
+    func toggleDownloads() {
+        chrome.panel = chrome.panel == .downloads ? .none : .downloads
         syncPanel()
     }
 

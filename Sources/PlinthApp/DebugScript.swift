@@ -4,6 +4,7 @@ import PlinthModel
 import PlinthRules
 import PlinthSettings
 import PlinthWeb
+import PlinthBarUI
 
 /// Test-launch hook: `PLINTH_STEPS="wait 3; peek http://…; wait 4; promote; …"` drives features
 /// through the same entry points the UI uses, logging to stdout. Inactive unless the variable is set.
@@ -206,6 +207,68 @@ enum DebugScript {
         case "toggleai": app.menuToggleAI(nil)
         case "shelf": controller?.toggleShelf()
         case "history": controller?.toggleHistory()
+        case "downloads": controller?.toggleDownloads()
+        case "clearshelf": app.clearShelf()
+        case "undoshelf": app.undoClearShelf()
+        case "benchlayout":
+            // benchlayout <sites> <pagesPerSite>: times the bar layout engine with the real text measurer.
+            let p = arg.split(separator: " ").compactMap { Int($0) }
+            let n = p.first ?? 60, per = p.count > 1 ? p[1] : 3
+            let t0 = Date()
+            let sites = (0..<n).map { i in
+                Site(key: SiteKey("site\(i).example.com"), name: "Site number \(i)",
+                     pages: (0..<per).map { j in
+                         Page(url: URL(string: "https://site\(i).example.com/page\(j)")!, name: "Some page title \(i)-\(j)",
+                              usage: Usage(at: t0.addingTimeInterval(Double(i * 10 + j))))
+                     })
+            }
+            let input = BarInput(pins: [], sites: sites, selected: sites.first?.pages.first?.id, split: nil)
+            var widths: [CGFloat] = []
+            for w in stride(from: 900.0, through: 1500.0, by: 5.0) { widths.append(w) }
+            let clock = ContinuousClock()
+            var samples: [Double] = []
+            for _ in 0..<5 {
+                let d = clock.measure { for w in widths { _ = app.layoutEngine.layout(input, barWidth: w, metrics: .standard, measure: BarTextMeasurer.width) } }
+                samples.append(Double(d.components.attoseconds) / 1e15 + Double(d.components.seconds) * 1000)
+            }
+            let per1 = samples.min()! / Double(widths.count)
+            log("benchlayout \(n) sites x \(per) pages: \(String(format: "%.3f", per1)) ms per layout (best of 5 sweeps of \(widths.count) widths)")
+        case "refreshstats":
+            if let c = controller { log("refreshContent calls: \(c.refreshStats.count) total \(String(format: "%.1f", c.refreshStats.seconds * 1000)) ms") }
+        case "benchdrag":
+            // benchdrag: with a split on screen, drags the divider across the page in 150 events.
+            guard let c = controller, let wid, let fraction = app.store.window(wid)?.split?.fraction else { log("benchdrag: no split"); return }
+            let height = c.window.contentView!.bounds.height, width = c.window.contentView!.bounds.width
+            let startX = width * fraction
+            func send(_ type: NSEvent.EventType, _ x: Double) {
+                if let e = NSEvent.mouseEvent(with: type, location: NSPoint(x: x, y: height / 2), modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                              windowNumber: c.window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) { c.window.sendEvent(e) }
+            }
+            log("benchdrag: startX \(startX) hit: \(String(describing: c.window.contentView?.hitTest(NSPoint(x: startX, y: height / 2)))) key: \(c.window.isKeyWindow)")
+            c.window.makeKeyAndOrderFront(nil)
+            try? await Task.sleep(for: .milliseconds(300))
+            c.refreshStats = (0, 0)
+            let clock = ContinuousClock()
+            let began = clock.now
+            send(.leftMouseDown, startX)
+            for i in 1...150 {
+                send(.leftMouseDragged, startX + 120 * sin(Double(i) / 150 * .pi * 2) + 150 * Double(i) / 150)
+                try? await Task.sleep(for: .milliseconds(8))   // ~120 Hz mouse
+            }
+            send(.leftMouseUp, startX)
+            let t = clock.now - began
+            try? await Task.sleep(for: .milliseconds(500))
+            log("benchdrag: 150 drag events sent in \(t); refreshContent calls: \(c.refreshStats.count) total \(String(format: "%.1f", c.refreshStats.seconds * 1000)) ms; fraction now \(app.store.window(wid)?.split?.fraction ?? -1)")
+        case "benchsnap":
+            // benchsnap: cost of the shelf's per-group "does any page have a thumbnail" check, old way vs new.
+            let dir = app.storageDirectory.appendingPathComponent("snapshots")
+            let files = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []
+            let clock = ContinuousClock()
+            func ms(_ d: Duration) -> Double { Double(d.components.seconds) * 1000 + Double(d.components.attoseconds) / 1e15 }
+            let old = clock.measure { for f in files { if let i = NSImage(contentsOf: f), i.isValid { _ = i.size } } }
+            let new = clock.measure { for f in files { _ = FileManager.default.fileExists(atPath: f.path) } }
+            log("benchsnap: \(files.count) snapshots: load \(String(format: "%.2f", ms(old))) ms vs exists-check \(String(format: "%.3f", ms(new))) ms")
+        case "cleardownloads": app.pool.clearFinishedDownloads()
         case "mini": if let url = URL(string: arg) { app.openFromOtherApp(url) }
         case "command":
             controller?.chrome.panel = .command(text: arg, newPage: true)
