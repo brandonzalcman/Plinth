@@ -11,6 +11,9 @@ enum PasswordCrypto {
         let algorithm = cipher == .aes ? CCAlgorithm(kCCAlgorithmAES) : CCAlgorithm(kCCAlgorithm3DES)
         let block = cipher == .aes ? kCCBlockSizeAES128 : kCCBlockSize3DES
         guard iv.count == block, !input.isEmpty else { return nil }
+        // Decryption input is whole blocks; anything else is damaged (and must not reach CommonCrypto).
+        if operation == kCCDecrypt, input.count % block != 0 { return nil }
+        let input = Data(input)
         var out = Data(count: input.count + block)
         var written = 0
         let outCount = out.count
