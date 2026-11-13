@@ -1,40 +1,147 @@
 <p align="center">
-  <img src="Design/icon/plinth-full.svg" alt="Plinth" width="280">
+  <img src="Design/icon/plinth-full.svg" alt="Plinth" width="260">
 </p>
-
-# Plinth
-
-A native macOS browser built with Swift and WebKit. It has no toolbar and no tab strip. The page runs to the top of the window, and the only chrome is a floating bar at the bottom that lists your open pages by name, grouped by website. Sites you stop using fade out and drop onto a searchable shelf.
 
 <p align="center">
-  <img src="Design/screenshots/command-bar-light.png" alt="Plinth with the command bar open" width="760">
+  <strong>A calm, native macOS browser with one floating bar instead of tabs.</strong><br>
+  Swift · WebKit · on-device AI · no tracking
 </p>
 
-## Features
+<p align="center">
+  <a href="LICENSE"><img alt="License: GPL v3" src="https://img.shields.io/badge/license-GPL%20v3-2F5BEA"></a>
+  <img alt="macOS 26" src="https://img.shields.io/badge/macOS-26-1C1C1A">
+  <img alt="Swift 6.2" src="https://img.shields.io/badge/Swift-6.2-F05138">
+  <a href="https://github.com/brandonzalcman/Plinth/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/brandonzalcman/Plinth/actions/workflows/ci.yml/badge.svg"></a>
+</p>
 
-- **Bottom bar.** Pages are listed by name and grouped into one capsule per website. Drag to reorder, or drop one page on another to show them side by side.
-- **Adaptive fading.** A site you use every day stays on the bar; a one-off search fades within a day or so. Kept and pinned sites never fade.
-- **Shelf.** Faded sites go to a searchable shelf, and you can bring them back with their state intact.
-- **Pinned sites.** Each pin is a small resident app with one page. A link that leaves the pin's site opens as an ordinary page, and sign-in flows still work.
-- **Split view** with a draggable divider.
-- **Command bar** (⌘L) for addresses, search and switching pages.
-- **Peek** (⇧-click a link) previews it without leaving the page.
-- **Mini window** for links opened from other apps; ⌘⇧↩ moves the page into the main window.
-- **Group suggestions.** When the same sites keep being open together, Plinth suggests grouping them. One click shows only that group.
-- **On-device AI**, using Apple's Foundation Models and NaturalLanguage frameworks. Nothing leaves your Mac, and one switch turns all of it off.
-  - **Resume cards:** "where you left off" when a site comes back from the shelf.
-  - **Ask page / ask site** (⌘J): ask about one page, every page of a site, or compare the two halves of a split.
-  - **Semantic history:** find pages you read by what they were about, not just by their words.
-- **Built-in content blocking**, a downloads indicator, find in page, and zoom.
-- **iCloud sync** of pins, the shelf and history, plus each Mac's open pages as a read-only list. It is built and tested, but off by default; see [Design/icloud-sync.md](Design/icloud-sync.md) to turn it on.
+<p align="center">
+  <img src="docs/images/hero.jpg" alt="Plinth showing the WebKit blog with the floating bottom bar" width="900">
+</p>
 
-## Requirements
+Plinth has no toolbar and no tab strip. The page runs to the top of the window, and the only chrome is a floating bar at the bottom. It lists your open pages by name, grouped by website. Sites you stop using fade out and drop onto a searchable shelf, so the bar stays short without you tidying it.
 
-- macOS 26
-- Xcode 26 (Swift 6.2)
-- The AI features need an Apple Intelligence–capable Mac with Apple Intelligence turned on. Everything else works without it.
+## Contents
 
-## Build and run
+- [Highlights](#highlights)
+- [Install](#install)
+- [Using Plinth](#using-plinth)
+- [Keyboard shortcuts](#keyboard-shortcuts)
+- [Build from source](#build-from-source)
+- [Architecture](#architecture)
+- [Privacy](#privacy)
+- [Contributing](#contributing)
+- [Known limits](#known-limits)
+- [License](#license)
+
+## Highlights
+
+| | |
+|---|---|
+| **One bar, grouped by site.** Pages from the same website share a capsule led by its icon. The bar goes light over light pages and dark over dark ones. | **Adaptive fading.** A site you use every day stays; a one-off search fades within a day. Pinned and kept sites never fade. |
+| **Split view.** Drag one page onto another, or use View › Split View With. | **Peek.** ⇧-click any link to preview it in a card, then press ↩ to keep it as a page. |
+| **Ask page / ask site.** ⌘J asks the on-device model about the current page, every page of the site, or compares the two halves of a split. | **Resume cards.** When a site comes back from the shelf, a short "where you left off" card reminds you what you were reading. |
+| **Semantic history.** Search finds pages by what they were about, listed under "By meaning". | **Group suggestions.** Sites you keep open together can become a group; one click shows only that group. |
+
+<table>
+  <tr>
+    <td><img src="docs/images/split-view.jpg" alt="Split view with Swift and Foundation Models documentation"></td>
+    <td><img src="docs/images/peek.jpg" alt="Peek card previewing a Wikipedia article"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Split view, both pages joined on the bar</sub></td>
+    <td align="center"><sub>Peek a link without leaving the page</sub></td>
+  </tr>
+  <tr>
+    <td><img src="docs/images/ask.jpg" alt="Ask panel answering a question about swift.org"></td>
+    <td><img src="docs/images/resume-card.jpg" alt="Resume card after restoring a site from the shelf"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Ask the page, answered on device</sub></td>
+    <td align="center"><sub>Resume card when a site returns from the shelf</sub></td>
+  </tr>
+  <tr>
+    <td><img src="docs/images/shelf.jpg" alt="The shelf of faded sites"></td>
+    <td><img src="docs/images/group-suggestion.jpg" alt="A suggestion to group sites used together"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>The shelf: faded sites, searchable</sub></td>
+    <td align="center"><sub>A gentle suggestion to group sites</sub></td>
+  </tr>
+</table>
+
+Also included:
+
+- **Pinned sites.** A pin is a small resident app with one page. A link that leaves the pin's site opens as an ordinary page, and sign-in flows keep working.
+- **Mini window.** Links opened from other apps get a small window with no bar; ⌘⇧↩ moves the page into your main window.
+- **Content blocking.** A built-in ad and tracker blocker.
+- **Downloads, find in page, zoom,** and reopen closed page.
+- **iCloud sync.** Pins, the shelf and history sync, plus each Mac's open pages as a read-only list. This is built and tested but off by default; see [Known limits](#known-limits).
+
+## Install
+
+There are no signed releases yet, so build it yourself; it takes about a minute.
+
+```bash
+git clone https://github.com/brandonzalcman/Plinth.git
+```
+
+```bash
+cd Plinth && Scripts/bundle.sh release
+```
+
+```bash
+open build/Plinth.app
+```
+
+To make Plinth your default browser, choose it under System Settings › Desktop & Dock › Default web browser.
+
+## Using Plinth
+
+**Open a page.** Press ⌘L or ⌘T and type an address or a search. The command bar also finds open pages, pins, shelved pages and history. Results found by meaning appear under their own heading.
+
+<p align="center"><img src="docs/images/command-bar.jpg" alt="The command bar" width="720"></p>
+
+**Work with the bar**
+- Click a page to switch to it, and middle-click or hover then press × to close it.
+- Drag a page or a site to reorder it.
+- Rest one page on another to split them.
+- Right-click a page to rename it, keep its site, pin it, put it away or split with it.
+
+**The shelf.** Sites you stop using drop onto the shelf. Click the tray at the right of the bar, or press ⇧⌘L. Pick a page to bring it back where it was.
+
+**Ask.** Press ⌘J, type a question and press ↩. Choose "This page", "All *site* pages", or "Compare split" while a split is on screen. Answers stream in, and Stop ends one early.
+
+**Groups.** When the same sites have been open together for a while, a small pill offers to group them. Choose **Group** and the bar shows only those sites; **Show all** brings everything back. **Not now** changes nothing.
+
+**Turn AI off.** Plinth menu › Use On-Device AI switches off every model feature at once. Keyword search and the rest of the browser keep working.
+
+## Keyboard shortcuts
+
+| Action | Keys |
+|---|---|
+| New page / search or enter address | ⌘T / ⌘L |
+| Close page, reopen closed page | ⌘W, ⇧⌘T |
+| Next / previous page | ⇧⌘] / ⇧⌘[ |
+| Go to page 1–9 (left to right) | ⌘1 … ⌘9 |
+| Show shelf | ⇧⌘L |
+| Find in page | ⌘F |
+| Ask about this page | ⌘J |
+| Split with next page / end split | ⌥⌘\\ / ⇧⌘\\ |
+| Keep site on bar, pin site, put site away | ⇧⌘K, ⇧⌘P, ⇧⌘E |
+| Peek a link | ⇧-click |
+| Open peek as a page | ↩ |
+| Move mini window page to main window | ⇧⌘↩ |
+| Back / forward, reload | ⌘[ / ⌘], ⌘R |
+
+## Build from source
+
+### Requirements
+
+- macOS 26 (Tahoe) or later
+- Xcode 26 with Swift 6.2
+- For the AI features, a Mac that supports Apple Intelligence, with it turned on. Everything else works on any Mac running macOS 26.
+
+### Build, test, bundle
 
 ```bash
 swift build
@@ -48,56 +155,89 @@ swift test
 Scripts/bundle.sh
 ```
 
-`Scripts/bundle.sh` builds `build/Plinth.app` and signs it ad hoc. Open it with:
+`Scripts/bundle.sh [debug|release]` builds `build/Plinth.app` and signs it ad hoc.
+
+### Open in Xcode
+
+There is no `.xcodeproj`, because Plinth is a Swift package and Xcode opens it directly:
 
 ```bash
-open build/Plinth.app
+xed .
 ```
 
-If `xcode-select` points at the Command Line Tools instead of Xcode, add the `DEVELOPER_DIR` prefix:
+Or use File › Open… and choose the `Plinth` folder or `Package.swift`. Pick the **Plinth** scheme and **My Mac**, then press ⌘R to run or ⌘U to test.
+
+Running from Xcode starts the bare executable, without the app bundle's `Info.plist`. Everything works except being the default browser and receiving links from other apps. To test those, run `Scripts/bundle.sh` and open `build/Plinth.app`.
+
+If `swift` complains about a missing SDK, `xcode-select` is probably pointing at the Command Line Tools. Either switch it to Xcode, or prefix commands like this:
 
 ```bash
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift build
 ```
 
-To try the app without touching your real profile:
+### Try it without touching your profile
+
+Plinth keeps its data in `~/Library/Application Support/Plinth`. For experiments, point it at a throwaway folder:
 
 ```bash
-open -n build/Plinth.app --env PLINTH_STORAGE=/tmp/plinth-test --env PLINTH_OPEN=https://example.com
+open -n build/Plinth.app --env PLINTH_STORAGE=/tmp/plinth-test --env PLINTH_OPEN=https://www.swift.org,https://webkit.org
 ```
 
-Other environment variables:
-
-- `PLINTH_AI=fake` swaps the on-device model for a deterministic fake, so the AI interface can be tried on any Mac.
-- `PLINTH_STEPS="wait 3; peek https://…; state"` runs a scripted test sequence. See `Sources/Plinth/DebugScript.swift`.
-
-## Project layout
-
-| Module | What it does |
+| Variable | Effect |
 |---|---|
-| `PlinthModel` | Shared value types and protocols (the contracts between modules) |
-| `PlinthRules` | Site identity, page naming, address resolution, pinned-link policy |
-| `PlinthFade` | The adaptive page and site fading clocks |
-| `PlinthLayout` | Bar overflow: collapse, shorten, then scroll |
-| `PlinthStore` | `BrowserStore`: windows, pins, shelf, history, search, groups, persistence |
-| `PlinthWeb` | `WebViewPool`: WebKit views, suspension, content blocker, peek and auxiliary views, downloads, readable text |
-| `PlinthAI` | Chunk-and-summarise pipeline, resume cards, ask, semantic index (Foundation Models and NaturalLanguage) |
-| `PlinthSync` | Sync record mapping, merge rules, in-memory and CloudKit transports |
-| `PlinthBarUI` | The bottom bar (SwiftUI) |
-| `PlinthPanels` | Command bar, shelf, find, ask, peek card, resume card, group pills, downloads |
-| `Plinth` | The app shell that connects them |
+| `PLINTH_STORAGE` | Profile folder (state, favicons, semantic index, settings) |
+| `PLINTH_OPEN` | Comma-separated URLs to open at launch |
+| `PLINTH_AI=fake` | Use a deterministic fake model, so the AI interface works on any Mac |
+| `PLINTH_STEPS` | Run a scripted sequence of steps for testing (see `Sources/Plinth/DebugScript.swift`) |
+| `PLINTH_SHOTS` | Folder for screenshots taken by `PLINTH_STEPS` |
 
-The pure logic modules have unit tests in `Tests/`.
+## Architecture
 
-## Known limits
+Plinth is a single Swift package. Each module has one job, and modules talk through the value types and protocols in `PlinthModel`.
 
-- **iCloud sync** needs an Apple developer team and an iCloud container, so it cannot run in an ad-hoc signed build.
-- **System Passwords autofill** needs Apple's web-browser entitlement, which this build does not have.
+```
+PlinthModel ── contracts (value types, protocols)
+   ├─ PlinthRules    site identity, page naming, address resolver, pinned-link policy
+   ├─ PlinthFade     adaptive page and site fading
+   ├─ PlinthLayout   bar overflow: collapse, shorten, then scroll
+   ├─ PlinthStore    BrowserStore: windows, pins, shelf, history, search, groups, persistence
+   ├─ PlinthAI       chunk-and-summarise, resume cards, ask, semantic index
+   ├─ PlinthSync     record mapping, merge rules, in-memory and CloudKit transports
+   ├─ PlinthWeb      WKWebView pool, content blocker, peek and mini views, downloads, readable text
+   ├─ PlinthBarUI    the bottom bar (SwiftUI)
+   └─ PlinthPanels   command bar, shelf, find, ask, peek, resume card, groups, downloads
+Plinth ── the app shell that wires them together
+```
+
+- The store has no WebKit or UI. It emits events, and the shell turns them into web view work.
+- The AI module hides Apple's frameworks behind `TextGenerating` and `TextEmbedding`, so the store and shell never import them, and tests use fakes.
+- Apple's on-device model has a small context, so long pages go through a chunk-and-summarise pipeline that keeps every request within budget.
+
+More detail is in [`Design/`](Design): the brand guide, the bar artboard, and the [iCloud sync design](Design/icloud-sync.md).
+
+## Privacy
+
+- **No accounts, analytics or telemetry.**
+- **All AI runs on your Mac.** It uses Apple's Foundation Models and NaturalLanguage frameworks. Page text is never sent anywhere, and the embedding index is a local file in your profile.
+- **Only long reads are indexed.** Semantic history covers only pages you spent 30 seconds or more on, and one switch turns all AI off.
+- **iCloud sync is off by default.** When enabled, it would use your own private iCloud database.
 
 ## Contributing
 
-Issues and pull requests are welcome. Please keep `swift test` passing, and add tests for new logic in the pure modules.
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, conventions and how to send a pull request. Please report security issues privately, as described in [SECURITY.md](SECURITY.md).
+
+Good first areas:
+- Fixing bugs you hit in daily use.
+- Adding tests for the pure modules (`PlinthRules`, `PlinthFade`, `PlinthLayout`, `PlinthStore`, `PlinthAI`, `PlinthSync`).
+- Improving accessibility of the bar and panels.
+
+## Known limits
+
+- **iCloud sync** needs an Apple developer team and an iCloud container entitlement, so it cannot run in an ad-hoc signed build. [Design/icloud-sync.md](Design/icloud-sync.md) lists the exact steps.
+- **System Passwords autofill** needs Apple's web-browser entitlement, which an open-source build does not have.
+- **Semantic search** quality depends on Apple's NaturalLanguage sentence embeddings, so "By meaning" results come after keyword results.
+- **No extensions,** by design.
 
 ## License
 
-Plinth is free software under the [GNU General Public License v3.0](LICENSE).
+Plinth is free software: you can redistribute it and modify it under the terms of the [GNU General Public License v3.0](LICENSE).

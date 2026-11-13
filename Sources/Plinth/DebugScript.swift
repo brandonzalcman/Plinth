@@ -118,6 +118,22 @@ enum DebugScript {
             if let w = controller?.window { log("frame: \(w.frame) split fraction: \(String(describing: wid.flatMap { app.store.window($0)?.split?.fraction })) bar hidden: \(controller?.barHost.isHidden ?? false)") }
         case "promotemini": if let mini = app.miniWindows.last { app.promote(mini) }
         case "toggleai": app.menuToggleAI(nil)
+        case "shelf": controller?.toggleShelf()
+        case "mini": if let url = URL(string: arg) { app.openFromOtherApp(url) }
+        case "command":
+            controller?.chrome.panel = .command(text: arg, newPage: true)
+            controller?.syncPanel()
+        case "size":
+            let p = arg.split(separator: " ").compactMap { Double($0) }
+            if let window = controller?.window, p.count == 2 {
+                window.setFrame(NSRect(x: 120, y: 80, width: p[0], height: p[1]), display: true)
+            }
+        case "minisize":
+            let p = arg.split(separator: " ").compactMap { Double($0) }
+            if let window = app.miniWindows.last?.window, p.count == 2 {
+                window.setFrame(NSRect(x: 200, y: 120, width: p[0], height: p[1]), display: true)
+            }
+        case "scroll": await js(app, "window.scrollTo(0, \(Double(arg) ?? 0))")
         case "shot":
             // shot <name> [mini]: captures the key main window (or the newest mini window).
             let parts = arg.split(separator: " ")
