@@ -18,7 +18,10 @@ public struct AddressResolver: Sendable {
         case search(String)
     }
 
-    public init() {}
+    /// The search provider used by `searchURL(for:)` and `destination(for:)`. Settings can change it live.
+    public var engine: SearchEngine
+
+    public init(engine: SearchEngine = .duckDuckGo) { self.engine = engine }
 
     public func resolve(_ input: String) -> Resolved {
         let text = input.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -48,11 +51,7 @@ public struct AddressResolver: Sendable {
         return bare(text)
     }
 
-    public func searchURL(for query: String) -> URL {
-        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        let encoded = trimmed.addingPercentEncoding(withAllowedCharacters: Self.unreserved) ?? ""
-        return URL(string: "https://duckduckgo.com/?q=" + encoded) ?? URL(string: "https://duckduckgo.com/")!
-    }
+    public func searchURL(for query: String) -> URL { engine.searchURL(for: query) }
 
     /// Where the typed text leads: the URL itself, or the search page for it.
     public func destination(for input: String) -> URL {
@@ -65,7 +64,6 @@ public struct AddressResolver: Sendable {
     // MARK: - Private
 
     private static let opaqueSchemes: Set<String> = ["about", "data", "file", "blob", "mailto", "tel", "sms", "facetime"]
-    private static let unreserved = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
 
     private static func isSchemeName(_ text: Substring) -> Bool {
         guard let first = text.first, first.isASCII, first.isLetter else { return false }
