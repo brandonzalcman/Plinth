@@ -8,6 +8,7 @@ enum MainMenu {
 
     static func build() -> NSMenu {
         let main = NSMenu()
+        SettingsWindowController.installLaunchHooks()
 
         let app = submenu(main, "Plinth")
         app.addItem(withTitle: "About Plinth", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
