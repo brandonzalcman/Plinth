@@ -83,6 +83,9 @@ enum MainMenu {
             item.tag = number
         }
 
+        let bookmarks = submenu(main, "Bookmarks")
+        add(bookmarks, "Bookmark This Page", #selector(AppController.menuBookmarkPage(_:)), "d")
+
         let site = submenu(main, "Site")
         add(site, "Keep on Bar", #selector(AppController.menuKeepSite(_:)), "k", [.command, .shift])
         add(site, "Pin Site", #selector(AppController.menuPinSite(_:)), "p", [.command, .shift])

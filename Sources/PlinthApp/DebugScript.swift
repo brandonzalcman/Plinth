@@ -57,9 +57,10 @@ enum DebugScript {
             default: key = part
             }
         }
-        let codes: [String: UInt16] = ["return": 36, "j": 38, "k": 40, "l": 37, "t": 17, "w": 13, "f": 3, "e": 14, "p": 35]
+        let codes: [String: UInt16] = ["return": 36, "j": 38, "k": 40, "l": 37, "t": 17, "w": 13, "f": 3, "e": 14, "p": 35, "d": 2, "b": 11, "y": 16]
         let chars = key == "return" ? "\r" : key
-        guard let window = NSApp.keyWindow else { log("key: no key window"); return }
+        // A scripted run may not be frontmost, so there may be no key window.
+        guard let window = NSApp.keyWindow ?? AppController.shared?.keyController?.window else { log("key: no key window"); return }
         let typed = flags.contains(.shift) && key != "return" ? chars.uppercased() : chars
         guard let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime,
                                            windowNumber: window.windowNumber, context: nil, characters: typed,
@@ -191,7 +192,8 @@ enum DebugScript {
         case "type":
             // type <text>: inserts the text into the key window's first responder, one character at a
             // time (the command bar / shelf search field), so text-change handling really runs.
-            guard let window = NSApp.keyWindow, let client = window.firstResponder as? NSTextInputClient else { log("type: no text field focused"); return }
+            guard let window = NSApp.keyWindow ?? app.keyController?.window else { log("type: no window"); return }
+            guard let client = window.firstResponder as? NSTextInputClient else { log("type: no text field focused"); return }
             for ch in arg {
                 client.insertText(String(ch), replacementRange: NSRange(location: NSNotFound, length: 0))
                 try? await Task.sleep(for: .milliseconds(30))

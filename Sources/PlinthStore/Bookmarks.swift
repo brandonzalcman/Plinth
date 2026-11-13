@@ -270,3 +270,38 @@ public final class BookmarkStore {
         do { try FileManager.default.moveItem(at: file, to: target); return target } catch { return nil }
     }
 }
+
+extension BookmarkStore {
+    /// What the command bar lists for a query: the suggestions it already had, plus bookmark
+    /// matches. A history suggestion for a bookmarked page is dropped, because the bookmark row
+    /// stands for it under its own heading; open pages, pins, shelved pages and a top hit stay.
+    public func results(for query: String, amid suggestions: [SearchResult], limit: Int = 3) -> [SearchResult] {
+        let hits = search(query, limit: limit)
+        guard !hits.isEmpty else { return suggestions }
+        let saved = Set(hits.compactMap { hit -> String? in
+            if case .history(let url) = hit.target { return URLCanonical.key(url) }
+            return nil
+        })
+        let kept = suggestions.filter { item in
+            guard !item.isTopHit, case .history(let url) = item.target else { return true }
+            return !saved.contains(URLCanonical.key(url))
+        }
+        return kept + hits
+    }
+}
+
+extension BookmarkStore {
+    /// Every folder by full path (parents first, alphabetical among siblings), after the top level.
+    public func folderChoices() -> [BookmarkFolderChoice] {
+        var out = [BookmarkFolderChoice(id: nil, label: "Bookmarks")]
+        func walk(_ parent: UUID?, depth: Int) {
+            guard depth < 16 else { return }
+            for f in subfolders(of: parent).sorted(by: { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }) {
+                out.append(BookmarkFolderChoice(id: f.id, label: path(of: f.id).joined(separator: " › ")))
+                walk(f.id, depth: depth + 1)
+            }
+        }
+        walk(nil, depth: 0)
+        return out
+    }
+}

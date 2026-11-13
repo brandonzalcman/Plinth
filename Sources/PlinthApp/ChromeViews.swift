@@ -88,7 +88,9 @@ struct PanelLayer: View {
                             return controller.isPrivate ? [] : recentShelf()
                         }
                         // Ranked by frecency and past choices, one row per page, a few per site.
-                        return app.store.suggestions(for: query, limit: 7)
+                        let suggestions = app.store.suggestions(for: query, limit: 7)
+                        // Bookmarks are listed under their own heading.
+                        return app.bookmarks.results(for: query, amid: suggestions)
                     },
                     semanticResults: { query in await app.semanticResults(for: query) },
                     searchSuggestions: { query in await app.searchSuggestions(for: query) },
@@ -160,6 +162,12 @@ struct PanelLayer: View {
                 )
                 .padding(.trailing, metrics.sideInset)
                 .padding(.bottom, lift)
+            }
+        case .bookmark(let id, let isNew):
+            ZStack(alignment: .bottom) {
+                Color.black.opacity(0.001).onTapGesture { controller.dismissPanel() }
+                bookmarkCard(id: id, isNew: isNew)
+                    .padding(.bottom, lift)
             }
         case .ask:
             ZStack(alignment: .bottom) {

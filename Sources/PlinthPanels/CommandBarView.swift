@@ -32,6 +32,8 @@ public struct CommandBarView: View {
     @State private var rows: [Row] = []
     /// Index in `rows` of the first by-meaning row; `rows.count` when there are none.
     @State private var meaningStart = 0
+    /// Index in `rows` of the first bookmark row; `meaningStart` when there are none.
+    @State private var bookmarkStart = 0
     /// The latest by-meaning hits for the current query (cleared whenever the query changes).
     @State private var semanticHits: [SearchResult] = []
     /// The search engine's suggestions for the current query (cleared whenever the query changes).
@@ -46,6 +48,7 @@ public struct CommandBarView: View {
 
     static let maxRows = 8
     static let maxMeaningRows = 4
+    static let maxBookmarkRows = 3
     static let maxSuggestionRows = 3
     static let suggestionDelay: Duration = .milliseconds(120)
     static let semanticDelay: Duration = .milliseconds(250)
@@ -87,13 +90,16 @@ public struct CommandBarView: View {
                         ForEach(Array(rows.enumerated().dropFirst(meaningStart)).reversed(), id: \.offset) { index, row in
                             rowView(row, index: index, palette: palette)
                         }
-                        if meaningStart > 0 {
-                            Rectangle().fill(palette.divider).frame(height: 1)
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 3)
-                        }
+                        if meaningStart > 0 { divider(palette: palette) }
                     }
-                    ForEach(Array(rows.enumerated().prefix(meaningStart)).reversed(), id: \.offset) { index, row in
+                    if bookmarkStart < meaningStart {
+                        heading("Bookmarks", palette: palette)
+                        ForEach(Array(rows.enumerated().prefix(meaningStart).dropFirst(bookmarkStart)).reversed(), id: \.offset) { index, row in
+                            rowView(row, index: index, palette: palette)
+                        }
+                        if bookmarkStart > 0 { divider(palette: palette) }
+                    }
+                    ForEach(Array(rows.enumerated().prefix(bookmarkStart)).reversed(), id: \.offset) { index, row in
                         rowView(row, index: index, palette: palette)
                     }
                 }
@@ -138,6 +144,12 @@ public struct CommandBarView: View {
     }
 
     // MARK: Rows
+
+    private func divider(palette: PanelPalette) -> some View {
+        Rectangle().fill(palette.divider).frame(height: 1)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 3)
+    }
 
     private func heading(_ title: String, palette: PanelPalette) -> some View {
         Text(title)
@@ -200,7 +212,7 @@ public struct CommandBarView: View {
                             .truncationMode(.middle)
                     }
                     Spacer(minLength: 8)
-                    Tag(text: result.isTopHit ? "Top hit" : Self.tag(for: result.target), palette: palette, onSelection: selected,
+                    Tag(text: result.isTopHit ? "Top hit" : Self.tag(for: result), palette: palette, onSelection: selected,
                         warm: Self.isShelf(result.target))
                 }
             }
@@ -254,8 +266,10 @@ public struct CommandBarView: View {
         let query = trimmed
         hovered = resetSelection ? nil : hovered
         let found = results(query)
-        let keyword = found.filter { !$0.byMeaning }
-        var seen = Set(keyword.map(\.id))
+        let keyword = found.filter { !$0.byMeaning && !$0.isBookmark }
+        // Bookmarks get their own heading, between the keyword results and "By meaning".
+        let bookmarkRows = found.filter { !$0.byMeaning && $0.isBookmark }.prefix(Self.maxBookmarkRows).map(Row.result)
+        var seen = Set(found.filter { !$0.byMeaning }.map(\.id))
         var meaning: [SearchResult] = []
         for hit in found.filter(\.byMeaning) + semanticHits where !seen.contains(hit.id) {
             seen.insert(hit.id)
@@ -264,8 +278,9 @@ public struct CommandBarView: View {
         let meaningRows = meaning.prefix(Self.maxMeaningRows).map(Row.result)
         if query.isEmpty {
             let recent = keyword.prefix(Self.maxRows).map(Row.result)
-            rows = recent + meaningRows
-            meaningStart = recent.count
+            rows = recent + bookmarkRows + meaningRows
+            bookmarkStart = recent.count
+            meaningStart = recent.count + bookmarkRows.count
             showsRecents = !recent.isEmpty
             if resetSelection { selection = nil }
         } else {
@@ -281,8 +296,9 @@ public struct CommandBarView: View {
             } else {
                 head = Array(([literal] + suggested + keyword.map(Row.result)).prefix(Self.maxRows))
             }
-            rows = head + meaningRows
-            meaningStart = head.count
+            rows = head + bookmarkRows + meaningRows
+            bookmarkStart = head.count
+            meaningStart = head.count + bookmarkRows.count
             showsRecents = false
             if resetSelection { selection = 0 }
         }
@@ -365,6 +381,10 @@ public struct CommandBarView: View {
 
     // MARK: Text helpers
 
+    static func tag(for result: SearchResult) -> String {
+        result.isBookmark ? "Bookmark" : tag(for: result.target)
+    }
+
     static func tag(for target: SearchResult.Target) -> String {
         switch target {
         case .openPage: return "Open"
@@ -384,7 +404,7 @@ public struct CommandBarView: View {
         case .literal(let value, let isURL):
             return isURL ? "Go to \(displayAddress(value))" : "Search for \(value)"
         case .result(let result):
-            return [result.title, result.subtitle, result.isTopHit ? "top hit" : tag(for: result.target)].filter { !$0.isEmpty }.joined(separator: ", ")
+            return [result.title, result.subtitle, result.isTopHit ? "top hit" : tag(for: result)].filter { !$0.isEmpty }.joined(separator: ", ")
         }
     }
 

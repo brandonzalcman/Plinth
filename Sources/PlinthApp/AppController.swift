@@ -25,6 +25,8 @@ final class AppController: NSObject, NSApplicationDelegate {
     var settingsWindow: SettingsWindowController?
     let layoutEngine = BarLayoutEngine()
     private(set) var store: BrowserStore!
+    /// Bookmarks and their folders (see BookmarkFeatures.swift).
+    private(set) var bookmarks: BookmarkStore!
     private(set) var pool: WebViewPool!
     private(set) var ai: AIService!
     let pinPolicy = PinLinkPolicy()
@@ -80,6 +82,7 @@ final class AppController: NSObject, NSApplicationDelegate {
         resolver.engine = settings.value.searchEngine
         store = BrowserStore(identity: identity, namer: PageNamer(), fader: Self.fader(for: settings.value.fadeBehavior),
                              storageDirectory: support)
+        bookmarks = BookmarkStore(storageDirectory: support)
         pool = WebViewPool(storageDirectory: support)
         ai = AIService.makeDefault(storageDirectory: support)
         storageDirectory = support
@@ -162,6 +165,7 @@ final class AppController: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         for controller in controllers.values { controller.saveFrame() }
         store.flush()
+        bookmarks.flush()
         let ai = ai
         let done = DispatchSemaphore(value: 0)
         Task.detached { await ai?.flush(); done.signal() }
