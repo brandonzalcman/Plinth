@@ -163,6 +163,13 @@ struct PanelLayer: View {
                 .padding(.trailing, metrics.sideInset)
                 .padding(.bottom, lift)
             }
+        case .bookmarks:
+            ZStack(alignment: .bottomTrailing) {
+                Color.black.opacity(0.001).onTapGesture { controller.dismissPanel() }
+                bookmarksPanel()
+                    .padding(.trailing, metrics.sideInset)
+                    .padding(.bottom, lift)
+            }
         case .bookmark(let id, let isNew):
             ZStack(alignment: .bottom) {
                 Color.black.opacity(0.001).onTapGesture { controller.dismissPanel() }

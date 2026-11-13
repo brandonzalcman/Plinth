@@ -8,6 +8,7 @@ import PlinthPanels
 
 extension AppController {
     @objc func menuBookmarkPage(_ sender: Any?) { keyController?.bookmarkCurrentPage() }
+    @objc func menuShowBookmarks(_ sender: Any?) { keyController?.toggleBookmarks() }
 }
 
 extension BrowserWindowController {
@@ -24,6 +25,39 @@ extension BrowserWindowController {
         if case .added = added { isNew = true }
         chrome.panel = .bookmark(id: added.bookmark.id, isNew: isNew)
         syncPanel()
+    }
+}
+
+extension BrowserWindowController {
+    func toggleBookmarks() {
+        chrome.panel = chrome.panel == .bookmarks ? .none : .bookmarks
+        syncPanel()
+    }
+}
+
+extension PanelLayer {
+    /// The Bookmarks panel. A bookmark opens in a new page, as a history row does.
+    func bookmarksPanel() -> some View {
+        let store = app.bookmarks!
+        return BookmarksView(
+            folders: store.folders,
+            bookmarks: store.bookmarks,
+            accent: app.accent,
+            icon: { app.pool.favicons.image(for: $0) },
+            onOpen: { bookmark in
+                controller.submit(.result(SearchResult(id: SearchResult.bookmarkIDPrefix + bookmark.id.uuidString, target: .history(bookmark.url),
+                                                       title: bookmark.title, subtitle: bookmark.url.absoluteString,
+                                                       key: SiteKey(bookmark.url.host(percentEncoded: false) ?? ""))))
+            },
+            onRename: { store.rename($0, to: $1) },
+            onMove: { store.move($0, to: $1) },
+            onRemove: { store.remove($0) },
+            onAddFolder: { store.addFolder(named: $0, in: $1).id },
+            onRenameFolder: { store.renameFolder($0, to: $1) },
+            onMoveFolder: { store.moveFolder($0, to: $1) },
+            onRemoveFolder: { store.removeFolder($0) },
+            onDismiss: { controller.dismissPanel() }
+        )
     }
 }
 

@@ -18,6 +18,7 @@ final class WindowChrome {
         case history
         /// The card shown after ⌘D (see BookmarkFeatures.swift).
         case bookmark(id: UUID, isNew: Bool)
+        case bookmarks
         case downloads
         case find
         case ask

@@ -85,6 +85,7 @@ enum MainMenu {
 
         let bookmarks = submenu(main, "Bookmarks")
         add(bookmarks, "Bookmark This Page", #selector(AppController.menuBookmarkPage(_:)), "d")
+        add(bookmarks, "Show Bookmarks", #selector(AppController.menuShowBookmarks(_:)), "b", [.command, .option])
 
         let site = submenu(main, "Site")
         add(site, "Keep on Bar", #selector(AppController.menuKeepSite(_:)), "k", [.command, .shift])
