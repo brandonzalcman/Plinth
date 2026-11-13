@@ -126,7 +126,7 @@ gh release create v0.2.0 build/release/Plinth-0.2.0.dmg build/release/Plinth.dmg
 
 ### Dry run
 
-`UNSIGNED=1 Scripts/release.sh 0.0.0` builds an ad-hoc signed `Plinth-0.0.0.dmg` (plus the `Plinth.dmg` copy) without notarization or a feed. It's useful for checking the packaging; CI runs it on every push.
+`UNSIGNED=1 Scripts/release.sh 0.0.0` builds an ad-hoc signed `Plinth-0.0.0.dmg` (plus the `Plinth.dmg` copy) without notarization or a feed. It's useful for checking the packaging; CI runs it on every pull request.
 
 ## Later: iCloud sync in releases
 
