@@ -46,6 +46,6 @@ let package = Package(
         .testTarget(name: "PlinthAITests", dependencies: ["PlinthAI"]),
         .testTarget(name: "PlinthSyncTests", dependencies: ["PlinthSync"]),
         .testTarget(name: "PlinthSettingsTests", dependencies: ["PlinthSettings"]),
-        .testTarget(name: "PlinthImportTests", dependencies: ["PlinthImport"]),
+        .testTarget(name: "PlinthImportTests", dependencies: ["PlinthImport", "PlinthStore", "PlinthModel", "PlinthRules"]),
     ]
 )

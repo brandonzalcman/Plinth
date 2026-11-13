@@ -29,13 +29,82 @@ public struct ImportFailure: Error, Equatable, Sendable {
 
 public enum ImportService {
     /// True when the browser's data folder exists (it can still be unreadable: see `permissionDenied`).
-    public static func isInstalled(_ source: ImportSource, home: URL = FileManager.default.homeDirectoryForCurrentUser) -> Bool { false }
+    public static func isInstalled(_ source: ImportSource, home: URL = FileManager.default.homeDirectoryForCurrentUser) -> Bool {
+        let folder = source == .safari ? SafariReader.folder(home) : ChromeReader.folder(home)
+        // A folder macOS won't let us look inside still exists.
+        return Probe.state(folder) != .missing
+    }
 
     /// Reads bookmarks and/or history from `source` and adds them to `store`. Never throws anything but `ImportFailure`
     /// and never crashes on missing, locked or malformed files.
     @MainActor
     public static func run(_ source: ImportSource, bookmarks: Bool, history: Bool, into store: BrowserStore,
                            identity: SiteIdentity, home: URL = FileManager.default.homeDirectoryForCurrentUser) async throws -> ImportReport {
-        throw ImportFailure(kind: .notFound, message: "Not implemented yet.")
+        let historyLimit = BrowserStore.importHistoryCap
+        let read = await Task.detached { () -> ReadResult in
+            var r = ReadResult()
+            if bookmarks {
+                do throws(ImportFailure) { r.bookmarks = try source == .safari ? SafariReader.bookmarks(home: home) : ChromeReader.bookmarks(home: home) }
+                catch { r.bookmarkFailure = error }
+            }
+            if history {
+                do throws(ImportFailure) { r.visits = try source == .safari ? SafariReader.history(home: home, limit: historyLimit) : ChromeReader.history(home: home, limit: historyLimit) }
+                catch { r.historyFailure = error }
+            }
+            return r
+        }.value
+
+        // Nothing readable at all: report why. One side failing becomes a note beside the other's success.
+        let wanted = (bookmarks ? 1 : 0) + (history ? 1 : 0)
+        let failures = [read.bookmarkFailure, read.historyFailure].compactMap { $0 }
+        if wanted == 0 || failures.count == wanted {
+            throw failures.first ?? ImportFailure(kind: .notFound, message: "Nothing was selected to import.")
+        }
+
+        var report = ImportReport()
+        if let f = read.bookmarkFailure { report.notes.append("Bookmarks weren't imported. " + f.message) }
+        if let f = read.historyFailure { report.notes.append("History wasn't imported. " + f.message) }
+
+        if bookmarks, read.bookmarkFailure == nil {
+            let outcome = store.importBookmarksDetailed(read.bookmarks.map { (title: $0.title, url: $0.url) })
+            report.bookmarksImported = outcome.added
+            if read.bookmarks.isEmpty {
+                report.notes.append("\(source.displayName) had no bookmarks to import.")
+            } else {
+                if outcome.added > 0 {
+                    report.notes.append("Bookmark folders aren't kept: Plinth has no folders, so bookmarks were added to the shelf, grouped by site.")
+                }
+                if outcome.alreadyThere > 0 {
+                    report.notes.append("\(outcome.alreadyThere) bookmark\(outcome.alreadyThere == 1 ? " was" : "s were") skipped because the page is already open, pinned or on the shelf, or was listed twice.")
+                }
+                if outcome.overCap > 0 {
+                    report.notes.append("To keep the shelf manageable, only the first \(BrowserStore.importBookmarkCap) bookmarks were added; \(outcome.overCap) more were left out.")
+                }
+            }
+        }
+
+        if history, read.historyFailure == nil {
+            let visits = read.visits.map { (title: $0.title, url: $0.url, date: $0.date) }
+            report.historyImported = store.importHistory(visits)
+            if read.visits.isEmpty {
+                report.notes.append("\(source.displayName) had no history to import.")
+            } else {
+                let skipped = visits.count - report.historyImported
+                if skipped > 0 {
+                    report.notes.append("\(skipped) visit\(skipped == 1 ? " was" : "s were") skipped because Plinth already had \(skipped == 1 ? "it" : "them") or was over its limit.")
+                }
+                if visits.count >= historyLimit {
+                    report.notes.append("Plinth keeps the newest \(historyLimit.formatted()) history entries, so older visits were left out.")
+                }
+            }
+        }
+        return report
+    }
+
+    private struct ReadResult: Sendable {
+        var bookmarks: [ImportedBookmark] = []
+        var visits: [ImportedVisit] = []
+        var bookmarkFailure: ImportFailure?
+        var historyFailure: ImportFailure?
     }
 }
