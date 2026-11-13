@@ -179,7 +179,14 @@ public final class BrowserStore {
     public func select(_ page: PageID, in window: WindowID) {
         guard let wi = windows.firstIndex(where: { $0.id == window }) else { return }
         var w = windows[wi]
-        guard w.selectedPageID != page else { return }
+        guard w.selectedPageID != page else {
+            // Already selected, but reaching it by any means still unfolds its site.
+            if let at = indices(of: page, in: w), w.sites[at.s].isFolded {
+                windows[wi].sites[at.s].isFolded = false
+                commit()
+            }
+            return
+        }
         guard w.page(page) != nil || (!w.isPrivate && pins.contains(where: { $0.page.id == page })) else { return }
         focus(page, in: &w)
         emit(.selectionChanged(window))
@@ -191,6 +198,23 @@ public final class BrowserStore {
     public func selectSite(_ site: SiteID, in window: WindowID) {
         guard let s = self.window(window)?.sites.first(where: { $0.id == site }) else { return }
         select(s.currentPage.id, in: window)
+    }
+
+    /// Folds a site with several pages down to its icon and a page count, or unfolds it. Nothing
+    /// is closed and the selection stays put (selecting any page of a folded site unfolds it).
+    /// One-page sites and a site holding a page of the split cannot be folded.
+    public func toggleFold(_ site: SiteID, in window: WindowID) {
+        guard let wi = windows.firstIndex(where: { $0.id == window }),
+              let si = windows[wi].sites.firstIndex(where: { $0.id == site }) else { return }
+        let s = windows[wi].sites[si]
+        if s.isFolded {
+            windows[wi].sites[si].isFolded = false
+        } else {
+            guard s.pages.count > 1 else { return }
+            if let split = windows[wi].split, s.pages.contains(where: { split.contains($0.id) }) { return }
+            windows[wi].sites[si].isFolded = true
+        }
+        commit()
     }
 
     public func selectPin(_ pin: SiteID, in window: WindowID) {
@@ -699,7 +723,7 @@ public final class BrowserStore {
                         var p = page
                         if p.name.isEmpty { p.name = displayName(p, siteName: site.name) }
                         w.sites.append(Site(id: id, key: key, name: site.name, pages: [p], currentPageID: site.currentPageID,
-                                            isKept: site.isKept, fade: site.fade))
+                                            isKept: site.isKept, fade: site.fade, isFolded: site.isFolded))
                     } else {
                         insert(page, key: key, siteName: key == site.key ? site.name : nil, into: &w, at: .end)
                     }
@@ -963,6 +987,7 @@ public final class BrowserStore {
             w.sites[at.s].pages[at.p].fade = .live
             w.sites[at.s].fade = .live
             w.sites[at.s].currentPageID = id
+            w.sites[at.s].isFolded = false // any way of reaching a page unfolds its site
             if !w.isPrivate { visitStats(w.sites[at.s].key) }
         } else if let pi = pins.firstIndex(where: { $0.page.id == id }) {
             if countPageVisit { pins[pi].page.usage.recordVisit(at: t) }

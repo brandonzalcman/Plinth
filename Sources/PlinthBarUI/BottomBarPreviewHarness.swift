@@ -176,7 +176,7 @@ public struct BottomBarPreviewHarness: View {
                 split = [target, dragged]
                 selected = dragged
             }
-        case .selectSite, .openCommandBar, .openShelf, .openDownloads, .pinSite, .resetPin, .goBack, .goForward, .reload, .stopLoading:
+        case .selectSite, .toggleFold, .openCommandBar, .openShelf, .openDownloads, .pinSite, .resetPin, .goBack, .goForward, .reload, .stopLoading:
             break
         }
     }

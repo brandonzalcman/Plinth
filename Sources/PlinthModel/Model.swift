@@ -99,13 +99,31 @@ public struct Site: Identifiable, Codable, Sendable, Equatable {
     /// "Kept" sites never fade, and neither do their pages.
     public var isKept: Bool
     public var fade: FadeStage
+    /// Folded by hand: the bar draws a site with several pages as just its icon and a page count.
+    /// Selecting any of its pages unfolds it. Meaningless for a one-page site.
+    public var isFolded: Bool
 
     public init(id: SiteID = SiteID(), key: SiteKey, name: String, pages: [Page], currentPageID: PageID? = nil,
-                isKept: Bool = false, fade: FadeStage = .live) {
+                isKept: Bool = false, fade: FadeStage = .live, isFolded: Bool = false) {
         precondition(!pages.isEmpty, "A site needs at least one page")
         self.id = id; self.key = key; self.name = name; self.pages = pages
         self.currentPageID = currentPageID ?? pages[pages.count - 1].id
-        self.isKept = isKept; self.fade = fade
+        self.isKept = isKept; self.fade = fade; self.isFolded = isFolded
+    }
+
+    private enum CodingKeys: String, CodingKey { case id, key, name, pages, currentPageID, isKept, fade, isFolded }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(SiteID.self, forKey: .id)
+        key = try c.decode(SiteKey.self, forKey: .key)
+        name = try c.decode(String.self, forKey: .name)
+        pages = try c.decode([Page].self, forKey: .pages)
+        currentPageID = try c.decode(PageID.self, forKey: .currentPageID)
+        isKept = try c.decode(Bool.self, forKey: .isKept)
+        fade = try c.decode(FadeStage.self, forKey: .fade)
+        // Saved before folding existed: not folded.
+        isFolded = try c.decodeIfPresent(Bool.self, forKey: .isFolded) ?? false
     }
 
     public var currentPage: Page { pages.first { $0.id == currentPageID } ?? pages[0] }
