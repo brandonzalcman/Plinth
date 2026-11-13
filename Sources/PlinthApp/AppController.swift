@@ -36,6 +36,9 @@ final class AppController: NSObject, NSApplicationDelegate {
     var sync: SyncCoordinator?
     var otherDevices: [DeviceOpenPages] = []
     var storageDirectory: URL!
+    /// Set by the Xcode app target (Sparkle). nil in the SwiftPM build.
+    var checkForUpdates: (@MainActor () -> Void)?
+    @objc func menuCheckForUpdates(_ sender: Any?) { checkForUpdates?() }
     let accent = Color(red: 0x2F / 255, green: 0x5B / 255, blue: 0xEA / 255)
 
     private var controllers: [WindowID: BrowserWindowController] = [:]

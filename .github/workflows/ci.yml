@@ -22,3 +22,5 @@ jobs:
         run: Scripts/bundle.sh
       - name: Build Xcode app project
         run: xcodebuild -project Plinth.xcodeproj -scheme Plinth -configuration Release -destination 'platform=macOS' -derivedDataPath DerivedData build
+      - name: Release packaging dry run
+        run: UNSIGNED=1 Scripts/release.sh 0.0.0

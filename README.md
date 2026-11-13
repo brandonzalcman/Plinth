@@ -29,6 +29,7 @@ Plinth has no toolbar and no tab strip. The page runs to the top of the window, 
 - [Build from source](#build-from-source)
 - [Architecture](#architecture)
 - [Privacy](#privacy)
+- [Releasing](#releasing)
 - [Contributing](#contributing)
 - [Known limits](#known-limits)
 - [License](#license)
@@ -79,21 +80,11 @@ Also included:
 
 ## Install
 
-There are no signed releases yet, so build it yourself; it takes about a minute. You can open `Plinth.xcodeproj` and press ⌘R, or use the command line:
-
-```bash
-git clone https://github.com/brandonzalcman/Plinth.git
-```
-
-```bash
-cd Plinth && Scripts/bundle.sh release
-```
-
-```bash
-open build/Plinth.app
-```
+**[Download Plinth for Mac](https://github.com/brandonzalcman/Plinth/releases/latest/download/Plinth.dmg)** (macOS 26 or later). Open the disk image and drag Plinth to Applications. It's signed and notarized, and it updates itself: you'll get new versions automatically, or choose **Plinth › Check for Updates…**.
 
 To make Plinth your default browser, choose it under System Settings › Desktop & Dock › Default web browser.
+
+Prefer to build it yourself? See [Build from source](#build-from-source).
 
 ## Using Plinth
 
@@ -225,6 +216,10 @@ More detail is in [`Design/`](Design): the brand guide, the bar artboard, and th
 - **All AI runs on your Mac.** It uses Apple's Foundation Models and NaturalLanguage frameworks. Page text is never sent anywhere, and the embedding index is a local file in your profile.
 - **Only long reads are indexed.** Semantic history covers only pages you spent 30 seconds or more on, and one switch turns all AI off.
 - **iCloud sync is off by default.** When enabled, it would use your own private iCloud database.
+
+## Releasing
+
+Releases are a signed, notarized `Plinth.dmg` on GitHub Releases, with Sparkle auto-updates. Pushing a tag like `v0.2.0` runs the whole pipeline. One-time setup and details are in [RELEASING.md](RELEASING.md).
 
 ## Contributing
 

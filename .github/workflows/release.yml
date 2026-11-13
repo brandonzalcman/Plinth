@@ -1,0 +1,81 @@
+name: Release
+
+# Push a tag like v0.2.0 to build, sign, notarize and publish Plinth.dmg plus the Sparkle
+# update feed (appcast.xml) as a GitHub Release. Installed copies pick the update up on
+# their own. One-time setup: see RELEASING.md.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release, without the v (e.g. 0.2.0)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-26
+    env:
+      VERSION: ${{ github.event.inputs.version || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # the build number is the commit count
+
+      - name: Select Xcode
+        run: sudo xcode-select -s "$(ls -d /Applications/Xcode_26*.app | sort -V | tail -1)"
+
+      - name: Import the Developer ID certificate
+        env:
+          CERT_P12: ${{ secrets.DEVELOPER_ID_CERT_P12 }}
+          CERT_PASSWORD: ${{ secrets.DEVELOPER_ID_CERT_PASSWORD }}
+        run: |
+          KEYCHAIN="$RUNNER_TEMP/release.keychain-db"
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+          echo "$CERT_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/cert.p12" -P "$CERT_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN"
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          rm "$RUNNER_TEMP/cert.p12"
+
+      - name: Write the notarization and Sparkle keys
+        env:
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          echo "$ASC_KEY_P8" | base64 --decode > "$RUNNER_TEMP/asc_key.p8"
+          printf '%s' "$SPARKLE_PRIVATE_KEY" > "$RUNNER_TEMP/sparkle_key"
+
+      - name: Build, sign and notarize
+        env:
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          SPARKLE_PUBLIC_KEY: ${{ vars.SPARKLE_PUBLIC_KEY }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          V="${VERSION#v}"
+          [[ -f "release-notes/$V.md" ]] && export RELEASE_NOTES="release-notes/$V.md"
+          ASC_KEY_PATH="$RUNNER_TEMP/asc_key.p8" SPARKLE_KEY_FILE="$RUNNER_TEMP/sparkle_key" \
+            Scripts/release.sh "$V"
+
+      - name: Publish the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          V="${VERSION#v}"
+          NOTES=(--generate-notes)
+          [[ -f "release-notes/$V.md" ]] && NOTES=(--notes-file "release-notes/$V.md")
+          gh release create "v$V" build/release/Plinth.dmg build/release/appcast.xml \
+            --title "Plinth $V" "${NOTES[@]}" --verify-tag=false
+
+      - name: Clean up keys
+        if: always()
+        run: |
+          rm -f "$RUNNER_TEMP/asc_key.p8" "$RUNNER_TEMP/sparkle_key"
+          security delete-keychain "$RUNNER_TEMP/release.keychain-db" 2>/dev/null || true

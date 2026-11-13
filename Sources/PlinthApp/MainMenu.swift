@@ -11,6 +11,9 @@ enum MainMenu {
 
         let app = submenu(main, "Plinth")
         app.addItem(withTitle: "About Plinth", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        if AppController.shared?.checkForUpdates != nil {
+            add(app, "Check for Updates…", #selector(AppController.menuCheckForUpdates(_:)), "")
+        }
         app.addItem(.separator())
         add(app, "Use On-Device AI", #selector(AppController.menuToggleAI(_:)), "")
         add(app, "iCloud Sync", #selector(AppController.menuToggleSync(_:)), "")

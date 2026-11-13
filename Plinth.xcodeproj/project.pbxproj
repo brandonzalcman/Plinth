@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		A10000000000000000000010 /* PlinthApp in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000020 /* PlinthApp */; };
+		A10000000000000000000011 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = A10000000000000000000022 /* Sparkle */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -25,6 +26,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A10000000000000000000010 /* PlinthApp in Frameworks */,
+				A10000000000000000000011 /* Sparkle in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -69,6 +71,7 @@
 			name = Plinth;
 			packageProductDependencies = (
 				A10000000000000000000020 /* PlinthApp */,
+				A10000000000000000000022 /* Sparkle */,
 			);
 			productName = Plinth;
 			productReference = A10000000000000000000030 /* Plinth.app */;
@@ -100,6 +103,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				A10000000000000000000021 /* XCLocalSwiftPackageReference "." */,
+				A10000000000000000000023 /* XCRemoteSwiftPackageReference "Sparkle" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = A10000000000000000000061 /* Products */;
@@ -179,6 +183,9 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Scripts/Info.plist;
+				INSTALL_PATH = /Applications;
+				SKIP_INSTALL = NO;
+				SUPPORTED_PLATFORMS = macosx;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -186,6 +193,7 @@
 				MARKETING_VERSION = 0.1;
 				PRODUCT_BUNDLE_IDENTIFIER = app.plinth.Plinth;
 				PRODUCT_NAME = Plinth;
+				SPARKLE_PUBLIC_KEY = "";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 			};
@@ -203,6 +211,9 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Scripts/Info.plist;
+				INSTALL_PATH = /Applications;
+				SKIP_INSTALL = NO;
+				SUPPORTED_PLATFORMS = macosx;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -210,6 +221,7 @@
 				MARKETING_VERSION = 0.1;
 				PRODUCT_BUNDLE_IDENTIFIER = app.plinth.Plinth;
 				PRODUCT_NAME = Plinth;
+				SPARKLE_PUBLIC_KEY = "";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 			};
@@ -245,10 +257,26 @@
 		};
 /* End XCLocalSwiftPackageReference section */
 
+/* Begin XCRemoteSwiftPackageReference section */
+		A10000000000000000000023 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.10.1;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
 /* Begin XCSwiftPackageProductDependency section */
 		A10000000000000000000020 /* PlinthApp */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = PlinthApp;
+		};
+		A10000000000000000000022 /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A10000000000000000000023 /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

@@ -9,3 +9,8 @@ build/
 Design/feature-plan.md
 xcuserdata/
 DerivedData/
+
+# Release signing material never goes in the repo
+*.p12
+*.p8
+sparkle_private.key

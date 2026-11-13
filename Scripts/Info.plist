@@ -8,8 +8,13 @@
     <key>CFBundleExecutable</key><string>Plinth</string>
     <key>CFBundleIconFile</key><string>Plinth</string>
     <key>CFBundlePackageType</key><string>APPL</string>
-    <key>CFBundleShortVersionString</key><string>0.1</string>
-    <key>CFBundleVersion</key><string>1</string>
+    <key>CFBundleShortVersionString</key><string>$(MARKETING_VERSION)</string>
+    <key>CFBundleVersion</key><string>$(CURRENT_PROJECT_VERSION)</string>
+    <key>SUFeedURL</key><string>https://github.com/brandonzalcman/Plinth/releases/latest/download/appcast.xml</string>
+    <key>SUPublicEDKey</key><string>$(SPARKLE_PUBLIC_KEY)</string>
+    <key>SUEnableAutomaticChecks</key><true/>
+    <key>SUAutomaticallyUpdate</key><true/>
+    <key>SUScheduledCheckInterval</key><integer>86400</integer>
     <key>LSMinimumSystemVersion</key><string>26.0</string>
     <key>NSHighResolutionCapable</key><true/>
     <key>NSPrincipalClass</key><string>NSApplication</string>
