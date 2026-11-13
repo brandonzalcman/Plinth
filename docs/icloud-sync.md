@@ -111,7 +111,7 @@ Each step needs the owner's own Apple Developer account. Most of the work is don
      to "Development" instead of "Sign to Run Locally".
    - Xcode registers the App ID **`app.plinth.Plinth`** and creates a provisioning profile.
 3. **Add the iCloud capability** with the **+ Capability** button.
-   - Tick **CloudKit** and add the container **`iCloud.app.plinth.Plinth`** (Xcode creates it).
+   - Tick **CloudKit** and add the container **`iCloud.dev.getplinth.Plinth`** (Xcode creates it).
    - Xcode writes `com.apple.developer.icloud-services` and
      `com.apple.developer.icloud-container-identifiers` into `App/Plinth.entitlements`.
 4. **Optional: add Push Notifications.** Other Macs would then hear about changes at once
@@ -140,7 +140,7 @@ has no types until you deploy them. The app never creates types in Production.
    history** once (`HistoryClear`, only written then), and wait for a sync (`Device`; it is written
    on the first sync). All five types must exist, or Production lacks the missing ones.
 2. Open the CloudKit Console (icloud.developer.apple.com), choose container
-   `iCloud.app.plinth.Plinth`, environment **Development**, and check Schema › Record Types for
+   `iCloud.dev.getplinth.Plinth`, environment **Development**, and check Schema › Record Types for
    the five types above.
 3. Choose **Deploy Schema Changes…** and confirm. This copies the types to **Production**. Deploy
    again after any later change to the records.
