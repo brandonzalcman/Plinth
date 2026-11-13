@@ -118,7 +118,7 @@ extension BrowserStore {
                 samples: [page.usage.lastUsed], dwell: page.dwell,
                 result: SearchResult(id: id, target: target, title: title, subtitle: Self.displayURL(page.url), key: key)))
         }
-        for window in windows {
+        for window in windows where !window.isPrivate {
             for site in window.sites {
                 for page in site.pages {
                     make(.open, page: page, siteName: site.name, key: site.key, id: "page-\(page.id.raw.uuidString)",

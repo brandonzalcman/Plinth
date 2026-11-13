@@ -75,6 +75,7 @@ Also included:
 - **Pinned sites.** A pin is a small resident app with one page. A link that leaves the pin's site opens as an ordinary page, and sign-in flows keep working.
 - **Mini window.** Links opened from other apps get a small window with no bar; ⌘⇧↩ moves the page into your main window.
 - **Content blocking.** A built-in ad and tracker blocker.
+- **Private window.** File ▸ New Private Window (⇧⌘N) opens a dark, separate window with its own bar. It keeps no history, shelf, resume cards or search index, discards its cookies and site data when it closes, and is neither restored at launch nor synced.
 - **Downloads, find in page, zoom,** and reopen closed page.
 - **iCloud sync.** Pins, the shelf and history sync, plus each Mac's open pages as a read-only list. This is built and tested but off by default; see [Known limits](#known-limits).
 
@@ -111,6 +112,7 @@ Prefer to build it yourself? See [Build from source](#build-from-source).
 | Action | Keys |
 |---|---|
 | New page / search or enter address | ⌘T / ⌘L |
+| New private window | ⇧⌘N |
 | Close page, reopen closed page | ⌘W, ⇧⌘T |
 | Next / previous page | ⇧⌘] / ⇧⌘[ |
 | Go to page 1–9 (left to right) | ⌘1 … ⌘9 |

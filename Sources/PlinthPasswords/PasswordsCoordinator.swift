@@ -87,6 +87,11 @@ public final class PasswordsCoordinator: NSObject, WKScriptMessageHandler {
         }
     }
 
+    /// A view whose data store is non-persistent belongs to a private window (or a popup or peek from one).
+    static func isPrivate(_ webView: WKWebView?) -> Bool {
+        webView.map { !$0.configuration.websiteDataStore.isPersistent } ?? false
+    }
+
     // MARK: Rules (testable without WebKit)
 
     public func handle(_ event: PageEvent, origin: WebOrigin, webView: WKWebView?,
@@ -101,7 +106,8 @@ public final class PasswordsCoordinator: NSObject, WKScriptMessageHandler {
             await fill(token, chosen.username, secret)
 
         case .submit(let username, let password, _, let action):
-            guard preferences.offerToSave, !username.isEmpty, !password.isEmpty, !preferences.isNeverSaved(origin),
+            // A private window offers to fill but never to save.
+            guard !Self.isPrivate(webView), preferences.offerToSave, !username.isEmpty, !password.isEmpty, !preferences.isNeverSaved(origin),
                   WebOrigin.formActionAllowed(page: origin, action: action) else { return }
             let key = LoginKey(origin: origin, username: username)
             let existing = try? vault.password(for: key)
