@@ -1,0 +1,7 @@
+<!doctype html><title>Sign-in rendered after load</title>
+<div id="app"></div>
+<script>
+  setTimeout(() => {
+    app.innerHTML = '<form action="done.html" method="get"><input id="user" name="user" type="text"><input id="pass" name="pass" type="password"><button id="go">Sign in</button></form>';
+  }, 1500);
+</script>

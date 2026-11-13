@@ -132,6 +132,32 @@ enum DebugScript {
         case "pin": app.menuPinSite(nil)
         case "selectpin": if let wid, let pin = app.store.pins.first { app.handle(.selectPin(pin.id), in: wid) }
         case "js": await js(app, arg)
+        case "uiclick", "uiset":
+            // uiclick <id> | uiset <id> <text>: scripted pointer events / typing on the element (also inside shadow roots),
+            // for pages where a real click cannot reach (an inactive window). Only the password test mode counts these as input.
+            let parts = arg.split(separator: " ", maxSplits: 1).map(String.init)
+            let find = "const find=(root)=>{const hit=root.getElementById?root.getElementById('\(parts[0])'):root.querySelector('#\(parts[0])');if(hit)return hit;for(const h of root.querySelectorAll('*')){if(h.shadowRoot){const x=find(h.shadowRoot);if(x)return x}if(h.tagName==='IFRAME'){try{const d=h.contentDocument;if(d){const x=find(d);if(x)return x}}catch(_){}}}return null};const e=find(document);if(!e)return 'no element';const W=e.ownerDocument.defaultView;"
+            let body: String
+            if verb == "uiclick" {
+                body = "for(const t of ['pointerdown','mousedown']){e.dispatchEvent(new W.MouseEvent(t,{bubbles:true,composed:true,cancelable:true}))};if(e.focus)e.focus();for(const t of ['pointerup','mouseup']){e.dispatchEvent(new W.MouseEvent(t,{bubbles:true,composed:true,cancelable:true}))};e.click();return 'clicked'"
+            } else {
+                let text = (parts.count > 1 ? parts[1] : "").replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "'", with: "\\'")
+                body = "e.focus();const set=Object.getOwnPropertyDescriptor(W.HTMLInputElement.prototype,'value').set;set.call(e,'\(text)');e.dispatchEvent(new W.Event('input',{bubbles:true,composed:true}));e.dispatchEvent(new W.Event('change',{bubbles:true}));return 'set'"
+            }
+            if let id = app.keyWindowID, let page = app.store.window(id)?.selectedPageID, let view = app.pool.existingWebView(for: page) {
+                let result = try? await view.evaluateJavaScript("(()=>{\(find)\(body)})()")
+                if let r = result as? String, r == "no element" { log("\(verb): no element \(parts[0])") }
+            }
+        case "activate":
+            // Makes the app and its window key, so the real clicks that follow reach the page.
+            NSApp.activate(ignoringOtherApps: true)
+            controller?.window.makeKeyAndOrderFront(nil)
+        case "jslog":
+            // jslog <expression>: logs the expression's value in the selected page (print lengths, never secrets).
+            if let id = app.keyWindowID, let page = app.store.window(id)?.selectedPageID, let view = app.pool.existingWebView(for: page) {
+                let value = try? await view.evaluateJavaScript(arg)
+                log("jslog: \(value.map { String(describing: $0) } ?? "nil")")
+            }
         case "shiftclick":
             await js(app, "document.getElementById('\(arg)').dispatchEvent(new MouseEvent('click', {bubbles:true, cancelable:true, shiftKey:true}))")
         case "meaning":
@@ -156,7 +182,7 @@ enum DebugScript {
             let parts = arg.split(separator: " ").map(String.init)
             guard let wid, let page = app.store.window(wid)?.selectedPageID, let view = app.pool.existingWebView(for: page),
                   let window = view.window,
-                  let rect = try? await view.evaluateJavaScript("(()=>{const e=document.getElementById('\(parts[0])');e.scrollIntoView({block:'center'});const r=e.getBoundingClientRect();return [r.left+r.width/2, r.top+r.height/2]})()") as? [Double]
+                  let rect = try? await view.evaluateJavaScript("(()=>{const find=(root)=>{const hit=root.getElementById?root.getElementById('\(parts[0])'):root.querySelector('#\(parts[0])');if(hit)return hit;for(const h of root.querySelectorAll('*')){if(h.shadowRoot){const x=find(h.shadowRoot);if(x)return x}}return null};const e=find(document);e.scrollIntoView({block:'center'});const r=e.getBoundingClientRect();return [r.left+r.width/2, r.top+r.height/2]})()") as? [Double]
             else { log("nsclick: no element"); return }
             let zoom = view.pageZoom
             let inView = NSPoint(x: rect[0] * zoom, y: rect[1] * zoom + view.obscuredContentInsets.top)

@@ -1,0 +1,10 @@
+<!doctype html><title>Formless single-page sign-in</title>
+<div id="app">
+  <input id="user" type="text" placeholder="Username"><input id="pass" type="password" placeholder="Password">
+  <div id="go" role="button" tabindex="0">Sign in</div>
+  <button id="eye" type="button" aria-label="Show password">show</button>
+</div>
+<script>
+  go.onclick = () => { fetch('done.html').then(() => new Promise(r => setTimeout(r, 4000))).then(() => { app.innerHTML = '<p>Welcome.</p>'; }); };
+  eye.onclick = () => { pass.type = pass.type === 'password' ? 'text' : 'password'; };
+</script>
