@@ -44,6 +44,10 @@ public final class BrowserStore {
     @ObservationIgnored private(set) var closed: [ClosedPage] = []
     /// The history entry for each page's current visit.
     @ObservationIgnored var latestHistory: [PageID: UUID] = [:]
+    /// What the user picked from the command bar, by canonical address (SuggestionResults.swift).
+    @ObservationIgnored var picks: [String: PickRecord] = [:]
+    @ObservationIgnored var suggestionIndex = SuggestionIndex()
+    @ObservationIgnored var lastSuggestionQuery = ""
     @ObservationIgnored private var pendingEvents: [StoreEvent] = []
     @ObservationIgnored private var saveTask: Task<Void, Never>?
     /// How long a change may wait before it is written to disk.
@@ -609,7 +613,8 @@ public final class BrowserStore {
         let snapshot = StoreSnapshot(version: StoreSnapshot.currentVersion, windows: windows, pins: pins, shelf: shelf,
                                      history: history, siteStats: stats, closed: closed, latestHistory: latest,
                                      groups: groups, coOpen: coOpenRecordsForSaving(),
-                                     dismissedSuggestions: dismissedSuggestions.map { $0.map(\.host) })
+                                     dismissedSuggestions: dismissedSuggestions.map { $0.map(\.host) },
+                                     picks: picks.isEmpty ? nil : picks)
         let data = try snapshot.encoded()
         try FileManager.default.createDirectory(at: storageDirectory, withIntermediateDirectories: true)
         try data.write(to: storageDirectory.appendingPathComponent(StoreSnapshot.fileName), options: .atomic)
@@ -645,6 +650,7 @@ public final class BrowserStore {
         groups = snapshot.groups ?? []
         dismissedSuggestions = (snapshot.dismissedSuggestions ?? []).map { $0.map(SiteKey.init) }
         loadCoOpen(snapshot.coOpen ?? [])
+        picks = snapshot.picks ?? [:]
         sanitize()
     }
 

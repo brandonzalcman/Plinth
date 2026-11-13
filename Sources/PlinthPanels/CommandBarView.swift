@@ -193,7 +193,8 @@ public struct CommandBarView: View {
                             .truncationMode(.middle)
                     }
                     Spacer(minLength: 8)
-                    Tag(text: Self.tag(for: result.target), palette: palette, onSelection: selected, warm: Self.isShelf(result.target))
+                    Tag(text: result.isTopHit ? "Top hit" : Self.tag(for: result.target), palette: palette, onSelection: selected,
+                        warm: Self.isShelf(result.target))
                 }
             }
             .padding(.horizontal, 10)
@@ -260,7 +261,15 @@ public struct CommandBarView: View {
             showsRecents = !recent.isEmpty
             if resetSelection { selection = nil }
         } else {
-            let head = [Row.literal(query, isURL: Self.looksLikeURL(query))] + keyword.prefix(Self.maxRows - 1).map(Row.result)
+            // A confident top hit leads (and is what Return does); the literal "Go to" / "Search
+            // for" row stays right behind it.
+            let literal = Row.literal(query, isURL: Self.looksLikeURL(query))
+            let head: [Row]
+            if let top = keyword.first, top.isTopHit {
+                head = [Row.result(top), literal] + keyword.dropFirst().prefix(Self.maxRows - 2).map(Row.result)
+            } else {
+                head = [literal] + keyword.prefix(Self.maxRows - 1).map(Row.result)
+            }
             rows = head + meaningRows
             meaningStart = head.count
             showsRecents = false
@@ -354,7 +363,7 @@ public struct CommandBarView: View {
         case .literal(let value, let isURL):
             return isURL ? "Go to \(displayAddress(value))" : "Search for \(value)"
         case .result(let result):
-            return [result.title, result.subtitle, tag(for: result.target)].filter { !$0.isEmpty }.joined(separator: ", ")
+            return [result.title, result.subtitle, result.isTopHit ? "top hit" : tag(for: result.target)].filter { !$0.isEmpty }.joined(separator: ", ")
         }
     }
 

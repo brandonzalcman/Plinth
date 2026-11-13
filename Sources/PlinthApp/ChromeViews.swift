@@ -3,6 +3,7 @@ import AppKit
 import PlinthModel
 import PlinthBarUI
 import PlinthPanels
+import PlinthStore
 
 /// The bottom bar for one window, fed from the store.
 struct BarHost: View {
@@ -63,17 +64,12 @@ struct PanelLayer: View {
                     opensNewPage: newPage,
                     accent: app.accent,
                     results: { query in
-                        if query.isEmpty { return recentShelf() }
-                        // A page that is open, pinned or on the shelf is not also listed from history.
-                        let found = app.store.search(query, limit: 16)
-                        let present = Set(found.compactMap { result -> String? in
-                            if case .history = result.target { return nil }
-                            return result.subtitle
-                        })
-                        return Array(found.filter { result in
-                            if case .history = result.target { return !present.contains(result.subtitle) }
-                            return true
-                        }.prefix(8))
+                        if query.isEmpty {
+                            _ = app.store.suggestions(for: "") // forgets the last typed query
+                            return recentShelf()
+                        }
+                        // Ranked by frecency and past choices, one row per page, a few per site.
+                        return app.store.suggestions(for: query, limit: 7)
                     },
                     semanticResults: { query in await app.semanticResults(for: query) },
                     icon: { app.pool.favicons.image(for: $0) },
@@ -100,6 +96,27 @@ struct PanelLayer: View {
                     onDismiss: { controller.dismissPanel() },
                     semanticResults: { query in await app.semanticResults(for: query) },
                     onOpenResult: { controller.submit(.result($0)) }
+                )
+                .padding(.trailing, metrics.sideInset)
+                .padding(.bottom, lift)
+            }
+        case .history:
+            ZStack(alignment: .bottomTrailing) {
+                Color.black.opacity(0.001).onTapGesture { controller.dismissPanel() }
+                HistoryView(
+                    accent: app.accent,
+                    icon: { app.pool.favicons.image(for: $0) },
+                    prepare: {
+                        // Built off the main thread from a snapshot of the history.
+                        let entries = app.store.history
+                        let index = await Task.detached(priority: .userInitiated) { HistoryIndex(entries) }.value
+                        return { filter in index.page(for: filter) }
+                    },
+                    onOpen: { row in
+                        controller.submit(.result(SearchResult(id: "history-\(row.id.uuidString)", target: .history(row.url),
+                                                               title: row.title, subtitle: row.url.absoluteString, key: row.key)))
+                    },
+                    onDismiss: { controller.dismissPanel() }
                 )
                 .padding(.trailing, metrics.sideInset)
                 .padding(.bottom, lift)
