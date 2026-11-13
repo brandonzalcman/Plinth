@@ -289,6 +289,7 @@ enum DebugScript {
         case "welcome":
             // welcome [card index]: replays the welcome guide, from the intro or at that card.
             app.showWelcomeGuide(startingAtCard: Int(arg))
+        case "pw": app.passwords.debug(arg)
         case "settings":
             // settings <section id>: opens the Settings window on that section.
             app.menuSettings(nil)

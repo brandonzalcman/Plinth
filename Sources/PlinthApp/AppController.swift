@@ -43,6 +43,8 @@ final class AppController: NSObject, NSApplicationDelegate {
     /// Ends the shelf's "Clear all" Undo window (see ShelfUndo.swift).
     var shelfUndoTask: Task<Void, Never>?
     var storageDirectory: URL!
+    /// The built-in password manager (see PasswordsController.swift).
+    var passwords: PasswordsController!
     /// Set by the Xcode app target (Sparkle). nil in the SwiftPM build.
     /// The first-launch animation and guide (see Onboarding.swift).
     var welcome: WelcomeWindowController?
@@ -77,6 +79,7 @@ final class AppController: NSObject, NSApplicationDelegate {
         pool = WebViewPool(storageDirectory: support)
         ai = AIService.makeDefault(storageDirectory: support)
         storageDirectory = support
+        setUpPasswords()
         connect()
         connectFeatures()
         pool.apply(settings.value)

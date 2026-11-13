@@ -4,13 +4,14 @@ import PlinthPanels
 
 /// The sections, in sidebar order. The raw value is the stable id used by `select(section:)`.
 enum SettingsSection: String, CaseIterable, Identifiable {
-    case general, privacy, downloads, startup, appearance, ai, `import`
+    case general, privacy, passwords, downloads, startup, appearance, ai, `import`
     var id: String { rawValue }
 
     var title: String {
         switch self {
         case .general: "General"
         case .privacy: "Privacy & Security"
+        case .passwords: "Passwords"
         case .downloads: "Downloads"
         case .startup: "Startup & Pages"
         case .appearance: "Appearance & Bar"
@@ -23,6 +24,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         switch self {
         case .general: "gearshape"
         case .privacy: "hand.raised"
+        case .passwords: "key"
         case .downloads: "arrow.down.circle"
         case .startup: "house"
         case .appearance: "paintbrush"
@@ -63,6 +65,7 @@ struct SettingsRoot: View {
         switch navigation.selected {
         case .general: GeneralSettingsView(app: app)
         case .privacy: PrivacySettingsView(app: app)
+        case .passwords: PasswordsSettingsView(app: app)
         case .downloads: DownloadsSettingsView(app: app)
         case .startup: StartupSettingsView(app: app)
         case .appearance: AppearanceSettingsView(app: app)

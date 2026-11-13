@@ -54,6 +54,10 @@ public final class WebViewPool: NSObject {
     }
 
     public var callbacks = Callbacks()
+    /// User scripts from other modules, kept across `rebuildUserScripts()` (loaded pages keep the scripts they ran).
+    public var extraUserScripts: [WKUserScript] = [] {
+        didSet { rebuildUserScripts() }
+    }
     public let favicons: FaviconStore
     public let storageDirectory: URL
     public let suspendedSiteLimit: Int
