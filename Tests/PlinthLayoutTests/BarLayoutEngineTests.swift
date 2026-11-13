@@ -682,3 +682,49 @@ private func collapsedIDs(_ layout: BarLayout) -> Set<SiteID> {
         #expect(layout.sites.count == 1)
     }
 }
+
+
+// MARK: - Folded sites
+
+private func folded(_ s: Site) -> Site { var s = s; s.isFolded = true; return s }
+
+@Suite struct FoldedSites {
+    @Test func aFoldedSiteIsJustIconAndCountEvenWithRoomToSpare() {
+        let a = folded(site("a", pages: 5)), b = site("b", pages: 2)
+        let i = input([a, b], selected: b.pages[0].id)
+        let layout = run(i, width: 100_000)
+        checkConsistent(layout, i)
+        let item = layout.sites[0]
+        #expect(item.form == .collapsed && item.isFolded && item.labelWidth == 0 && item.pageCount == 5 && item.pages.isEmpty)
+        #expect(item.width == 12 + 16 + 4 + E.badgeWidth(pageCount: 5, metrics: m, measure: measure) + 12)
+        #expect(layout.sites[1].form == .capsule && !layout.sites[1].isFolded)
+    }
+
+    @Test func foldingAppliesEvenToTheSiteOfTheSelectedPage() {
+        let a = folded(site("a", pages: 3))
+        let layout = run(input([a], selected: a.pages[1].id), width: 100_000)
+        #expect(layout.sites[0].form == .collapsed && layout.sites[0].isFolded)
+    }
+
+    @Test func aSingleOrSplitSiteIgnoresTheFlag() {
+        let one = folded(site("one", pages: 1))
+        let two = folded(site("two", pages: 2))
+        let i = input([one, two], selected: two.pages[0].id, split: SplitPair(leading: two.pages[0].id, trailing: two.pages[1].id))
+        let layout = run(i, width: 100_000)
+        #expect(layout.sites[0].form == .single && layout.sites[1].form == .capsule)
+    }
+
+    @Test func overflowCollapseLeavesFoldedSitesAloneAndStillCollapsesOthers() {
+        let a = folded(site("a", pages: 3)), b = site("b", pages: 4, used: 10), c = site("c", pages: 4, used: 20)
+        let i = input([a, b, c], selected: c.pages[0].id)
+        for width in stride(from: CGFloat(0), through: 1400, by: 13) {
+            let layout = run(i, width: width)
+            checkConsistent(layout, i)
+            #expect(layout.sites[0].form == .collapsed && layout.sites[0].isFolded && layout.sites[0].labelWidth == 0)
+            #expect(!layout.sites[1].isFolded && !layout.sites[2].isFolded)
+        }
+        // Tight enough for b to collapse for room: that one is not "folded".
+        let tight = run(i, width: barWidth(forAvailable: 330))
+        #expect(tight.sites[1].form == .collapsed && !tight.sites[1].isFolded)
+    }
+}

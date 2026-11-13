@@ -101,7 +101,8 @@ public enum BarSiteForm: Sendable, Equatable {
     case single
     /// Two or more pages inside a capsule led by the site icon.
     case capsule
-    /// Overflow: icon, site name and a page count. `pages` is empty.
+    /// Icon, site name and a page count; `pages` is empty. Either overflow (the name, until it is
+    /// shortened away) or folded by hand (`BarSiteItem.isFolded`: icon and count only).
     case collapsed
 }
 
@@ -118,11 +119,14 @@ public struct BarSiteItem: Identifiable, Sendable, Equatable {
     public var labelWidth: CGFloat
     /// Full outer width of the item.
     public var width: CGFloat
+    /// Collapsed because the user folded it, not because the bar ran out of room.
+    public var isFolded: Bool
 
     public init(id: SiteID, key: SiteKey, name: String, form: BarSiteForm, fade: FadeStage, isKept: Bool,
-                pages: [BarPageItem], pageCount: Int, labelWidth: CGFloat, width: CGFloat) {
+                pages: [BarPageItem], pageCount: Int, labelWidth: CGFloat, width: CGFloat, isFolded: Bool = false) {
         self.id = id; self.key = key; self.name = name; self.form = form; self.fade = fade; self.isKept = isKept
         self.pages = pages; self.pageCount = pageCount; self.labelWidth = labelWidth; self.width = width
+        self.isFolded = isFolded
     }
 }
 
@@ -157,6 +161,8 @@ public enum BarAction: Sendable, Equatable {
     case selectPin(SiteID)
     /// A collapsed site was clicked.
     case selectSite(SiteID)
+    /// The icon at the head of a capsule (fold it) or of a folded site (unfold it) was clicked.
+    case toggleFold(SiteID)
     case newPage
     case openCommandBar
     case openShelf

@@ -37,6 +37,8 @@ import PlinthModel
 ///
 /// ## Overflow order
 ///
+/// 0. A site the user folded (`Site.isFolded`, two or more pages, no page of the split) starts out
+///    collapsed to icon and count, with no name, and is not touched by the steps below.
 /// 1. Everything at natural width: each label is its measured width capped at `maxLabelWidth`.
 /// 2. Collapse sites one at a time, least recently used first, until the region fits. A site
 ///    holding a visible page or either page of the split never collapses, and a site whose
@@ -129,6 +131,7 @@ public struct BarLayoutEngine: BarLayouting {
 
     private struct Work {
         var collapsed = false
+        var folded = false
         var pageLabels: [CGFloat]
         var pageCurrent: [Bool]
         /// Natural site-name width; used only once collapsed.
@@ -162,7 +165,11 @@ public struct BarLayoutEngine: BarLayouting {
             }
         }
         var protected = visible
-        if let split = input.split { protected.insert(split.leading); protected.insert(split.trailing) }
+        var splitPages = Set<PageID>()
+        if let split = input.split {
+            protected.insert(split.leading); protected.insert(split.trailing)
+            splitPages = [split.leading, split.trailing]
+        }
 
         var shortcuts: [PageID: Int] = [:]
         for (index, id) in BarOrder.pageOrder(pins: input.pins, sites: input.sites).prefix(9).enumerated() where shortcuts[id] == nil {
@@ -187,10 +194,11 @@ public struct BarLayoutEngine: BarLayouting {
                 natural(page.name, E.labelStyle(isCurrent: isCurrent, form: form,
                                                 fade: form == .single && site.fade == .fading ? .fading : page.fade))
             }
-            return Work(pageLabels: labels, pageCurrent: current,
-                        siteLabel: natural(site.name, E.labelStyle(isCurrent: false, form: .collapsed, fade: site.fade)),
+            let folded = site.isFolded && site.pages.count > 1 && !site.pages.contains { splitPages.contains($0.id) }
+            return Work(collapsed: folded, folded: folded, pageLabels: labels, pageCurrent: current,
+                        siteLabel: folded ? 0 : natural(site.name, E.labelStyle(isCurrent: false, form: .collapsed, fade: site.fade)),
                         badge: site.pages.count > 1 ? E.badgeWidth(pageCount: site.pages.count, metrics: m, measure: measure) : 0,
-                        canCollapse: !site.pages.contains { protected.contains($0.id) })
+                        canCollapse: !folded && !site.pages.contains { protected.contains($0.id) })
         }
         var total = work.reduce(0) { $0 + $1.width(m) } + CGFloat(max(0, work.count - 1)) * m.itemGap
         func fits() -> Bool { total <= available + E.epsilon }
@@ -272,7 +280,8 @@ public struct BarLayoutEngine: BarLayouting {
                 }
             }
             var item = BarSiteItem(id: site.id, key: site.key, name: site.name, form: form, fade: site.fade, isKept: site.isKept,
-                                   pages: pages, pageCount: site.pages.count, labelWidth: w.collapsed ? w.siteLabel : 0, width: 0)
+                                   pages: pages, pageCount: site.pages.count, labelWidth: w.collapsed ? w.siteLabel : 0, width: 0,
+                                   isFolded: w.folded)
             item.width = E.width(of: item, metrics: m, measure: measure)
             items.append(item)
         }

@@ -108,14 +108,22 @@ struct CapsuleView: View {
         let shape = RoundedRectangle(cornerRadius: m.capsuleCornerRadius, style: .continuous)
         // capsuleLeading + icon + iconTrailing + Σ(capsuleGap + button) + capsuleTrailing
         HStack(spacing: 0) {
-            SiteIconView(key: site.key, greyed: fading, ctx: ctx)
-                .padding(.leading, m.capsuleLeading)
-                .padding(.trailing, m.iconTrailing)
-                .frame(height: m.capsuleHeight)
-                .contentShape(Rectangle())
-                .gesture(ctx.drag.gesture(for: .site(site.id, page: nil)))
-                .help(site.name)
-                .contextMenu { siteMenuItems(site, ctx: ctx) }
+            // Clicking the icon folds the site down to it; dragging it still moves the site.
+            Button {
+                guard !ctx.drag.suppressesClick else { return }
+                ctx.onAction(.toggleFold(site.id))
+            } label: {
+                SiteIconView(key: site.key, greyed: fading, ctx: ctx)
+                    .padding(.leading, m.capsuleLeading)
+                    .padding(.trailing, m.iconTrailing)
+                    .frame(height: m.capsuleHeight)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(BarPressStyle())
+            .simultaneousGesture(ctx.drag.gesture(for: .site(site.id, page: nil)))
+            .help("\(site.name) — click to fold")
+            .accessibilityLabel("Fold \(site.name)")
+            .contextMenu { siteMenuItems(site, ctx: ctx) }
             ForEach(site.pages) { page in
                 PageButton(page: page, site: site, isSingle: false, ctx: ctx)
                     .padding(.leading, m.capsuleGap)
@@ -164,18 +172,21 @@ struct CollapsedSiteView: View {
         let nameWidth = max(0, site.width - Self.chromeWidth(count: site.pageCount, metrics: m))
         Button {
             guard !ctx.drag.suppressesClick else { return }
-            ctx.onAction(.selectSite(site.id))
+            // Folded by hand: the icon unfolds it. Collapsed for room: the click selects its page, which unfolds it.
+            ctx.onAction(site.isFolded ? .toggleFold(site.id) : .selectSite(site.id))
         } label: {
             HStack(spacing: 0) {
                 SiteIconView(key: site.key, greyed: fading, ctx: ctx)
                     .padding(.leading, m.capsuleLeading)
-                    .padding(.trailing, Self.iconGap)
-                Text(site.name)
-                    .font(ctx.font(fading ? .regular : .page))
-                    .foregroundStyle(ctx.palette.text)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .frame(width: nameWidth, alignment: .leading)
+                    .padding(.trailing, site.labelWidth > 0 ? Self.iconGap : 0)
+                if site.labelWidth > 0 {
+                    Text(site.name)
+                        .font(ctx.font(fading ? .regular : .page))
+                        .foregroundStyle(ctx.palette.text)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .frame(width: nameWidth, alignment: .leading)
+                }
                 Text(String(site.pageCount))
                     .font(Font(BarTextMeasurer.badgeFont as CTFont))
                     .monospacedDigit()
@@ -199,9 +210,9 @@ struct CollapsedSiteView: View {
         .buttonStyle(BarPressStyle())
         .simultaneousGesture(ctx.drag.gesture(for: .site(site.id, page: nil)))
         .onHover { over in withAnimation(ctx.hoverAnimation) { hovering = over } }
-        .help("\(site.name) — \(site.pageCount) pages")
+        .help(site.isFolded ? "\(site.name) — \(site.pageCount) pages, click to unfold" : "\(site.name) — \(site.pageCount) pages")
         .contextMenu { siteMenuItems(site, ctx: ctx) }
-        .accessibilityLabel("\(site.name), \(site.pageCount) pages\(fading ? ", fading" : "")")
+        .accessibilityLabel("\(site.name), \(site.pageCount) pages\(site.isFolded ? ", folded" : "")\(fading ? ", fading" : "")")
     }
 }
 

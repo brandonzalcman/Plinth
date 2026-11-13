@@ -299,6 +299,7 @@ final class AppController: NSObject, NSApplicationDelegate {
         case .closePage(let id): store.closePage(id)
         case .selectPin(let id): store.selectPin(id, in: windowID)
         case .selectSite(let id): store.selectSite(id, in: windowID)
+        case .toggleFold(let id): store.toggleFold(id, in: windowID)
         case .newPage: controller.openCommandBar(newPage: true)
         case .goBack: if let page = store.window(windowID)?.selectedPageID { pool.goBack(page) }
         case .goForward: if let page = store.window(windowID)?.selectedPageID { pool.goForward(page) }
