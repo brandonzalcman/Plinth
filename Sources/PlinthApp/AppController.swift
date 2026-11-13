@@ -31,6 +31,8 @@ final class AppController: NSObject, NSApplicationDelegate {
     /// A web view made outside the pool (peek, mini window) that the next matching `.pageOpened` takes over.
     var pendingAdoption: (url: URL, view: WKWebView)?
     var miniWindows: [MiniWindowController] = []
+    /// Windows for pages' `window.open` popups (sign-in windows and the like).
+    var popups: [PopupWindowController] = []
     /// Links handed to Plinth before it finished launching.
     var pendingOpenURLs: [URL] = []
     var didFinishLaunching = false

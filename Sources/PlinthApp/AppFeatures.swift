@@ -29,6 +29,11 @@ extension AppController: NSMenuItemValidation, NSMenuDelegate {
                 ?? self.store.windows.first(where: { $0.selectedPageID == opener })?.id ?? self.keyWindowID
             if let window { self.controller(for: window)?.showPeek(url) }
         }
+        pool.callbacks.popupCreated = { [weak self] view, size, opener in
+            guard let self else { return }
+            let parent = (self.store.windowID(containing: opener) ?? self.keyWindowID).flatMap { self.controller(for: $0)?.window }
+            self.popups.append(PopupWindowController(app: self, view: view, size: size, near: parent))
+        }
         pool.callbacks.splitRequest = { [weak self] url, opener in
             guard let self else { return }
             guard let window = self.store.windowID(containing: opener) ?? self.keyWindowID else { return }
@@ -88,6 +93,10 @@ extension AppController: NSMenuItemValidation, NSMenuDelegate {
         config.urlCache = nil
         return URLSession(configuration: config)
     }()
+
+    func popupClosed(_ popup: PopupWindowController) {
+        popups.removeAll { $0 === popup }
+    }
 
     // MARK: Links from other apps
 
