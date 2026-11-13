@@ -4,8 +4,7 @@
 #   Scripts/release.sh 0.2.0             signed, notarized release (needs the one-time setup in RELEASING.md)
 #   UNSIGNED=1 Scripts/release.sh 0.2.0  local dry run: ad-hoc signed DMG, no notarization, no appcast
 #
-# Output: build/release/Plinth-<version>.dmg, the same file as build/release/Plinth.dmg (for the
-# stable releases/latest/download/Plinth.dmg link), and build/release/appcast.xml
+# Output: build/release/Plinth-<version>.dmg and build/release/appcast.xml
 #
 # Environment
 #   TEAM_ID              Apple Developer Team ID (10 characters)
@@ -31,7 +30,6 @@ ARCHIVE="$OUT/Plinth.xcarchive"
 DERIVED="$OUT/DerivedData"
 APP="$OUT/export/Plinth.app"
 DMG="$OUT/Plinth-$VERSION.dmg"
-LATEST_DMG="$OUT/Plinth.dmg"   # same file under a fixed name, for releases/latest/download/Plinth.dmg
 
 step() { print -P "%F{blue}==>%f $1"; }
 fail() { print -P "%F{red}error:%f $1" >&2; exit 1; }
@@ -118,7 +116,6 @@ if [[ "$UNSIGNED" != 1 ]]; then
     spctl --assess --type open --context context:primary-signature -v "$DMG"
 fi
 # The finished (signed, stapled) image again under the fixed name the landing page links to.
-cp "$DMG" "$LATEST_DMG"
 
 # 5. Sparkle appcast ---------------------------------------------------------------------------
 if [[ "$UNSIGNED" != 1 ]]; then
@@ -138,4 +135,4 @@ if [[ "$UNSIGNED" != 1 ]]; then
 fi
 
 step "Done"
-ls -lh "$DMG" "$LATEST_DMG" "$OUT"/appcast.xml 2>/dev/null || true
+ls -lh "$DMG" "$OUT"/appcast.xml 2>/dev/null || true
