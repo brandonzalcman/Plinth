@@ -233,7 +233,7 @@ Good first areas:
 ## Known limits
 
 - **iCloud sync** needs an Apple developer team. Choose your team and add the iCloud capability in `Plinth.xcodeproj`; the ad-hoc build can't use iCloud. [Design/icloud-sync.md](Design/icloud-sync.md) has the steps.
-- **System Passwords autofill** needs Apple's web-browser entitlement, which an open-source build does not have.
+- **System Passwords autofill** needs Apple's web-browser entitlement, which an open-source build does not have. See `Design/passwords-autofill.md` for how to request it.
 - **Semantic search** quality depends on Apple's NaturalLanguage sentence embeddings, so "By meaning" results come after keyword results.
 - **No extensions,** by design.
 
