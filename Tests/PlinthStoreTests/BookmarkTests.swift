@@ -182,3 +182,46 @@ struct BookmarkTests {
         for f in store.folders { #expect(store.path(of: f.id).count <= 2) }
     }
 }
+
+@MainActor
+struct BookmarkResultsTests {
+    let url = URL(string: "https://example.com/recipes/pasta")!
+
+    func history(_ u: URL, top: Bool = false) -> SearchResult {
+        SearchResult(id: "history-\(u.absoluteString)", target: .history(u), title: "Pasta", subtitle: "", key: SiteKey("example.com"), isTopHit: top)
+    }
+
+    @Test func bookmarkReplacesItsHistoryRow() {
+        let store = BookmarkStore(storageDirectory: nil)
+        store.add(title: "Pasta", url: url)
+        let other = URL(string: "https://other.example/pasta")!
+        let merged = store.results(for: "pasta", amid: [history(URL(string: "http://www.example.com/recipes/pasta/?utm_source=a")!), history(other)])
+        #expect(merged.count == 2)
+        #expect(merged.first?.target == .history(other))
+        #expect(merged.last?.isBookmark == true)
+    }
+
+    @Test func topHitAndOpenPagesStay() {
+        let store = BookmarkStore(storageDirectory: nil)
+        store.add(title: "Pasta", url: url)
+        let open = SearchResult(id: "page-1", target: .pin(SiteID()), title: "Pasta", subtitle: "", key: SiteKey("example.com"))
+        let merged = store.results(for: "pasta", amid: [history(url, top: true), open])
+        #expect(merged.count == 3)
+    }
+
+    @Test func noMatchLeavesSuggestionsAlone() {
+        let store = BookmarkStore(storageDirectory: nil)
+        store.add(title: "Pasta", url: url)
+        let list = [history(URL(string: "https://x.example/")!)]
+        #expect(store.results(for: "zzz", amid: list) == list)
+    }
+
+    @Test func folderChoicesListPaths() {
+        let store = BookmarkStore(storageDirectory: nil)
+        let b = store.addFolder(named: "Beta")
+        store.addFolder(named: "Alpha")
+        store.addFolder(named: "Inner", in: b.id)
+        #expect(store.folderChoices().map(\.label) == ["Bookmarks", "Alpha", "Beta", "Beta › Inner"])
+        #expect(store.folderChoices().first?.id == nil)
+    }
+}

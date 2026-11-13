@@ -32,3 +32,10 @@ extension SearchResult {
     public static let bookmarkIDPrefix = "bookmark-"
     public var isBookmark: Bool { id.hasPrefix(Self.bookmarkIDPrefix) }
 }
+
+/// One place a bookmark can go: a folder (shown by its full path) or the top level (`id` nil).
+public struct BookmarkFolderChoice: Identifiable, Equatable, Sendable {
+    public var id: UUID?
+    public var label: String
+    public init(id: UUID?, label: String) { self.id = id; self.label = label }
+}

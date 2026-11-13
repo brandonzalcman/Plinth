@@ -89,7 +89,7 @@ Prefer to build it yourself? See [Build from source](#build-from-source).
 
 ## Using Plinth
 
-**Open a page.** Press ⌘L or ⌘T and type an address or a search. The command bar also finds open pages, pins, shelved pages and history. Results found by meaning appear under their own heading.
+**Open a page.** Press ⌘L or ⌘T and type an address or a search. The command bar also finds open pages, pins, shelved pages, bookmarks and history. Results found by meaning appear under their own heading.
 
 <p align="center"><img src="docs/images/command-bar.jpg" alt="The command bar" width="720"></p>
 
@@ -98,6 +98,8 @@ Prefer to build it yourself? See [Build from source](#build-from-source).
 - Drag a page or a site to reorder it.
 - Rest one page on another to split them.
 - Right-click a page to rename it, keep its site, pin it, put it away or split with it.
+
+**Bookmarks.** Press ⌘D to bookmark the page you are on. A small card lets you rename it, choose a folder or remove it, and goes away on its own. Bookmarks that match what you type appear under their own heading in the command bar.
 
 **The shelf.** Sites you stop using drop onto the shelf. Click the tray at the right of the bar, or press ⇧⌘L. Pick a page to bring it back where it was.
 
@@ -117,6 +119,7 @@ Prefer to build it yourself? See [Build from source](#build-from-source).
 | Next / previous page | ⇧⌘] / ⇧⌘[ |
 | Go to page 1–9 (left to right) | ⌘1 … ⌘9 |
 | Show shelf | ⇧⌘L |
+| Bookmark this page | ⌘D |
 | Find in page | ⌘F |
 | Ask about this page | ⌘J |
 | Split with next page / end split | ⌥⌘\\ / ⇧⌘\\ |
