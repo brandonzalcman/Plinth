@@ -361,6 +361,22 @@ enum DebugScript {
             task.arguments = ["-l", "\(window.windowNumber)", "-o", "\(dir)/\(parts.first ?? "shot").png"]
             try? task.run()
             task.waitUntilExit()
+        case "folder":
+            // folder <n,n,...> [name]: puts the pins at these 1-based positions into one new folder.
+            let parts = arg.split(separator: " ", maxSplits: 1).map(String.init)
+            let ids = (parts.first ?? "").split(separator: ",").compactMap { Int($0) }.compactMap { n in
+                app.store.pins.indices.contains(n - 1) ? app.store.pins[n - 1].id : nil
+            }
+            guard let first = ids.first, let folder = app.store.createPinFolder(with: first, name: parts.count > 1 ? parts[1] : nil) else { return }
+            for id in ids.dropFirst() { app.store.movePin(id, toFolder: folder.id) }
+        case "fullshot":
+            // fullshot <name>: the whole screen, so popovers show.
+            guard let dir = ProcessInfo.processInfo.environment["PLINTH_SHOTS"] else { return }
+            let task = Process()
+            task.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+            task.arguments = ["-x", "\(dir)/\(arg).png"]
+            try? task.run()
+            task.waitUntilExit()
         default: log("unknown step \(verb)")
         }
     }
