@@ -133,9 +133,14 @@ public protocol TextGenerating: Sendable {
     var contextCharacterBudget: Int { get }
     /// Streams the answer. Each element is the WHOLE answer so far (cumulative), not a delta.
     func stream(prompt: String, instructions: String) -> AsyncThrowingStream<String, Error>
+    /// Gets the model ready for a request that starts with `instructions`, so the first answer
+    /// does not wait for it to load. Optional; the default does nothing.
+    func prewarm(instructions: String)
 }
 
 public extension TextGenerating {
+    func prewarm(instructions: String) {}
+
     /// Runs `stream` to completion and returns the final text.
     func respond(prompt: String, instructions: String) async throws -> String {
         var last = ""

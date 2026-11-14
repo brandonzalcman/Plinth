@@ -132,8 +132,25 @@ final class AppController: NSObject, NSApplicationDelegate {
         let early = pendingOpenURLs
         pendingOpenURLs = []
         for url in early { openFromOtherApp(url) }
+        openFirstLaunchPage(profileHadWindows: profileHadWindows,
+                            launchNamesURLs: !early.isEmpty || environment.keys.contains { $0.hasPrefix("PLINTH_") && $0 != "PLINTH_STORAGE" })
         launchWelcomeIfNeeded(profileHadWindows: profileHadWindows)
         DebugScript.runIfRequested(self)
+    }
+
+    /// A brand-new profile starts on the Plinth site, under the welcome guide: once per profile (a marker
+    /// file records it, so quitting during the guide does not bring it back), and not when the launch
+    /// names what to open (a link from another app) or is a test launch (any PLINTH_ variable except
+    /// PLINTH_STORAGE, which only picks the profile folder, so a fresh throwaway profile still shows it).
+    private func openFirstLaunchPage(profileHadWindows: Bool, launchNamesURLs: Bool) {
+        let marker = storageDirectory.appendingPathComponent("first-page-opened")
+        guard let first = PlinthPromo.firstLaunchURL(hasCompletedOnboarding: settings.value.hasCompletedOnboarding,
+                                                     profileHadWindows: profileHadWindows,
+                                                     hasExplicitURLs: launchNamesURLs,
+                                                     alreadyOpened: FileManager.default.fileExists(atPath: marker.path)),
+              let window = store.windows.first(where: { !$0.isPrivate }) else { return }
+        try? Data().write(to: marker)
+        store.openPage(url: first, in: window.id)
     }
 
     /// "Start fresh": every open page goes onto the shelf (nothing is lost), leaving one empty window.

@@ -26,11 +26,18 @@ also has the fields `editedAt` (date: when the edit was made, by that Mac's cloc
 | Type | Record name | Fields |
 |---|---|---|
 | `Pin` | `pin-<host>` | key, name, homeURL, order |
+| `PinFolder` | `folder-<uuid>` | folderID, name, nameEditedAt (date), members (list of strings: the pins' site keys) |
 | `ShelfPage` | `shelf-<page uuid>` | pageID, key, siteName, url, rawTitle, name, customName?, shelvedAt, lastUsed |
 | `HistoryEntry` | `history-<uuid>` | entryID, url, title, name, key, visitedAt, dwell |
 | `HistoryClear` | `history-clear` | clearedAt |
 | `Device` | `device-<device id>` | deviceID, deviceName, pages (JSON data) |
 | `Loyalty` | `loyalty-<device id>` | deviceID (String), ledger (Bytes: the device's points ledger as JSON; see `docs/loyalty.md`) |
+
+A development build briefly wrote `folderID` and `folderName` on `Pin` records. Fields the app does not
+define are ignored when read. A `Pin` record fetched carrying those two is saved once with them
+cleared, so a 0.2.0 Mac stops re-uploading it; a record without them is never saved with a mention of
+them. That cleanup has only been exercised against an in-memory model of CloudKit, not against CloudKit
+itself.
 
 The device ID is a random UUID, created once per Mac and stored in user defaults
 (`PlinthSyncDeviceID`). It is not tied to the hardware.
@@ -142,12 +149,12 @@ first time a record of that type is saved. A Developer ID release runs against *
 has no types until you deploy them. The app never creates types in Production.
 
 1. Run from Xcode with sync on (step 5 above). Make every record type appear in Development:
-   pin a site (`Pin`), shelve a page (`ShelfPage`), visit a page (`HistoryEntry`), use **Clear
+   pin a site (`Pin`), put pins in a folder (`PinFolder`), shelve a page (`ShelfPage`), visit a page (`HistoryEntry`), use **Clear
    history** once (`HistoryClear`, only written then), and wait for a sync (`Device`; it is written
-   on the first sync). All five types must exist, or Production lacks the missing ones.
+   on the first sync). All six types must exist, or Production lacks the missing ones.
 2. Open the CloudKit Console (icloud.developer.apple.com), choose container
    `iCloud.dev.getplinth.Plinth`, environment **Development**, and check Schema › Record Types for
-   the five types above.
+   the six types above.
 3. Choose **Deploy Schema Changes…** and confirm. This copies the types to **Production**. Deploy
    again after any later change to the records.
 

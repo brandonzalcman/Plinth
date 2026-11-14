@@ -38,6 +38,7 @@ struct FolderTileView: View {
             }
         }
         .onHover { over in withAnimation(ctx.hoverAnimation) { hovering = over } }
+        .onChange(of: open) { _, isOpen in if !isOpen { renaming = false } }
         .help(folder.name)
         .popover(isPresented: $open, arrowEdge: .top) {
             FolderTray(folder: folder, folders: folders, ctx: ctx, renaming: $renaming, close: { open = false })
