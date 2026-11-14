@@ -1,0 +1,10 @@
+<!doctype html><title>Sign-in in a cross-origin frame (Apple-style)</title>
+<!-- The page is served from localhost; the sign-in frame from 127.0.0.1 (another origin). Mirrors a hosted two-step
+     sign-in: no <form>, an email field with autocomplete="username webauthn", a password field with
+     "current-password", a ($click)-style button, a two-factor step in the same frame, then the page moves on.
+     ?mode=stay keeps the password field visible after the password was accepted (the page navigates later). -->
+<iframe id="f" width="420" height="320"></iframe>
+<script>
+  f.src = 'http://127.0.0.1:' + location.port + '/apple-frame.html' + location.search;
+  addEventListener('message', (e) => { if (e.data === 'signed-in') { location.href = 'done.html'; } });
+</script>

@@ -31,6 +31,7 @@ also has the fields `editedAt` (date: when the edit was made, by that Mac's cloc
 | `HistoryEntry` | `history-<uuid>` | entryID, url, title, name, key, visitedAt, dwell |
 | `HistoryClear` | `history-clear` | clearedAt |
 | `Device` | `device-<device id>` | deviceID, deviceName, pages (JSON data) |
+| `Loyalty` | `loyalty-<device id>` | deviceID (String), ledger (Bytes: the device's points ledger as JSON; see `docs/loyalty.md`) |
 
 A development build briefly wrote `folderID` and `folderName` on `Pin` records. Fields the app does not
 define are ignored when read. A `Pin` record fetched carrying those two is saved once with them
@@ -175,3 +176,7 @@ Xcode project for any signed build.
   most recently used first. The order they had on the bar is not synced.
 - Open pages are read-only on other Macs. Opening one creates an ordinary new page. The shell
   decides how that works.
+
+## Deploying the `Loyalty` record type
+
+Development schemas create record types on first save, but Production does not. Before a release that carries loyalty, in the CloudKit Dashboard open the container `iCloud.dev.getplinth.Plinth`, check that the `Loyalty` type exists in Development with the fields `deviceID` (String) and `ledger` (Bytes), and use Deploy Schema Changes to Production. Like every record type, `Loyalty` also carries `editedAt` (Date/Time), `editedBy` (String) and `tombstone` (Int(64)), which the sync engine writes on every record; they must exist on the type too. If it is missing in Production, every save of that record is refused: the sync engine logs it (`os` subsystem `dev.getplinth.Plinth`, category `sync`) and lists it in `SyncEngine.lastFailures`, and the rest of sync carries on.

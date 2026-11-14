@@ -42,7 +42,7 @@ extension PanelLayer {
         return BookmarksView(
             folders: store.folders,
             bookmarks: store.bookmarks,
-            accent: app.accent,
+            accent: accent,
             icon: { app.pool.favicons.image(for: $0) },
             onOpen: { bookmark in
                 controller.submit(.result(SearchResult(id: SearchResult.bookmarkIDPrefix + bookmark.id.uuidString, target: .history(bookmark.url),
@@ -73,7 +73,7 @@ extension PanelLayer {
                 isNew: isNew,
                 folders: app.bookmarks.folderChoices(),
                 selectedFolder: bookmark.folder,
-                accent: app.accent,
+                accent: accent,
                 icon: { app.pool.favicons.image(for: $0) },
                 onRename: { app.bookmarks.rename(id, to: $0) },
                 onMove: { app.bookmarks.move(id, to: $0) },

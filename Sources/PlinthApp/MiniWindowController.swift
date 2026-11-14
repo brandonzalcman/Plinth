@@ -52,7 +52,7 @@ final class MiniWindowController: NSObject, NSWindowDelegate {
         strip.autoresizingMask = [.width, .minYMargin]
         root.addSubview(strip)
 
-        let pill = NSHostingView(rootView: PromotePill(accent: app.accent, action: { [weak self] in
+        let pill = NSHostingView(rootView: PromotePill(app: app, action: { [weak self] in
             guard let self else { return }
             self.app.promote(self)
         }))
@@ -121,10 +121,11 @@ final class MiniWindowController: NSObject, NSWindowDelegate {
 
 /// "Open in Plinth ⌘⇧↩" at the top right of a mini window.
 struct PromotePill: View {
-    let accent: Color
+    let app: AppController
     let action: () -> Void
     @State private var hovering = false
     @Environment(\.colorScheme) private var scheme
+    private var accent: Color { app.accent(dark: scheme == .dark) }
 
     var body: some View {
         Button(action: action) {

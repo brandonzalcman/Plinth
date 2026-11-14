@@ -144,7 +144,11 @@ extension AppController: NSMenuItemValidation, NSMenuDelegate {
 
     // MARK: Menu actions
 
-    @objc func menuAsk(_ sender: Any?) { if keyMiniWindow == nil { keyController?.openAsk() } }
+    @objc func menuAsk(_ sender: Any?) {
+        guard keyMiniWindow == nil, keyController?.openAsk() == true else { return }
+        // Private windows leave no trace, not even a milestone.
+        if !(keyWindowID.map { store.isPrivate(window: $0) } ?? false) { earn(.milestone(.firstAsk)) }
+    }
 
     @objc func menuToggleAI(_ sender: Any?) {
         ai.setEnabled(!ai.isEnabled)
@@ -262,8 +266,10 @@ extension AppController: NSMenuItemValidation, NSMenuDelegate {
         let coordinator = SyncCoordinator(engine: engine)
         coordinator.onSyncFinished = { [weak self] result in
             if case .success(let devices) = result { self?.otherDevices = devices }
+            self?.ingestLoyaltyFromSync()
         }
         sync = coordinator
+        connectLoyalty(to: coordinator)
         Task { @MainActor [weak self] in
             guard let self, let sync = self.sync else { return }
             if case .success(let devices) = await sync.syncNow(local: { self.store.syncPayload() },
@@ -271,6 +277,7 @@ extension AppController: NSMenuItemValidation, NSMenuDelegate {
                                                                apply: { self.store.applySynced($0) }) {
                 self.otherDevices = devices
             }
+            self.ingestLoyaltyFromSync()
             self.observeForSync()
         }
     }

@@ -5,6 +5,7 @@ import PlinthRules
 import PlinthSettings
 import PlinthWeb
 import PlinthBarUI
+import PlinthLoyalty
 
 /// Test-launch hook: `PLINTH_STEPS="wait 3; peek http://…; wait 4; promote; …"` drives features
 /// through the same entry points the UI uses, logging to stdout. Inactive unless the variable is set.
@@ -148,6 +149,7 @@ enum DebugScript {
                 let result = try? await view.evaluateJavaScript("(()=>{\(find)\(body)})()")
                 if let r = result as? String, r == "no element" { log("\(verb): no element \(parts[0])") }
             }
+        case "fx": await app.passwords?.debugFrame(arg)
         case "activate":
             // Makes the app and its window key, so the real clicks that follow reach the page.
             NSApp.activate(ignoringOtherApps: true)
@@ -343,6 +345,20 @@ enum DebugScript {
             // welcome [card index]: replays the welcome guide, from the intro or at that card.
             app.showWelcomeGuide(startingAtCard: Int(arg))
         case "pw": app.passwords.debug(arg)
+        case "sharecard":
+            // sharecard <path>: writes the share card PNG for the current level.
+            let t = app.loyalty.totals
+            let way = LoyaltyColourway.named(app.settings.value.appIcon) ?? .sunrise
+            let data = ShareCard.pngData(ShareCardContent(level: t.level, points: t.points, streak: t.streak, colourway: way))
+            try? data?.write(to: URL(fileURLWithPath: arg))
+            log("sharecard \(data?.count ?? 0) bytes")
+        case "loyaltypoints":
+            // loyaltypoints <n>: adds n points from a made-up second device (past days), to see levels and level-ups.
+            let days = max(Int(arg) ?? 0, 0) / 10
+            var awards: [String: Int] = [:]
+            for i in 0..<days { awards[String(format: "day:2025-%02d-%02d", i / 28 + 1, i % 28 + 1)] = 10 }
+            log("active=\(NSApp.isActive) welcome=\(app.welcome?.window?.isVisible == true)")
+            app.loyalty.ingest([PlinthLoyalty.LoyaltyLedger(deviceID: "debug", platform: .mac, awards: awards).encoded()])
         case "settings":
             // settings <section id>: opens the Settings window on that section.
             app.menuSettings(nil)

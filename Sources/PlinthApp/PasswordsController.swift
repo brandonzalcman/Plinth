@@ -24,6 +24,12 @@ final class PasswordsController: PasswordPrompting {
         let coordinator = PasswordsCoordinator(vault: vault, preferences: preferences, prompts: self)
         coordinator.savedHook = { [model] in model.reload() }
         self.coordinator = coordinator
+        if ProcessInfo.processInfo.environment["PLINTH_STEPS"] != nil {
+            coordinator.frameObserver = { [weak self] frame, view in
+                guard let view, let host = frame.securityOrigin.host as String? else { return }
+                self?.debugFrames[frame.isMainFrame ? host : host + "#frame"] = (frame, view)
+            }
+        }
         pool.extraUserScripts = [PasswordPageScript.userScript()] + (testing && ProcessInfo.processInfo.environment["PLINTH_STEPS"] != nil ? [PasswordPageScript.testModeScript()] : [])
         pool.addMessageHandler(coordinator, name: PasswordPageScript.handlerName, world: PasswordPageScript.world)
     }
@@ -31,8 +37,29 @@ final class PasswordsController: PasswordPrompting {
     // MARK: Test launches (PLINTH_STEPS "pw ..."; only meaningful with a throwaway PLINTH_STORAGE)
 
     private var debugAnswer: SaveChoice?
+    /// The latest frame each host's page script reported from (scripted test launches only).
+    private var debugFrames: [String: (frame: WKFrameInfo, view: WKWebView)] = [:]
 
-    /// pw add <url> <user> <password> | pw delete <url> <user> | pw answer <save|notnow|never> | pw list | pw show <url> <user> | pw clear
+    /// fx <host>[#frame for a subframe] <click|set|dump|value|html> <css selector> [text]: scripted events inside the frame served from `host`.
+    func debugFrame(_ arg: String) async {
+        let p = arg.split(separator: " ", maxSplits: 3).map(String.init)
+        guard p.count >= 2, let entry = debugFrames[p[0]] else { DebugScript.log("fx: no frame for \(arg.prefix(40))"); return }
+        let body = """
+        const find = (root) => { const hit = root.querySelector(sel); if (hit) return hit; for (const h of root.querySelectorAll('*')) { if (h.shadowRoot) { const x = find(h.shadowRoot); if (x) return x; } } return null; };
+        if (op === 'dump') { const out = []; const walk = (r) => { for (const e of r.querySelectorAll('*')) { if (e.tagName === 'INPUT') out.push(e.type + '/' + (e.getAttribute('autocomplete') || '-') + '/' + e.id + '/' + e.value.length + '/' + (e.getBoundingClientRect().width > 0)); if (e.shadowRoot) walk(e.shadowRoot); } }; walk(document); return location.host + ' ' + out.join(' '); }
+        const e = find(document); if (!e) return 'no element';
+        if (op === 'click') { for (const t of ['pointerdown', 'mousedown']) e.dispatchEvent(new MouseEvent(t, { bubbles: true, composed: true, cancelable: true })); if (e.focus) e.focus(); for (const t of ['pointerup', 'mouseup']) e.dispatchEvent(new MouseEvent(t, { bubbles: true, composed: true, cancelable: true })); e.click(); return 'clicked'; }
+        if (op === 'set') { e.focus(); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(e, text); e.dispatchEvent(new Event('input', { bubbles: true, composed: true })); e.dispatchEvent(new Event('change', { bubbles: true })); return 'set'; }
+        if (op === 'html') { return (e.closest('form') ? 'inForm ' : 'noForm ') + e.outerHTML.slice(0, 400); }
+        if (op === 'value') { return e.value.length + ':' + (e.type === 'password' ? '' : e.value); }
+        return 'unknown op';
+        """
+        let result = try? await entry.view.callAsyncJavaScript(body, arguments: ["op": p[1], "sel": p.count > 2 ? p[2] : "", "text": p.count > 3 ? p[3] : ""],
+                                                               in: entry.frame, contentWorld: .page)
+        DebugScript.log("fx \(p[1]): \(result.map { String(describing: $0) } ?? "nil")")
+    }
+
+    /// pw add <url> <user> <password> | pw delete <url> <user> | pw answer <save|notnow|never> | pw list | pw show <url> <user> | pw pending | pw clear
     func debug(_ arg: String) {
         guard ProcessInfo.processInfo.environment["PLINTH_STORAGE"] != nil else { return }
         let p = arg.split(separator: " ").map(String.init)
@@ -42,6 +69,8 @@ final class PasswordsController: PasswordPrompting {
             model.reload()
         case "answer" where p.count == 2:
             debugAnswer = ["save": .save, "notnow": .notNow, "never": .never][p[1]]
+        case "pending":
+            DebugScript.log("pending: \(coordinator.debugPendingSummary)")
         case "list":
             DebugScript.log("passwords: " + ((try? vault.list()) ?? []).map { "\($0.origin) \($0.username)" }.joined(separator: " | ") + " never: \(preferences.neverSave.map(\.description))")
         case "show" where p.count == 3:

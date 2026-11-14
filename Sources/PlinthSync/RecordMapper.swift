@@ -15,6 +15,8 @@ import PlinthModel
 /// - `HistoryEntry` "history-<uuid>": entryID, url, title, name, key, visitedAt, dwell.
 /// - `HistoryClear` "history-clear": clearedAt. Every history entry visited at or before it is gone.
 /// - `Device` "device-<device id>": deviceID, deviceName, pages (JSON `[OpenPageSummary]`).
+/// - `Loyalty` "loyalty-<device id>": deviceID, ledger (opaque data from the loyalty engine). Each device
+///   writes only its own; the others' are read-only.
 public enum RecordMapper {
     public static let pinType = "Pin"
     public static let folderType = "PinFolder"
@@ -22,6 +24,7 @@ public enum RecordMapper {
     public static let historyType = "HistoryEntry"
     public static let clearType = "HistoryClear"
     public static let deviceType = "Device"
+    public static let loyaltyType = "Loyalty"
 
     public static let clearName = "history-clear"
 
@@ -34,6 +37,7 @@ public enum RecordMapper {
         historyType: ["entryID", "url", "title", "name", "key", "visitedAt", "dwell"],
         clearType: ["clearedAt"],
         deviceType: ["deviceID", "deviceName", "pages"],
+        loyaltyType: ["deviceID", "ledger"],
     ]
 
     /// Record types the engine merges with last-writer-wins and tracks as local state.
@@ -109,6 +113,7 @@ public enum RecordMapper {
     public static func shelfName(_ id: PageID) -> String { "shelf-" + id.raw.uuidString }
     public static func historyName(_ id: UUID) -> String { "history-" + id.uuidString }
     public static func deviceName(_ deviceID: String) -> String { "device-" + safe(deviceID) }
+    public static func loyaltyName(_ deviceID: String) -> String { "loyalty-" + safe(deviceID) }
 
     // MARK: Payload -> records
 
@@ -209,6 +214,13 @@ public enum RecordMapper {
             "deviceID": .string(deviceID),
             "deviceName": .string(deviceName),
             "pages": .data(data),
+        ])
+    }
+
+    public static func loyaltyRecord(deviceID: String, ledger: Data) -> SyncRecord {
+        SyncRecord(recordType: loyaltyType, recordName: loyaltyName(deviceID), fields: [
+            "deviceID": .string(deviceID),
+            "ledger": .data(ledger),
         ])
     }
 
