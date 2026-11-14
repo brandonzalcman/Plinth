@@ -35,13 +35,19 @@ public struct LoyaltyLedger: Codable, Equatable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey { case deviceID, platform, awards }
+    private struct Lenient: Decodable {
+        let value: Int?
+        init(from decoder: Decoder) throws { value = try? decoder.singleValueContainer().decode(Int.self) }
+    }
 
     /// Lenient: a missing or unknown platform becomes `.other` instead of dropping the ledger.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         deviceID = try c.decode(String.self, forKey: .deviceID)
         platform = (try? c.decodeIfPresent(LoyaltyPlatform.self, forKey: .platform)) ?? .other
-        awards = (try? c.decodeIfPresent([String: Int].self, forKey: .awards)) ?? [:]
+        // One damaged value must not empty the ledger: keep every entry that is an integer.
+        let raw = (try? c.decodeIfPresent([String: Lenient].self, forKey: .awards)) ?? [:]
+        awards = raw.compactMapValues(\.value)
     }
 
     /// The largest award a single key may carry. Larger values from another device (which could be

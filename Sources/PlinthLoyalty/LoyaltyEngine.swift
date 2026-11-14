@@ -31,23 +31,21 @@ public enum LoyaltyEvent: Sendable, Equatable {
     /// Called after the ledgers changed (own or remote).
     public var onChange: (() -> Void)?
 
-    public private(set) var own: LoyaltyLedger
+    public private(set) var own: LoyaltyLedger { didSet { revision += 1 } }
     /// Other devices' ledgers as last received, by device ID.
-    public private(set) var remote: [String: LoyaltyLedger] = [:]
+    public private(set) var remote: [String: LoyaltyLedger] = [:] { didSet { revision += 1 } }
+    private var revision = 0
+    private var cache: (revision: Int, today: String, totals: LoyaltyTotals)?
     /// Points show and are earned only while this is true. Switching it off keeps the ledger.
     public var isEnabled: Bool { get { enabled } set { enabled = newValue; persist() } }
 
     private var enabled = true
     private var acknowledged = 1
-    /// The newest day the clock has been trusted for, and a far-ahead day waiting to be confirmed.
-    /// Local only; never synced. Not ledger keys, so one wrong clock reading cannot freeze earning.
-    private var floorDay: String?
-    private var pendingJump: String?
     private let fileURL: URL?
     private let now: @Sendable () -> Date
     private let timeZone: @Sendable () -> TimeZone
 
-    struct File: Codable { var own: LoyaltyLedger; var remote: [String: LoyaltyLedger]; var enabled: Bool?; var acknowledged: Int?; var floorDay: String?; var pendingJump: String? }
+    struct File: Codable { var own: LoyaltyLedger; var remote: [String: LoyaltyLedger]; var enabled: Bool?; var acknowledged: Int? }
 
     /// `timeZone` is read each time a day is needed, so travelling or changing the zone is followed.
     public init(deviceID: String, platform: LoyaltyPlatform, fileURL: URL?,
@@ -65,7 +63,6 @@ public enum LoyaltyEvent: Sendable, Equatable {
             }
             enabled = f.enabled ?? true
             acknowledged = f.acknowledged ?? 1
-            floorDay = f.floorDay; pendingJump = f.pendingJump
         }
     }
 
@@ -75,7 +72,14 @@ public enum LoyaltyEvent: Sendable, Equatable {
 
     private var allLedgers: [LoyaltyLedger] { [own] + remote.values.sorted { $0.deviceID < $1.deviceID } }
 
-    public var totals: LoyaltyTotals { LoyaltyTotals.compute(ledgers: allLedgers, today: today) }
+    /// Cached until a ledger changes or the day does, so frequent reads are cheap.
+    public var totals: LoyaltyTotals {
+        let day = today
+        if let c = cache, c.revision == revision, c.today == day { return c.totals }
+        let t = LoyaltyTotals.compute(ledgers: allLedgers, today: day)
+        cache = (revision, day, t)
+        return t
+    }
 
     /// The colourways this level has unlocked.
     public func unlockedColourways() -> [LoyaltyColourway] {
@@ -103,21 +107,17 @@ public enum LoyaltyEvent: Sendable, Equatable {
         guard enabled else { return LoyaltyUpdate(pointsAdded: 0, leveledUpTo: nil, totals: before) }
         var changed = false
         let day = today
-        // Days and shares earn only on a day the clock can be trusted for: not earlier than the newest
-        // trusted day (winding the clock back mints nothing) and not far ahead of it (a clock set
-        // forward writes nothing). See `trust(day:)`.
-        let trusted = trust(day: day)
         switch event {
         case .dayOfUse:
             let key = LoyaltyLedger.dayKey(day)
-            if trusted, !platformHas(key) {
+            if !platformHas(key) {
                 let streak = LoyaltyTotals.streak(days: knownDays(), today: day) // days up to yesterday
                 let bonus = min(streak * LoyaltyRules.streakBonusPerDay, LoyaltyRules.streakBonusCap)
                 own.awards[key] = LoyaltyRules.dailyPoints + bonus
                 changed = true
             }
         case .share:
-            if trusted {
+            do {
                 for n in 1...LoyaltyRules.maxSharesPerDay where !platformHas(LoyaltyLedger.shareKey(day, n)) {
                     own.awards[LoyaltyLedger.shareKey(day, n)] = LoyaltyRules.sharePoints
                     changed = true
@@ -145,27 +145,6 @@ public enum LoyaltyEvent: Sendable, Equatable {
     /// Whether a day or share key is already paid on this platform, by this device or another of it.
     private func platformHas(_ key: String) -> Bool {
         allLedgers.contains { $0.platform == platform && ($0.awards[key] ?? 0) > 0 }
-    }
-
-    /// Decides whether `day` (today by the clock) can earn. The trusted floor moves forward day by day
-    /// with use. A reading more than one day past it is not written anywhere: it is held as pending, and
-    /// is trusted only when the next day's reading follows it (a real absence, then use on two days in a
-    /// row). A reading earlier than the floor is the clock wound back and earns nothing. So one wrong
-    /// clock costs nothing later, and stepping back never pays; stepping the clock forward one day at a
-    /// time still can, which an offline app cannot prevent.
-    private func trust(day: String) -> Bool {
-        guard let floor = floorDay else { floorDay = day; persist(); return true }
-        if day < floor { return false }
-        if day == floor { return true }
-        if day == LoyaltyDay.string(byAdding: 1, to: floor) {
-            floorDay = day; pendingJump = nil; persist(); return true
-        }
-        // More than a day ahead of the floor.
-        if let pending = pendingJump, day == LoyaltyDay.string(byAdding: 1, to: pending) {
-            floorDay = day; pendingJump = nil; persist(); return true
-        }
-        if day != pendingJump && (pendingJump == nil || day > pendingJump!) { pendingJump = day; persist() }
-        return false
     }
 
     /// Days of use on any device (used for the streak bonus), not counting today.
@@ -212,7 +191,7 @@ public enum LoyaltyEvent: Sendable, Equatable {
             try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
             let enc = JSONEncoder()
             enc.outputFormatting = [.sortedKeys]
-            try enc.encode(File(own: own, remote: remote, enabled: enabled, acknowledged: acknowledged, floorDay: floorDay, pendingJump: pendingJump)).write(to: fileURL, options: .atomic)
+            try enc.encode(File(own: own, remote: remote, enabled: enabled, acknowledged: acknowledged)).write(to: fileURL, options: .atomic)
         } catch {
             // Points are not worth failing anything over; the next change writes again.
         }
