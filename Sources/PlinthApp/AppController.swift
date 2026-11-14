@@ -11,6 +11,7 @@ import PlinthWeb
 import PlinthAI
 import PlinthSync
 import PlinthSettings
+import PlinthLoyalty
 
 /// Owns the store and the web view pool, and connects the two. One per process.
 @MainActor
@@ -45,6 +46,9 @@ final class AppController: NSObject, NSApplicationDelegate {
     /// History entries already sent to the semantic index this run.
     var indexedHistory = Set<UUID>()
     var sync: SyncCoordinator?
+    /// Loyalty points and levels (see Loyalty.swift).
+    var loyalty: LoyaltyEngine!
+    let loyaltyModel = LoyaltyModel()
     var otherDevices: [DeviceOpenPages] = []
     /// Ends the shelf's "Clear all" Undo window (see ShelfUndo.swift).
     var shelfUndoTask: Task<Void, Never>?
@@ -87,6 +91,7 @@ final class AppController: NSObject, NSApplicationDelegate {
         ai = AIService.makeDefault(storageDirectory: support)
         storageDirectory = support
         setUpPasswords()
+        setUpLoyalty()
         connect()
         connectFeatures()
         pool.apply(settings.value)
@@ -160,7 +165,10 @@ final class AppController: NSObject, NSApplicationDelegate {
         return true
     }
 
-    func applicationDidBecomeActive(_ notification: Notification) { scheduleFade() }
+    func applicationDidBecomeActive(_ notification: Notification) {
+        scheduleFade()
+        if loyalty != nil { earn(.dayOfUse) }
+    }
 
     func applicationWillTerminate(_ notification: Notification) {
         for controller in controllers.values { controller.saveFrame() }
@@ -290,6 +298,7 @@ final class AppController: NSObject, NSApplicationDelegate {
     private func recordDwell() {
         guard NSApp.isActive else { return }
         store.noteCoOpen(seconds: dwellInterval)
+        loyaltyTick()
         guard let id = keyWindowID, let window = store.window(id), controllers[id]?.window.isKeyWindow == true else { return }
         for page in window.visiblePageIDs {
             store.recordDwell(page, seconds: dwellInterval)

@@ -36,11 +36,12 @@ public enum LoyaltyEvent: Sendable, Equatable {
     public var isEnabled: Bool { get { enabled } set { enabled = newValue; persist() } }
 
     private var enabled = true
+    private var acknowledged = 1
     private let fileURL: URL?
     private let now: @Sendable () -> Date
     private let calendar: Calendar
 
-    struct File: Codable { var own: LoyaltyLedger; var remote: [String: LoyaltyLedger]; var enabled: Bool? }
+    struct File: Codable { var own: LoyaltyLedger; var remote: [String: LoyaltyLedger]; var enabled: Bool?; var acknowledged: Int? }
 
     public init(deviceID: String, platform: LoyaltyPlatform, fileURL: URL?,
                 calendar: Calendar = .current, now: @escaping @Sendable () -> Date = { Date() }) {
@@ -51,6 +52,7 @@ public enum LoyaltyEvent: Sendable, Equatable {
             if f.own.deviceID == deviceID { own = f.own }
             remote = f.remote.filter { $0.key != deviceID }
             enabled = f.enabled ?? true
+            acknowledged = f.acknowledged ?? 1
         }
     }
 
@@ -69,6 +71,16 @@ public enum LoyaltyEvent: Sendable, Equatable {
     }
 
     public func isUnlocked(_ colourway: LoyaltyColourway) -> Bool { colourway.unlockLevel <= totals.level.number }
+
+    /// The level the user has reached but not yet been told about, once. Covers a level reached by
+    /// points arriving from another device as well as by this device's own events.
+    public func claimLevelUp() -> LoyaltyLevel? {
+        let level = totals.level
+        guard enabled, level.number > acknowledged else { return nil }
+        acknowledged = level.number
+        persist()
+        return level
+    }
 
     // MARK: Earning
 
@@ -155,7 +167,7 @@ public enum LoyaltyEvent: Sendable, Equatable {
             try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
             let enc = JSONEncoder()
             enc.outputFormatting = [.sortedKeys]
-            try enc.encode(File(own: own, remote: remote, enabled: enabled)).write(to: fileURL, options: .atomic)
+            try enc.encode(File(own: own, remote: remote, enabled: enabled, acknowledged: acknowledged)).write(to: fileURL, options: .atomic)
         } catch {
             // Points are not worth failing anything over; the next change writes again.
         }

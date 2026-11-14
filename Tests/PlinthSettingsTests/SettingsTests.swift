@@ -109,7 +109,7 @@ private func decode(_ json: String) throws -> AppSettings {
     }
 
     @Test func accentAndFadeHelpers() {
-        #expect(AccentChoice.allCases.count == 7)
+        #expect(AccentChoice.allCases.count == 12)
         for accent in AccentChoice.allCases {
             let c = accent.rgb
             #expect((0...255).contains(c.r) && (0...255).contains(c.g) && (0...255).contains(c.b))

@@ -95,6 +95,19 @@ var utc: Calendar { var c = Calendar(identifier: .gregorian); c.timeZone = TimeZ
         #expect(Set(ups).count == ups.count)
     }
 
+    @Test func levelUpIsClaimedOnceEvenWhenPointsArriveFromAnotherDevice() {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("loyalty-\(UUID()).json")
+        defer { try? FileManager.default.removeItem(at: file) }
+        let mac = engine("M", clock: clock, file: file)
+        #expect(mac.claimLevelUp() == nil)
+        var awards: [String: Int] = [:]
+        for d in 1...12 { awards[String(format: "day:2026-02-%02d", d)] = 10 }
+        mac.ingest([LoyaltyLedger(deviceID: "P", platform: .ios, awards: awards).encoded()])
+        #expect(mac.claimLevelUp()?.number == 2)
+        #expect(mac.claimLevelUp() == nil)
+        #expect(engine("M", clock: clock, file: file).claimLevelUp() == nil)   // remembered across launches
+    }
+
     @Test func levelsAndUnlocks() {
         #expect(LoyaltyLevel.level(forPoints: 0).name == "Footing")
         #expect(LoyaltyLevel.level(forPoints: 99).number == 1)

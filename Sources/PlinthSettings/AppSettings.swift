@@ -28,6 +28,8 @@ public enum AppearanceChoice: String, Codable, CaseIterable, Sendable {
 
 public enum AccentChoice: String, Codable, CaseIterable, Sendable {
     case blue, purple, pink, red, orange, green, graphite
+    /// The brand colourways, unlocked by loyalty level (see `PlinthLoyalty`; the raw values match its ids).
+    case dusk, meadow, ember, midnight, mono
 
     public var displayName: String { rawValue.capitalized }
 
@@ -41,6 +43,11 @@ public enum AccentChoice: String, Codable, CaseIterable, Sendable {
         case .orange: (0xF0, 0x8A, 0x24)
         case .green: (0x2E, 0xA0, 0x6B)
         case .graphite: (0x6B, 0x72, 0x80)
+        case .dusk: (0xB0, 0x50, 0x9A)
+        case .meadow: (0x0F, 0x6B, 0x5B)
+        case .ember: (0xB8, 0x36, 0x1E)
+        case .midnight: (0x0B, 0x1E, 0x5B)
+        case .mono: (0x1C, 0x1C, 0x1A)
         }
     }
 }
@@ -99,6 +106,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
     // Appearance & bar
     public var appearance = AppearanceChoice.system
     public var accent = AccentChoice.blue
+    /// The app icon: a brand colourway id (`sunrise` is the default and always available).
+    public var appIcon = "sunrise"
     public var fadeBehavior = FadeBehavior.standard
     /// 0.5 ... 3, 1 = 100%.
     public var defaultZoom = 1.0
@@ -124,7 +133,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         case downloadFolder, askWhereToSave, openSafeFilesAfterDownload
         case startup, newPage, homepage
         case appearance, hasCompletedOnboarding
-        case accent, fadeBehavior, defaultZoom, defaultFontSize, minimumFontSize
+        case accent, appIcon, fadeBehavior, defaultZoom, defaultFontSize, minimumFontSize
         case semanticSearchEnabled, pageSummariesEnabled
     }
 
@@ -147,6 +156,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         appearance = get(.appearance, d.appearance)
         hasCompletedOnboarding = get(.hasCompletedOnboarding, d.hasCompletedOnboarding)
         accent = get(.accent, d.accent)
+        appIcon = get(.appIcon, d.appIcon)
         fadeBehavior = get(.fadeBehavior, d.fadeBehavior)
         defaultZoom = min(max(get(.defaultZoom, d.defaultZoom), 0.5), 3)
         defaultFontSize = min(max(get(.defaultFontSize, d.defaultFontSize), 9), 72)
