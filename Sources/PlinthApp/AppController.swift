@@ -46,7 +46,6 @@ final class AppController: NSObject, NSApplicationDelegate {
     /// History entries already sent to the semantic index this run.
     var indexedHistory = Set<UUID>()
     var sync: SyncCoordinator?
-    private var appearanceObservation: NSKeyValueObservation?
     /// Loyalty points and levels (see Loyalty.swift).
     var loyalty: LoyaltyEngine!
     let loyaltyModel = LoyaltyModel()
@@ -70,7 +69,7 @@ final class AppController: NSObject, NSApplicationDelegate {
     /// falls back to the default blue (it could only be chosen before points were reset or turned off).
     func accent(dark: Bool) -> Color {
         var choice = settings.value.accent
-        if let loyalty, choice.unlockLevel > loyalty.totals.level.number { choice = .blue }
+        if choice.unlockLevel > 1, let loyalty, choice.unlockLevel > loyalty.totals.level.number { choice = .blue }
         let c = choice.rgb(dark: dark)
         return Color(red: c.r / 255, green: c.g / 255, blue: c.b / 255)
     }

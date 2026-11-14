@@ -101,7 +101,7 @@ final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
             guard let self else { return }
             window?.orderOut(nil)
-            if app.welcome === self { app.welcome = nil }
+            if app.welcome === self { app.welcome = nil; app.announceLevelUpIfPossible() }
             // Hand the keyboard back to the browser.
             NSApp.windows.first(where: { $0.canBecomeMain && $0.isVisible })?.makeKeyAndOrderFront(nil)
         }
