@@ -102,6 +102,7 @@ final class AppController: NSObject, NSApplicationDelegate {
         storageDirectory = support
         setUpPasswords()
         setUpLoyalty()
+        ShareCard.removeLeftovers()
         applyAppIcon()
         connect()
         connectFeatures()
@@ -184,6 +185,7 @@ final class AppController: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         for controller in controllers.values { controller.saveFrame() }
+        ShareCard.removeLeftovers()
         store.flush()
         bookmarks.flush()
         let ai = ai
