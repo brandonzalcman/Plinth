@@ -106,9 +106,12 @@ struct AppearanceSettingsView: View {
     private func swatch(_ choice: AccentChoice) -> some View {
         let c = choice.rgb(dark: t.isDark)
         let color = Color(red: c.r / 255, green: c.g / 255, blue: c.b / 255)
-        let on = settings.value.accent == choice
         let _ = app.loyaltyModel.revision
-        let locked = choice.unlockLevel > app.loyalty.totals.level.number
+        let level = app.loyalty.totals.level.number
+        let locked = choice.unlockLevel > level
+        // A saved accent the level no longer unlocks is not shown as selected: blue is in use.
+        let effective = settings.value.accent.unlockLevel > level ? AccentChoice.blue : settings.value.accent
+        let on = effective == choice
         return Button { if !locked { settings.update { $0.accent = choice } } } label: {
             Circle().fill(color).frame(width: 20, height: 20)
                 .overlay { if locked { Image(systemName: "lock.fill").font(.system(size: 8, weight: .bold)).foregroundStyle(.white) } }

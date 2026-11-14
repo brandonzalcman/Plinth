@@ -15,6 +15,8 @@ struct AccessoryRow: View {
     let app: AppController
     let controller: BrowserWindowController
     let chrome: WindowChrome
+    @Environment(\.colorScheme) private var scheme
+    private var accent: Color { app.accent(dark: scheme == .dark) }
 
     var body: some View {
         let store = app.store!
@@ -25,14 +27,14 @@ struct AccessoryRow: View {
             if !groups.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
                     ForEach(groups) { group in
-                        GroupChipView(group: group, isFiltering: focused == group.id, accent: app.accent,
+                        GroupChipView(group: group, isFiltering: focused == group.id, accent: accent,
                                       icon: { app.pool.favicons.image(for: $0) },
                                       onToggle: { if focused == group.id { store.setFocus(nil, in: windowID) } else { store.showGroup(group.id, in: windowID) } },
                                       onRemove: { store.deleteGroup(group.id) })
                     }
                 }
             } else if let suggestion = store.groupSuggestion(for: windowID) {
-                GroupSuggestionView(suggestion: suggestion, accent: app.accent,
+                GroupSuggestionView(suggestion: suggestion, accent: accent,
                                     icon: { app.pool.favicons.image(for: $0) },
                                     onGroup: {
                                         let id = store.acceptSuggestion(suggestion)
@@ -42,7 +44,7 @@ struct AccessoryRow: View {
             }
             if let card = chrome.resumeCard {
                 ResumeCardView(siteKey: card.key, siteName: card.siteName, pageName: card.pageName,
-                               summary: card.summary, isLoading: card.isLoading, accent: app.accent,
+                               summary: card.summary, isLoading: card.isLoading, accent: accent,
                                icon: { app.pool.favicons.image(for: $0) },
                                onDismiss: { chrome.resumeCard = nil })
                     .transition(.opacity.combined(with: .move(edge: .bottom)))
@@ -58,7 +60,9 @@ struct PeekLayer: View {
     let controller: BrowserWindowController
     let webView: WKWebView
     let state: AuxiliaryPageState?
-    let accent: Color
+    let app: AppController
+    @Environment(\.colorScheme) private var scheme
+    private var accent: Color { app.accent(dark: scheme == .dark) }
 
     var body: some View {
         GeometryReader { proxy in
@@ -173,7 +177,7 @@ extension BrowserWindowController {
         let view = app.pool.makeAuxiliaryWebView(url: url, dataStore: app.privateDataStore(for: windowID))
         peekView = view
         let host = NSHostingView(rootView: PeekLayer(controller: self, webView: view,
-                                                     state: app.pool.auxiliaryState(of: view), accent: app.accent))
+                                                     state: app.pool.auxiliaryState(of: view), app: app))
         host.frame = root.bounds
         host.autoresizingMask = [.width, .height]
         host.appearance = chromeAppearance

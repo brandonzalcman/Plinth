@@ -54,13 +54,14 @@ public enum AccentChoice: String, Codable, CaseIterable, Sendable {
 
 public extension AccentChoice {
     /// The accent on a dark surface (the dark bar and dark Settings). The brand colourways that are too
-    /// dark or too deep to show on #1B1A2E get a lighter variant with the same hue; the rest are unchanged.
+    /// dark or too deep to show on #1B1A2E get a lighter variant of the same hue; the rest are unchanged.
+    /// Each fill is at least 3:1 against the dark bar and carries white text at 4.5:1 or better.
     func rgb(dark: Bool) -> (r: Double, g: Double, b: Double) {
         guard dark else { return rgb }
         switch self {
-        case .meadow: return (0x1E, 0x8A, 0x74)
-        case .ember: return (0xD9, 0x53, 0x2F)
-        case .midnight: return (0x5A, 0x4F, 0xD8)
+        case .meadow: return (0x17, 0x80, 0x70)
+        case .ember: return (0xC9, 0x47, 0x2A)
+        case .midnight: return (0x64, 0x59, 0xDD)
         case .mono: return (0x6A, 0x6A, 0x66)
         default: return rgb
         }

@@ -64,6 +64,7 @@ extension AppController {
     func loyaltyTick() {
         guard loyalty.isEnabled else { return }
         earnDayOfUse()
+        announceLevelUpIfPossible()   // a level reached before Plinth was active waits for the next tick
         if !store.pins.isEmpty { earn(.milestone(.firstPin)) }
         if !bookmarks.bookmarks.isEmpty { earn(.milestone(.firstBookmark)) }
         if store.windows.contains(where: { !$0.isPrivate && $0.split != nil }) { earn(.milestone(.firstSplitView)) }
@@ -73,7 +74,8 @@ extension AppController {
     /// Shows the level-up card only when Plinth is the active app and the welcome guide is not up.
     /// Otherwise the level stays unannounced and is shown at the next change that finds it possible.
     /// Levels reached during the first minute of the first run are acknowledged silently.
-    private func announceLevelUpIfPossible() {
+    func announceLevelUpIfPossible() {
+        guard loyalty != nil else { return }
         if let until = silentUntil, Date() < until { _ = loyalty.claimLevelUp(); return }
         guard NSApp.isActive, welcome?.window?.isVisible != true else { return }
         if let level = loyalty.claimLevelUp() { LoyaltyToast.show(level: level) }
@@ -150,6 +152,15 @@ struct ArchShape: Shape {
 @MainActor enum LoyaltyToast {
     private static var panel: NSPanel?
     private static var dismissTask: Task<Void, Never>?
+    private static var resignObserver: NSObjectProtocol?
+
+    /// Takes the card away at once (Plinth stopped being the active app).
+    static func dismiss() {
+        dismissTask?.cancel()
+        panel?.orderOut(nil)
+        panel = nil
+        if let o = resignObserver { NotificationCenter.default.removeObserver(o); resignObserver = nil }
+    }
 
     static func show(level: LoyaltyLevel) {
         dismissTask?.cancel()
@@ -169,6 +180,9 @@ struct ArchShape: Shape {
         p.orderFrontRegardless()   // only called while Plinth is the active app (see announceLevelUpIfPossible)
         NSAnimationContext.runAnimationGroup { $0.duration = 0.35; p.animator().alphaValue = 1 }
         panel = p
+        resignObserver = NotificationCenter.default.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { _ in
+            MainActor.assumeIsolated { LoyaltyToast.dismiss() }
+        }
         dismissTask = Task { @MainActor in
             try? await Task.sleep(for: .seconds(4.5))
             guard !Task.isCancelled else { return }
