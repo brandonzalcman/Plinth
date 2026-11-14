@@ -31,10 +31,12 @@ public struct LoyaltyLedger: Codable, Equatable, Sendable {
         self.deviceID = deviceID; self.platform = platform; self.awards = awards
     }
 
-    /// The largest award a single key may carry, and the most keys one ledger may hold. Values from
-    /// another device (which could be damaged or edited) beyond these are ignored.
+    /// The largest award a single key may carry. Larger values from another device (which could be
+    /// damaged or edited) are clamped. There is no cap on the number of keys, because any cap would
+    /// have to drop some and could lower a total; a ledger grows by about 35 bytes per key.
     public static let maxAward = 100
-    public static let maxKeys = 4_000
+    /// Encoded ledgers larger than this are ignored on receipt (a CloudKit record holds about 1 MB).
+    public static let maxEncodedBytes = 900_000
 
     /// Merges two copies of the same device's ledger: the larger value per key.
     public mutating func merge(_ other: LoyaltyLedger) {
@@ -83,7 +85,7 @@ public struct LoyaltyLedger: Codable, Equatable, Sendable {
     }
 
     public static func decode(_ data: Data) -> LoyaltyLedger? {
-        guard let l = try? JSONDecoder().decode(LoyaltyLedger.self, from: data), !l.deviceID.isEmpty else { return nil }
+        guard data.count <= maxEncodedBytes, let l = try? JSONDecoder().decode(LoyaltyLedger.self, from: data), !l.deviceID.isEmpty else { return nil }
         return l
     }
 }
