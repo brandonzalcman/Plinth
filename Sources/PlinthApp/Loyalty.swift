@@ -44,6 +44,7 @@ extension AppController {
             self.loyaltyModel.bump()
             self.applyAppIcon()
             self.announceLevelUpIfPossible()
+            if self.settings.value.accent.unlockLevel > 1 { self.refreshAllContent() }   // a level drop may re-lock it
             self.pushLoyaltyToSync()
         }
         earnDayOfUse()
@@ -164,8 +165,7 @@ struct ArchShape: Shape {
     }
 
     static func show(level: LoyaltyLevel) {
-        dismissTask?.cancel()
-        panel?.orderOut(nil)
+        dismiss()   // also removes the previous resign observer
         let unlock = LoyaltyColourway.all.first { $0.unlockLevel == level.number }
         let host = NSHostingView(rootView: LevelUpCard(level: level, unlock: unlock))
         host.frame = NSRect(origin: .zero, size: host.fittingSize)

@@ -345,6 +345,17 @@ enum DebugScript {
             // welcome [card index]: replays the welcome guide, from the intro or at that card.
             app.showWelcomeGuide(startingAtCard: Int(arg))
         case "pw": app.passwords.debug(arg)
+        case "shareflow":
+            // shareflow: makes a share card file and reports a completed share to the sharer, as the share sheet does.
+            let t = app.loyalty.totals
+            let content = ShareCardContent(level: t.level, points: t.points, streak: t.streak, colourway: .sunrise)
+            let before = app.loyalty.totals.points
+            guard let url = ShareCard.fileURL(for: content) else { log("shareflow: no file"); break }
+            app.cardSharer.sharingService(NSSharingService(named: .composeMessage)!, didShareItems: [url])
+            try? await Task.sleep(for: .seconds(0.3))
+            log("shareflow points \(before) -> \(app.loyalty.totals.points), file exists after share: \(FileManager.default.fileExists(atPath: url.path))")
+            ShareCard.removeLeftovers()
+            log("shareflow young folder kept by removeLeftovers: \(FileManager.default.fileExists(atPath: url.path))")
         case "sharecard":
             // sharecard <path>: writes the share card PNG for the current level.
             let t = app.loyalty.totals
