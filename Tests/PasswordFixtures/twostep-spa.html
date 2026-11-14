@@ -1,0 +1,9 @@
+<!doctype html><title>Two-step sign-in (one page)</title>
+<div id="app">
+  <div id="step1"><input id="user" name="identifier" type="email" autocomplete="username webauthn"><button id="next" type="button">Next</button></div>
+  <div id="step2" hidden><p id="who"></p><input id="pass" type="password" autocomplete="current-password"><button id="go" type="button">Sign in</button></div>
+</div>
+<script>
+  next.onclick = () => { who.textContent = user.value; step1.hidden = true; step2.hidden = false; };
+  go.onclick = () => { setTimeout(() => { app.innerHTML = '<p>Welcome.</p>'; }, 3500); };   // slow fetch
+</script>

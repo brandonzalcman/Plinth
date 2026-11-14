@@ -24,7 +24,7 @@ final class PasswordsController: PasswordPrompting {
         let coordinator = PasswordsCoordinator(vault: vault, preferences: preferences, prompts: self)
         coordinator.savedHook = { [model] in model.reload() }
         self.coordinator = coordinator
-        pool.extraUserScripts = [PasswordPageScript.userScript()]
+        pool.extraUserScripts = [PasswordPageScript.userScript()] + (testing && ProcessInfo.processInfo.environment["PLINTH_STEPS"] != nil ? [PasswordPageScript.testModeScript()] : [])
         pool.addMessageHandler(coordinator, name: PasswordPageScript.handlerName, world: PasswordPageScript.world)
     }
 
@@ -32,7 +32,7 @@ final class PasswordsController: PasswordPrompting {
 
     private var debugAnswer: SaveChoice?
 
-    /// pw add <url> <user> <password> | pw answer <save|notnow|never> | pw list | pw show <url> <user> | pw clear
+    /// pw add <url> <user> <password> | pw delete <url> <user> | pw answer <save|notnow|never> | pw list | pw show <url> <user> | pw clear
     func debug(_ arg: String) {
         guard ProcessInfo.processInfo.environment["PLINTH_STORAGE"] != nil else { return }
         let p = arg.split(separator: " ").map(String.init)
@@ -47,6 +47,9 @@ final class PasswordsController: PasswordPrompting {
         case "show" where p.count == 3:
             let secret = WebOrigin(string: p[1]).flatMap { try? vault.password(for: LoginKey(origin: $0, username: p[2])) }
             DebugScript.log("password for \(p[2]): \(secret.map { "\($0.count) chars, value \($0)" } ?? "none")")
+        case "delete" where p.count == 3:
+            if let origin = WebOrigin(string: p[1]) { try? vault.delete(LoginKey(origin: origin, username: p[2])) }
+            model.reload()
         case "clear":
             for login in (try? vault.list()) ?? [] { try? vault.delete(login.key) }
             model.reload()

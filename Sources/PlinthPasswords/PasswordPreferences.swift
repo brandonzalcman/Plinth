@@ -25,7 +25,7 @@ public final class PasswordPreferences {
 
     public func setOfferToSave(_ on: Bool) { offerToSave = on; persist() }
 
-    public func isNeverSaved(_ origin: WebOrigin) -> Bool { neverSave.contains(origin) }
+    public func isNeverSaved(_ origin: WebOrigin) -> Bool { neverSave.contains { WebOrigin.mayFill(saved: $0, into: origin) } }
 
     public func addNever(_ origin: WebOrigin) {
         guard !neverSave.contains(origin) else { return }

@@ -66,9 +66,34 @@ private func saved(_ site: String, _ user: String, _ pw: String) -> Login {
 
     @Test func otherOriginsNeverFill() async {
         let (c, _, _, _) = make([saved("https://a.com", "amy", "pw1")])
-        for site in ["https://www.a.com", "https://evil.test", "https://a.com:8443", "https://a.com.evil.test"] {
+        for site in ["https://evil.test", "https://a.com:8443", "https://a.com.evil.test", "https://login.a.com", "http://a.com"] {
             #expect(await run(c, .focus(token: 1, isNewPassword: false, action: nil), at: site).isEmpty, "\(site)")
         }
+    }
+
+    @Test func wwwAndBareHostShareLogins() async {
+        let (c, _, _, _) = make([saved("https://www.a.com", "amy", "pw1")])
+        #expect(await run(c, .focus(token: 1, isNewPassword: false, action: nil), at: "https://a.com/login").count == 1)
+        let (d, _, _, _) = make([saved("https://a.com", "amy", "pw1")])
+        #expect(await run(d, .focus(token: 1, isNewPassword: false, action: nil), at: "https://www.a.com/login").count == 1)
+    }
+
+    @Test func httpLoginFillsItsHTTPSUpgrade() async {
+        let (c, _, _, _) = make([saved("http://a.com", "amy", "pw1")])
+        #expect(await run(c, .focus(token: 1, isNewPassword: false, action: nil), at: "https://a.com").count == 1)
+    }
+
+    @Test func typedUserNameIsNeverOverwritten() async {
+        let (c, _, _, prompts) = make([saved("https://a.com", "amy", "pw1")])
+        #expect(await run(c, .focus(token: 1, isNewPassword: false, action: nil, username: "bob"), at: "https://a.com").isEmpty)
+        let calls = await run(c, .focus(token: 2, isNewPassword: false, action: nil, username: "AMY"), at: "https://a.com")
+        #expect(calls.map(\.2) == ["pw1"] && prompts.chooseCalls == 0)
+    }
+
+    @Test func typedUserNameChoosesAmongSeveral() async {
+        let (c, _, _, prompts) = make([saved("https://a.com", "amy", "pw1"), saved("https://a.com", "bob", "pw2")])
+        let calls = await run(c, .focus(token: 1, isNewPassword: false, action: nil, username: "bob"), at: "https://a.com")
+        #expect(calls.map(\.2) == ["pw2"] && prompts.chooseCalls == 0)
     }
 
     @Test func httpsLoginNeverFillsOnHTTPDowngrade() async {
@@ -207,9 +232,131 @@ private func saved(_ site: String, _ user: String, _ pw: String) -> Login {
         #expect(PageEvent(body: ["kind": "submit", "username": "u", "password": String(repeating: "x", count: 5000)]) == nil)
     }
 
-    @Test func scriptRunsInAnIsolatedWorldAndOnlyMainFrame() {
-        #expect(PasswordPageScript.userScript().isForMainFrameOnly)
+    @Test func scriptRunsInAnIsolatedWorldInEveryFrame() {
+        #expect(!PasswordPageScript.userScript().isForMainFrameOnly)
+        #expect(PasswordPageScript.userScript().source == PasswordPageScript.source)
         #expect(PasswordPageScript.source.contains("isTrusted"))
         #expect(!PasswordPageScript.source.contains("console."))
+        // The only way a page can fake input is blocked: the test flag is read from the script's own world, never set by it.
+        #expect(!PasswordPageScript.source.contains("__plinthPwTest = true"))
+    }
+}
+
+@MainActor
+@Suite struct TwoStepTests {
+    @Test func identifierFieldFillsTheUserNameOnly() async {
+        let (c, _, _, _) = make([saved("https://a.com", "amy", "pw1")])
+        let calls = await run(c, .focusIdentifier(token: 4, action: nil), at: "https://a.com/signin")
+        #expect(calls.count == 1 && calls[0].0 == 4 && calls[0].1 == "amy" && calls[0].2 == "")
+    }
+
+    @Test func identifierFieldOtherOriginsNeverFill() async {
+        let (c, _, _, _) = make([saved("https://a.com", "amy", "pw1")])
+        #expect(await run(c, .focusIdentifier(token: 4, action: nil), at: "https://evil.test").isEmpty)
+    }
+
+    @Test func passwordStepWithoutAUserNameFieldIsSavedUnderTheFirstStepsName() async throws {
+        let (c, vault, _, prompts) = make()
+        _ = await run(c, .identifier(username: "amy@a.com"), at: "https://a.com/signin")
+        _ = await run(c, .submit(username: "", password: "pw1", isNewPassword: false, action: nil), at: "https://a.com/signin/pwd")
+        _ = await run(c, .loaded(hasPassword: false), at: "https://a.com/home")
+        #expect(prompts.savePrompts.map(\.username) == ["amy@a.com"])
+        #expect(try vault.password(for: LoginKey(origin: origin("https://a.com"), username: "amy@a.com")) == "pw1")
+    }
+
+    @Test func passwordStepWithoutAnyUserNameSavesNothing() async {
+        let (c, _, _, prompts) = make()
+        _ = await run(c, .submit(username: "", password: "pw1", isNewPassword: false, action: nil), at: "https://a.com")
+        _ = await run(c, .settled, at: "https://a.com")
+        #expect(prompts.savePrompts.isEmpty)
+    }
+
+    @Test func theFirstStepsNameChoosesTheLoginOnTheSecond() async {
+        let (c, _, _, prompts) = make([saved("https://a.com", "amy", "pw1"), saved("https://a.com", "bob", "pw2")])
+        _ = await run(c, .identifier(username: "bob"), at: "https://a.com")
+        let calls = await run(c, .focus(token: 1, isNewPassword: false, action: nil), at: "https://a.com")
+        #expect(calls.map(\.2) == ["pw2"] && prompts.chooseCalls == 0)
+    }
+
+    @Test func theFirstStepsNameIsForgottenAfterAWhile() async {
+        var clock = Date(timeIntervalSince1970: 0)
+        let prompts = FakePrompts()
+        let c = PasswordsCoordinator(vault: InMemoryVault(), preferences: PasswordPreferences(storageDirectory: nil), prompts: prompts, now: { clock })
+        _ = await run(c, .identifier(username: "amy"), at: "https://a.com")
+        clock = Date(timeIntervalSince1970: 700)
+        _ = await run(c, .submit(username: "", password: "pw", isNewPassword: false, action: nil), at: "https://a.com")
+        _ = await run(c, .settled, at: "https://a.com")
+        #expect(prompts.savePrompts.isEmpty)
+    }
+
+    @Test func theFirstStepsNameDoesNotCarryToAnotherSite() async {
+        let (c, _, _, prompts) = make()
+        _ = await run(c, .identifier(username: "amy"), at: "https://a.com")
+        _ = await run(c, .submit(username: "", password: "pw", isNewPassword: false, action: nil), at: "https://evil.test")
+        _ = await run(c, .settled, at: "https://evil.test")
+        #expect(prompts.savePrompts.isEmpty)
+    }
+}
+
+@MainActor
+@Suite struct FrameAndOriginTests {
+    private func runIn(_ c: PasswordsCoordinator, _ event: PageEvent, at site: String, main: Bool) async {
+        await c.handle(event, origin: origin(site), webView: nil, isMainFrame: main) { _, _, _ in }
+    }
+
+    @Test func anAdFramesLoadDoesNotResolveTheLogin() async {
+        let (c, _, _, prompts) = make()
+        await runIn(c, .submit(username: "amy", password: "pw", isNewPassword: false, action: nil), at: "https://a.com", main: true)
+        await runIn(c, .loaded(hasPassword: false), at: "https://ads.test", main: false)
+        await runIn(c, .settled, at: "https://ads.test", main: false)
+        #expect(prompts.savePrompts.isEmpty)
+        await runIn(c, .settled, at: "https://a.com", main: true)
+        #expect(prompts.savePrompts.count == 1)
+    }
+
+    @Test func aLoginInAFrameIsSavedForTheFramesOwnOrigin() async throws {
+        let (c, vault, _, prompts) = make()
+        await runIn(c, .submit(username: "amy", password: "pw", isNewPassword: false, action: nil), at: "https://auth.a.com", main: false)
+        await runIn(c, .settled, at: "https://auth.a.com", main: false)
+        #expect(prompts.savePrompts.first?.origin == origin("https://auth.a.com"))
+        #expect(try vault.list().map(\.origin) == [origin("https://auth.a.com")])
+    }
+
+    @Test func aFramesLoginIsNeverFilledFromThePagesOrigin() async {
+        // Saved for the embedding page; the frame is another origin.
+        let (c, _, _, _) = make([saved("https://a.com", "amy", "pw1")])
+        var filled = 0
+        await c.handle(.focus(token: 1, isNewPassword: false, action: nil), origin: origin("https://pay.test"), webView: nil, isMainFrame: false) { _, _, _ in filled += 1 }
+        #expect(filled == 0)
+    }
+
+    @Test func updatesKeepTheOriginTheLoginWasSavedUnder() async throws {
+        let (c, vault, _, _) = make([saved("https://www.a.com", "amy", "old")])
+        _ = await run(c, .submit(username: "amy", password: "new", isNewPassword: false, action: nil), at: "https://a.com")
+        _ = await run(c, .settled, at: "https://a.com")
+        #expect(try vault.list().count == 1)
+        #expect(try vault.password(for: LoginKey(origin: origin("https://www.a.com"), username: "amy")) == "new")
+    }
+
+    @Test func anHTTPLoginMovesToHTTPSWhenSavedAgain() async throws {
+        let (c, vault, _, _) = make([saved("http://a.com", "amy", "old")])
+        _ = await run(c, .submit(username: "amy", password: "new", isNewPassword: false, action: nil), at: "https://a.com")
+        _ = await run(c, .settled, at: "https://a.com")
+        #expect(try vault.list().map(\.origin) == [origin("https://a.com")])
+        #expect(try vault.password(for: LoginKey(origin: origin("https://a.com"), username: "amy")) == "new")
+    }
+
+    @Test func neverForASiteAppliesToItsWwwTwin() {
+        let prefs = PasswordPreferences(storageDirectory: nil)
+        prefs.addNever(origin("https://a.com"))
+        #expect(prefs.isNeverSaved(origin("https://www.a.com")))
+        #expect(!prefs.isNeverSaved(origin("https://b.a.com")))
+    }
+
+    @Test func decodesTheTwoStepMessages() {
+        #expect(PageEvent(body: ["kind": "focusIdentifier", "token": 2, "action": ""]) == .focusIdentifier(token: 2, action: ""))
+        #expect(PageEvent(body: ["kind": "identifier", "username": "amy"]) == .identifier(username: "amy"))
+        #expect(PageEvent(body: ["kind": "identifier", "username": ""]) == nil)
+        #expect(PageEvent(body: ["kind": "focus", "token": 3, "username": "amy"]) == .focus(token: 3, isNewPassword: false, action: nil, username: "amy"))
     }
 }

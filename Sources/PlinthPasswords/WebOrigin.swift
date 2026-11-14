@@ -47,9 +47,19 @@ public struct WebOrigin: Hashable, Sendable, Codable, CustomStringConvertible {
 
     // MARK: Policy
 
-    /// A saved login may fill a page only when the page is the very origin it was saved for.
-    /// That alone rules out an https -> http downgrade and any look-alike or sibling host.
-    public static func mayFill(saved: WebOrigin, into page: WebOrigin) -> Bool { saved == page }
+    /// The host without a leading "www.".
+    var bareHost: String {
+        host.hasPrefix("www.") && host.dropFirst(4).contains(".") ? String(host.dropFirst(4)) : host
+    }
+
+    /// A saved login may fill a page on the origin it was saved for, with two allowances that cannot leak it anywhere
+    /// new: `www.` is the same site as the bare host, and a login saved on http may fill its https page (an upgrade).
+    /// Never https to http, never another host, subdomain or port.
+    public static func mayFill(saved: WebOrigin, into page: WebOrigin) -> Bool {
+        if saved == page { return true }
+        guard saved.port == page.port, saved.bareHost == page.bareHost else { return false }
+        return saved.scheme == page.scheme || (saved.scheme == "http" && page.scheme == "https")
+    }
 
     /// Whether submitting the form to `action` is safe for credentials filled on `page`. A form with no action
     /// posts to the page itself. Otherwise the action must stay on the page's origin, or move from http to https on the same host.

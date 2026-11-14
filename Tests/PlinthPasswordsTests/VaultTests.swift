@@ -14,10 +14,11 @@ func origin(_ s: String) -> WebOrigin { WebOrigin(string: s)! }
         #expect(WebOrigin(string: "") == nil)
     }
 
-    @Test func fillMatchesTheExactOriginOnly() {
+    @Test func fillMatchesTheSiteNotRelatedHosts() {
         let saved = origin("https://example.com")
         #expect(WebOrigin.mayFill(saved: saved, into: origin("https://example.com/other/path")))
-        #expect(!WebOrigin.mayFill(saved: saved, into: origin("https://www.example.com")))
+        #expect(WebOrigin.mayFill(saved: saved, into: origin("https://www.example.com")))
+        #expect(!WebOrigin.mayFill(saved: saved, into: origin("http://example.com")))
         #expect(!WebOrigin.mayFill(saved: saved, into: origin("https://login.example.com")))
         #expect(!WebOrigin.mayFill(saved: saved, into: origin("https://example.com:8443")))
         #expect(!WebOrigin.mayFill(saved: saved, into: origin("https://example.com.evil.test")))
@@ -70,9 +71,10 @@ func origin(_ s: String) -> WebOrigin { WebOrigin(string: s)! }
         #expect(try vault.password(for: all[0].key) == "two")
     }
 
-    @Test func lookupIsByExactOrigin() throws {
-        let vault = InMemoryVault([login("https://a.com", "amy"), login("http://a.com", "insecure"), login("https://www.a.com", "www")])
-        #expect(try vault.logins(for: origin("https://a.com")).map(\.username) == ["amy"])
+    @Test func lookupFindsTheSiteAndItsWwwAndHTTPPredecessor() throws {
+        let vault = InMemoryVault([login("https://a.com", "amy"), login("http://a.com", "insecure"), login("https://www.a.com", "www"), login("https://b.a.com", "sub")])
+        #expect(try Set(vault.logins(for: origin("https://a.com")).map(\.username)) == ["amy", "insecure", "www"])
+        // An http page never gets an https login.
         #expect(try vault.logins(for: origin("http://a.com")).map(\.username) == ["insecure"])
     }
 
