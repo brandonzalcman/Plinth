@@ -123,20 +123,22 @@ struct SuggestionIndex: Sendable {
     /// Brings the index in line with `history` (newest first). Incremental only when the new list is
     /// the old one with visits added in front and, at the history cap, entries dropped from the end
     /// (those are taken out of the index again). Anything else (a merge that brought in older
-    /// entries, a deleted entry, a ranged delete) rebuilds from scratch.
+    /// entries, a deleted entry, a ranged delete, a clear plus new visits of the same number) rebuilds
+    /// from scratch. The ids are compared in full, so no caller has to tell the index about a change.
     mutating func update(with history: [HistoryEntry]) {
         guard let first = history.first else {
             if !seen.isEmpty { self = SuggestionIndex() }
             return
         }
-        if first.id == seen.first?.id, history.count == seen.count, history.last?.id == seen.last?.id {
-            // Same list; a title can still arrive late for the newest visit.
-            refreshTitle(of: first)
+        if history.count == seen.count, history.elementsEqual(seen, by: { $0.id == $1.id }) {
+            // Exactly the same list; the newest visit can still gain a title or dwell.
+            refreshNewest(of: first)
             return
         }
         if let known = seen.first?.id, let offset = history.firstIndex(where: { $0.id == known }), offset > 0, offset <= 500 {
             let kept = history.count - offset
             if kept <= seen.count, history[offset...].elementsEqual(seen[..<kept], by: { $0.id == $1.id }) {
+                refreshNewest(of: history[offset])
                 for dropped in seen[kept...] { remove(dropped) }
                 seen.removeLast(seen.count - kept)
                 for entry in history[..<offset].reversed() { ingest(entry) }
@@ -158,15 +160,24 @@ struct SuggestionIndex: Sendable {
         aggregates[visit.canon] = a
     }
 
-    private mutating func refreshTitle(of entry: HistoryEntry) {
+    /// The newest entry of the old list may have gained a title, a name or dwell since it was ingested.
+    private mutating func refreshNewest(of entry: HistoryEntry) {
         let canon = URLCanonical.key(entry.url)
-        guard var aggregate = aggregates[canon], aggregate.lastVisit == entry.visitedAt,
-              aggregate.title != entry.title || aggregate.name != entry.name else { return }
-        aggregate.title = entry.title
-        aggregate.name = entry.name
-        aggregate.foldedTitle = URLCanonical.fold(entry.title)
-        aggregate.foldedName = URLCanonical.fold(entry.name)
-        aggregates[canon] = aggregate
+        guard var aggregate = aggregates[canon] else { return }
+        var changed = false
+        if seen.first?.id == entry.id, let old = seen.first?.dwell, old != entry.dwell {
+            aggregate.dwell = max(0, aggregate.dwell + entry.dwell - old)
+            seen[0].dwell = entry.dwell
+            changed = true
+        }
+        if aggregate.lastVisit == entry.visitedAt, aggregate.title != entry.title || aggregate.name != entry.name {
+            aggregate.title = entry.title
+            aggregate.name = entry.name
+            aggregate.foldedTitle = URLCanonical.fold(entry.title)
+            aggregate.foldedName = URLCanonical.fold(entry.name)
+            changed = true
+        }
+        if changed { aggregates[canon] = aggregate }
     }
 
     /// Adds one visit. Visits must arrive oldest to newest for a rebuild, or newest-batch-last for an update.

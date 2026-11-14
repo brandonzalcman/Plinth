@@ -85,3 +85,38 @@ import PlinthModel
         expectSameAsRebuild(index, merged)
     }
 }
+
+@Suite struct SuggestionIndexExactListTests {
+    private let base = Date(timeIntervalSinceReferenceDate: 800_000_000)
+    private func entry(_ host: String, minutesAgo: Double, dwell: TimeInterval = 0) -> HistoryEntry {
+        HistoryEntry(url: u("https://\(host)/"), title: host, name: host, key: SiteKey(host),
+                     visitedAt: base.addingTimeInterval(-minutesAgo * 60), dwell: dwell)
+    }
+
+    @Test func removedEntriesAndSameNumberOfOlderAddedOnesAreReindexed() {
+        let old = (1...6).map { entry("h\($0).com", minutesAgo: Double($0)) }
+        var index = SuggestionIndex(history: old)
+        // h3 removed; an older remote visit added at the end; same length, same first and last... last differs here,
+        // so also try with the remote visit inserted before the last one.
+        var changed = old
+        changed.remove(at: 2)
+        changed.insert(entry("remote.com", minutesAgo: 5.5), at: 4)
+        #expect(changed.count == old.count && changed.first?.id == old.first?.id && changed.last?.id == old.last?.id)
+        index.update(with: changed)
+        #expect(index.aggregates[URLCanonical.key(u("https://h3.com/"))] == nil)
+        #expect(index.aggregates[URLCanonical.key(u("https://remote.com/"))] != nil)
+    }
+
+    @Test func dwellOfTheNewestVisitReachesTheIndex() {
+        var list = [entry("a.com", minutesAgo: 0), entry("b.com", minutesAgo: 5)]
+        var index = SuggestionIndex(history: list)
+        list[0].dwell = 90
+        index.update(with: list)
+        #expect(index.aggregates[URLCanonical.key(u("https://a.com/"))]?.dwell == 90)
+        // After a new visit in front, the old newest one is still refreshed.
+        list[0].dwell = 120
+        list.insert(entry("c.com", minutesAgo: -1), at: 0)
+        index.update(with: list)
+        #expect(index.aggregates[URLCanonical.key(u("https://a.com/"))]?.dwell == 120)
+    }
+}
