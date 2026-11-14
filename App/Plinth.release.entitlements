@@ -7,7 +7,11 @@
 	(PROVISIONING_PROFILE). It adds iCloud (CloudKit) for container iCloud.dev.getplinth.Plinth, which
 	the profile must include. App/Plinth.entitlements stays empty so local and no-team builds work.
 	See RELEASING.md and docs/icloud-sync.md.
-	-->
+
+	Passkeys (com.apple.developer.web-browser.public-key-credential) are deliberately not listed here.
+	It is a restricted entitlement, so Scripts/release.sh adds it to a copy of this file only when the
+	supplied profile authorises it; signed in without that, the app would not launch. See RELEASING.md.
+		-->
 	<key>com.apple.developer.icloud-services</key>
 	<array>
 		<string>CloudKit</string>
