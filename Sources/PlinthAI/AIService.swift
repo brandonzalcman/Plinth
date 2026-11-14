@@ -84,6 +84,12 @@ public final class AIService {
         return isEnabled ? card : nil
     }
 
+    /// Loads the model ahead of the first resume card. Does nothing when summaries are off.
+    public func prewarmResumeCards() {
+        guard summariesEnabled, isEnabled, generator.availability.isAvailable else { return }
+        resumeCards.prewarm()
+    }
+
     /// Forgets the cached card for a page (call when it navigates or closes).
     public func invalidateResumeCard(page: PageID) {
         resumeCards.invalidate(page: page)

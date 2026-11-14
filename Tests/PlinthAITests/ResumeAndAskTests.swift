@@ -76,12 +76,13 @@ func page(_ url: String = "https://example.com/article", title: String = "Rust o
         #expect(fake.requests.count == 1)
     }
 
-    @Test func longPagesAreCondensedWithinBudget() async {
+    @Test func longPagesUseOneRequestWithinBudget() async {
         let fake = FakeTextGenerator(contextCharacterBudget: 2000, responder: { _, _ in "A note about the page." })
         let service = ResumeCardService(generator: fake)
         let card = await service.card(for: PageID(), text: page(text: longText(paragraphs: 50), focus: String(repeating: "focus ", count: 400), scroll: 0.9))
         #expect(card != nil)
-        #expect(fake.requests.count > 1)
+        // One model request however long the page is, so the card is quick.
+        #expect(fake.requests.count == 1)
         expectWithinBudget(fake, reserve: SummaryPipeline(generator: fake).answerReserve)
     }
 
