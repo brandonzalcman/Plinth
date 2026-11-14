@@ -42,6 +42,11 @@ public struct FoundationModelsGenerator: TextGenerating {
         }
     }
 
+    public func prewarm(instructions: String) {
+        guard availability.isAvailable else { return }
+        LanguageModelSession(instructions: instructions).prewarm()
+    }
+
     public func stream(prompt: String, instructions: String) -> AsyncThrowingStream<String, Error> {
         AsyncThrowingStream { continuation in
             let task = Task {
