@@ -55,13 +55,7 @@ extension AppController {
     // MARK: Sync
 
     func connectLoyalty(to coordinator: SyncCoordinator) {
-        let engine = coordinator.engine
-        let loyalty = loyalty!
-        engine.ownLoyaltyLedger = loyalty.ownLedgerData
-        engine.mergeOwnLoyalty = { server, _ in
-            loyalty.ingest([server])
-            return loyalty.ownLedgerData
-        }
+        coordinator.engine.ownLoyaltyLedger = loyalty.ownLedgerData
     }
 
     func ingestLoyaltyFromSync() {

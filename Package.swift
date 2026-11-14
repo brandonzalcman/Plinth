@@ -29,7 +29,7 @@ let package = Package(
         // On-device AI (Foundation Models, NaturalLanguage) behind PlinthModel protocols.
         .target(name: "PlinthAI", dependencies: ["PlinthModel"]),
         // iCloud sync: record mapping, merge rules, transports (in-memory and CloudKit).
-        .target(name: "PlinthSync", dependencies: ["PlinthModel"]),
+        .target(name: "PlinthSync", dependencies: ["PlinthModel", "PlinthLoyalty"]),
         // Loyalty points, levels and unlocks: per-device ledgers that add up across devices. Foundation only.
         .target(name: "PlinthLoyalty"),
         // User settings: model, persistence, search engines, clearing ranges.

@@ -15,6 +15,8 @@ public enum LoyaltyEvent: Sendable, Equatable {
     /// The user shared Plinth (completed a share). The first `maxSharesPerDay` of a day earn.
     case share
     case milestone(LoyaltyMilestone)
+    /// Reserved for inviting friends, which needs a server to count invite opens. Awards nothing yet.
+    case invite
 }
 
 /// The loyalty points for one device, plus what it knows of the others'.
@@ -39,18 +41,24 @@ public enum LoyaltyEvent: Sendable, Equatable {
     private var acknowledged = 1
     private let fileURL: URL?
     private let now: @Sendable () -> Date
-    private let calendar: Calendar
+    private let timeZone: @Sendable () -> TimeZone
 
     struct File: Codable { var own: LoyaltyLedger; var remote: [String: LoyaltyLedger]; var enabled: Bool?; var acknowledged: Int? }
 
+    /// `timeZone` is read each time a day is needed, so travelling or changing the zone is followed.
     public init(deviceID: String, platform: LoyaltyPlatform, fileURL: URL?,
-                calendar: Calendar = .current, now: @escaping @Sendable () -> Date = { Date() }) {
+                timeZone: @escaping @Sendable () -> TimeZone = { .current }, now: @escaping @Sendable () -> Date = { Date() }) {
         self.deviceID = deviceID; self.platform = platform; self.fileURL = fileURL
-        self.calendar = calendar; self.now = now
+        self.timeZone = timeZone; self.now = now
         own = LoyaltyLedger(deviceID: deviceID, platform: platform)
         if let fileURL, let data = try? Data(contentsOf: fileURL), let f = try? JSONDecoder().decode(File.self, from: data) {
-            if f.own.deviceID == deviceID { own = f.own }
             remote = f.remote.filter { $0.key != deviceID }
+            if f.own.deviceID == deviceID {
+                own = f.own
+            } else if !f.own.awards.isEmpty {
+                // This device got a new ID (a reinstall or restore): what the old ID earned still counts.
+                remote[f.own.deviceID] = f.own
+            }
             enabled = f.enabled ?? true
             acknowledged = f.acknowledged ?? 1
         }
@@ -58,11 +66,11 @@ public enum LoyaltyEvent: Sendable, Equatable {
 
     // MARK: Reading
 
-    public var today: String { LoyaltyDay.string(for: now(), calendar: calendar) }
+    public var today: String { LoyaltyDay.string(for: now(), in: timeZone()) }
 
     private var allLedgers: [LoyaltyLedger] { [own] + remote.values.sorted { $0.deviceID < $1.deviceID } }
 
-    public var totals: LoyaltyTotals { LoyaltyTotals.compute(ledgers: allLedgers, today: today, calendar: calendar) }
+    public var totals: LoyaltyTotals { LoyaltyTotals.compute(ledgers: allLedgers, today: today) }
 
     /// The colourways this level has unlocked.
     public func unlockedColourways() -> [LoyaltyColourway] {
@@ -89,21 +97,26 @@ public enum LoyaltyEvent: Sendable, Equatable {
         let before = totals
         guard enabled else { return LoyaltyUpdate(pointsAdded: 0, leveledUpTo: nil, totals: before) }
         var changed = false
+        let day = today
+        // A day earlier than anything this device has already been paid for earns nothing: setting the
+        // clock back must not mint points.
+        let floor = latestOwnDay(daysOnly: event == .dayOfUse)
         switch event {
         case .dayOfUse:
-            let day = today, key = LoyaltyLedger.dayKey(day)
-            if own.awards[key] == nil, !seenOnThisDevice(day: day) {
-                let streak = LoyaltyTotals.streak(days: knownDays(), today: day, calendar: calendar) // days up to yesterday
+            let key = LoyaltyLedger.dayKey(day)
+            if day > (floor ?? ""), !platformHas(key) {
+                let streak = LoyaltyTotals.streak(days: knownDays(), today: day) // days up to yesterday
                 let bonus = min(streak * LoyaltyRules.streakBonusPerDay, LoyaltyRules.streakBonusCap)
                 own.awards[key] = LoyaltyRules.dailyPoints + bonus
                 changed = true
             }
         case .share:
-            let day = today
-            for n in 1...LoyaltyRules.maxSharesPerDay where own.awards[LoyaltyLedger.shareKey(day, n)] == nil {
-                own.awards[LoyaltyLedger.shareKey(day, n)] = LoyaltyRules.sharePoints
-                changed = true
-                break
+            if day >= (floor ?? "") {
+                for n in 1...LoyaltyRules.maxSharesPerDay where !platformHas(LoyaltyLedger.shareKey(day, n)) {
+                    own.awards[LoyaltyLedger.shareKey(day, n)] = LoyaltyRules.sharePoints
+                    changed = true
+                    break
+                }
             }
         case .milestone(let m):
             let key = LoyaltyLedger.onceKey(m)
@@ -112,6 +125,8 @@ public enum LoyaltyEvent: Sendable, Equatable {
                 own.awards[key] = LoyaltyRules.milestonePoints
                 changed = true
             }
+        case .invite:
+            break
         }
         guard changed else { return LoyaltyUpdate(pointsAdded: 0, leveledUpTo: nil, totals: before) }
         persist()
@@ -121,7 +136,23 @@ public enum LoyaltyEvent: Sendable, Equatable {
                              leveledUpTo: after.level.number > before.level.number ? after.level : nil, totals: after)
     }
 
-    private func seenOnThisDevice(day: String) -> Bool { own.awards[LoyaltyLedger.dayKey(day)] != nil }
+    /// Whether a day or share key is already paid on this platform, by this device or another of it.
+    private func platformHas(_ key: String) -> Bool {
+        allLedgers.contains { $0.platform == platform && ($0.awards[key] ?? 0) > 0 }
+    }
+
+    /// The newest day this device has been paid for (a day of use or a share).
+    private func latestOwnDay(daysOnly: Bool) -> String? {
+        var newest: String?
+        for key in own.awards.keys {
+            switch LoyaltyLedger.parse(key) {
+            case .day(let d)?: if newest == nil || d > newest! { newest = d }
+            case .share(let d)?: if !daysOnly, newest == nil || d > newest! { newest = d }
+            default: break
+            }
+        }
+        return newest
+    }
 
     /// Days of use on any device (used for the streak bonus), not counting today.
     private func knownDays() -> Set<String> {

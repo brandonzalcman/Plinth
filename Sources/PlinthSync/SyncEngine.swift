@@ -1,5 +1,7 @@
 import Foundation
 import PlinthModel
+import PlinthLoyalty
+import os
 
 public struct SyncOutcome: Sendable, Equatable {
     /// The new local state to apply. nil = nothing to change locally.
@@ -51,10 +53,10 @@ public struct SyncOutcome: Sendable, Equatable {
     /// This device's loyalty ledger (opaque to sync), uploaded as this device's own `Loyalty` record
     /// at the next sync. Nil = nothing to upload. Other devices' ledgers come from `loyaltyLedgers()`.
     public var ownLoyaltyLedger: Data?
-    /// Called when the server already holds a different copy of this device's own ledger (a
-    /// reinstall, or a restored backup), before anything is uploaded. Receives the server's copy and
-    /// the local one, and returns the merged ledger to upload, so an older copy is never overwritten.
-    public var mergeOwnLoyalty: ((_ server: Data, _ local: Data) -> Data)?
+    /// Records the server refused for a reason other than a conflict, as of the last sync (for example
+    /// a record type that is missing from the CloudKit production schema). Also logged.
+    public private(set) var lastFailures: [SyncRecordID: String] = [:]
+    private static let log = Logger(subsystem: "dev.getplinth.Plinth", category: "sync")
     /// When the last sync finished successfully.
     public var lastSyncedAt: Date? { state.lastSyncedAt }
 
@@ -166,6 +168,7 @@ public struct SyncOutcome: Sendable, Equatable {
         guard !isSyncing else { throw SyncError.busy }
         isSyncing = true
         defer { isSyncing = false }
+        lastFailures = [:]
         let t = now()
         var s = state
 
@@ -404,17 +407,36 @@ public struct SyncOutcome: Sendable, Equatable {
             .compactMap { $0["ledger"]?.dataValue }
     }
 
+    /// This device's own loyalty ledger merged with the server's copy of it (never overwriting keys
+    /// the server has), as a record to upload. Nil when there is nothing new to say.
     private func ownLoyaltyRecord(_ s: State, at t: Date) -> SyncRecord? {
-        guard var data = ownLoyaltyLedger else { return nil }
-        let existing = s.server[RecordMapper.loyaltyName(deviceID)]
-        if let theirs = existing?["ledger"]?.dataValue, theirs != data, let merge = mergeOwnLoyalty {
-            data = merge(theirs, data)
-            ownLoyaltyLedger = data
+        guard let local = ownLoyaltyLedger.flatMap(LoyaltyLedger.decode) else { return nil }
+        let name = RecordMapper.loyaltyName(deviceID)
+        let existing = s.server[name]
+        var merged = local
+        if let theirs = existing?["ledger"]?.dataValue.flatMap(LoyaltyLedger.decode), theirs.deviceID == local.deviceID {
+            merged.merge(theirs)
         }
+        let data = merged.encoded()
+        ownLoyaltyLedger = data
         var r = RecordMapper.loyaltyRecord(deviceID: deviceID, ledger: data)
         if let existing, existing.sameContent(as: r) { return nil }
         r.modifiedAt = t; r.modifiedBy = deviceID; r.serverTag = existing?.serverTag
         return r
+    }
+
+    /// A save conflict on the own loyalty record: merge the server's version into ours and send again.
+    private func mergedLoyalty(mine: SyncRecord, theirs: SyncRecord) -> SyncRecord {
+        var m = mine
+        m.serverTag = theirs.serverTag
+        if let a = mine["ledger"]?.dataValue.flatMap(LoyaltyLedger.decode),
+           var b = theirs["ledger"]?.dataValue.flatMap(LoyaltyLedger.decode), a.deviceID == b.deviceID {
+            b.merge(a)
+            let data = b.encoded()
+            m.fields["ledger"] = .data(data)
+            ownLoyaltyLedger = data
+        }
+        return m
     }
 
     private func otherDevices(_ s: State, at t: Date) -> [DeviceOpenPages] {
@@ -469,6 +491,12 @@ public struct SyncOutcome: Sendable, Equatable {
             names = []; extra = [:]; deletes = []
 
             for r in result.saved { applySaved(&s, r) }
+            if !result.failed.isEmpty {
+                lastFailures.merge(result.failed) { _, new in new }
+                for (id, reason) in result.failed {
+                    Self.log.error("Sync could not save \(id.recordType, privacy: .public): \(reason, privacy: .public)")
+                }
+            }
             for id in result.deleted where id.recordType == RecordMapper.historyType {
                 if let u = UUID(uuidString: String(id.recordName.dropFirst("history-".count))) { s.historySynced[u] = nil }
             }
@@ -493,10 +521,12 @@ public struct SyncOutcome: Sendable, Equatable {
                     } else {
                         var m = mine; m.serverTag = c.serverTag; extra[m.recordName] = m
                     }
-                case RecordMapper.deviceType where c.recordName == ownDevice,
-                     RecordMapper.loyaltyType where c.recordName == ownLoyalty:
-                    s.server[c.recordName] = c
+                case RecordMapper.deviceType where c.recordName == ownDevice:
                     var m = mine; m.serverTag = c.serverTag; extra[m.recordName] = m
+                case RecordMapper.loyaltyType where c.recordName == ownLoyalty:
+                    s.server[c.recordName] = c
+                    let m = mergedLoyalty(mine: mine, theirs: c)
+                    extra[m.recordName] = m
                 default:
                     break
                 }
