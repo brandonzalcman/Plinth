@@ -24,7 +24,7 @@ public enum PasswordPageScript {
         WKUserScript(source: source, injectionTime: .atDocumentEnd, forMainFrameOnly: false, in: world)
     }
 
-    /// Test launches only (a throwaway `PLINTH_STORAGE` profile): lets scripted events stand in for real input.
+    /// Scripted test launches only (`PLINTH_STEPS` set with a throwaway `PLINTH_STORAGE` profile): lets scripted events stand in for real input.
     public static func testModeScript() -> WKUserScript {
         WKUserScript(source: "window.__plinthPwTest = true;", injectionTime: .atDocumentStart, forMainFrameOnly: false, in: world)
     }

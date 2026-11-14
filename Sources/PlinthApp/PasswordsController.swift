@@ -24,7 +24,7 @@ final class PasswordsController: PasswordPrompting {
         let coordinator = PasswordsCoordinator(vault: vault, preferences: preferences, prompts: self)
         coordinator.savedHook = { [model] in model.reload() }
         self.coordinator = coordinator
-        pool.extraUserScripts = [PasswordPageScript.userScript()] + (testing ? [PasswordPageScript.testModeScript()] : [])
+        pool.extraUserScripts = [PasswordPageScript.userScript()] + (testing && ProcessInfo.processInfo.environment["PLINTH_STEPS"] != nil ? [PasswordPageScript.testModeScript()] : [])
         pool.addMessageHandler(coordinator, name: PasswordPageScript.handlerName, world: PasswordPageScript.world)
     }
 
