@@ -233,11 +233,25 @@ struct KeyKeepingTransport: SyncTransport {
         for i in merged.indices where !merged[i].isTombstone {
             if let current = await base.record(named: merged[i].recordName), !current.isTombstone {
                 var kept = current.fields
-                for key in RecordMapper.clearedKeys(for: merged[i].recordType) where merged[i].fields[key] == nil { kept[key] = nil }
+                for key in (RecordMapper.fieldKeys[merged[i].recordType] ?? []) + (merged[i].clearKeys ?? []) where merged[i].fields[key] == nil { kept[key] = nil }
                 merged[i].fields = kept.merging(merged[i].fields) { _, new in new }
             }
         }
         return try await base.modify(saving: merged, deleting: deleting)
+    }
+}
+
+/// Lets a test make saves of one record type fail the way CloudKit reports a per-record failure.
+final class FlakyTransport: SyncTransport, @unchecked Sendable {
+    let base: any SyncTransport
+    var failingType: String?
+    init(base: any SyncTransport) { self.base = base }
+    func fetchChanges(since token: Data?) async throws -> SyncChangeSet { try await base.fetchChanges(since: token) }
+    func modify(saving: [SyncRecord], deleting: [SyncRecordID]) async throws -> SyncModifyResult {
+        guard let failingType else { return try await base.modify(saving: saving, deleting: deleting) }
+        var result = try await base.modify(saving: saving.filter { $0.recordType != failingType }, deleting: deleting)
+        for r in saving where r.recordType == failingType { result.failed[r.id] = "injected" }
+        return result
     }
 }
 
@@ -586,5 +600,88 @@ struct OldClientTransport: SyncTransport {
         clock.advance()
         try await a.sync(); try await b.sync()
         #expect(folderLayout(b).contains("z.com@Work"))
+    }
+
+    // MARK: Unknown fields, early folders, failed merges
+
+    @Test func unrelatedExtraKeysAreLeftAloneAndCauseNoUploads() async throws {
+        let f = PinFolder(name: "Work")
+        let keeping = KeyKeepingTransport(base: server)
+        let a = Mac("A", server: keeping, clock: clock, local: payload(pins(["a.com", "b.com"], folder: f, in: ["a.com"])))
+        try await a.sync()
+        for name in ["pin-a.com", "folder-" + f.id.uuidString] {
+            var rec = try #require(await server.record(named: name))
+            rec.fields["fromAFutureRelease"] = .string("x")
+            _ = try await server.modify(saving: [rec], deleting: [])
+        }
+        await server.clearLogs()
+        for _ in 0..<4 { try await a.sync() }
+        let b = Mac("B", server: keeping, clock: clock)
+        for _ in 0..<3 { try await b.sync() }
+        #expect(await server.saveLog.filter { $0.recordType != RecordMapper.deviceType }.isEmpty)
+        #expect(await server.record(named: "pin-a.com")?.fields["fromAFutureRelease"] != nil)
+        #expect(await server.record(named: "folder-" + f.id.uuidString)?.fields["fromAFutureRelease"] != nil)
+    }
+
+    @Test func ordinarySavesNeverMentionLegacyKeys() {
+        let plain = RecordMapper.pinRecords(pins(["a.com"]))[0]
+        #expect(CloudKitTransport.ckRecord(from: plain, zoneID: .default).changedKeys().filter { $0 == "folderID" || $0 == "folderName" }.isEmpty)
+        var cleaning = plain
+        cleaning.clearKeys = ["folderID", "folderName"]
+        #expect(CloudKitTransport.ckRecord(from: cleaning, zoneID: .default).changedKeys().filter { $0 == "folderID" || $0 == "folderName" }.count == 2)
+    }
+
+    @Test func folderArrivingBeforeAnyOfItsPinsIsNotDeleted() async throws {
+        let f = PinFolder(name: "Work")
+        let a = Mac("A", server: server, clock: clock, local: payload(pins(["a.com", "b.com"], folder: f, in: ["a.com", "b.com"])))
+        try await a.sync()
+        // Only the folder record reaches B first: take the pins away from what B can see.
+        let blind = Mac("B", server: PinsHiddenTransport(base: server), clock: clock)
+        await server.clearLogs()
+        try await blind.sync(); try await blind.sync()
+        #expect(await server.deleteLog.isEmpty)
+        #expect(await server.saveLog.filter { $0.recordType == RecordMapper.folderType }.isEmpty)
+        #expect(await !(server.record(named: "folder-" + f.id.uuidString)?.isTombstone ?? true))
+        let b = Mac("B2", server: server, clock: clock)
+        try await b.sync()
+        #expect(folderLayout(b) == ["a.com@Work", "b.com@Work"])
+    }
+
+    @Test func aMergedStampThatFailedToSaveIsMergedAgainFromItsBase() async throws {
+        let f = PinFolder(name: "Work")
+        let flaky = FlakyTransport(base: server)
+        let a = Mac("A", server: flaky, clock: clock, local: payload(pins(["a.com", "b.com", "c.com", "d.com"], folder: f, in: ["a.com", "b.com"])))
+        let x = Mac("X", server: server, clock: clock)
+        try await a.sync(); try await x.sync()
+        x.edit { p in p.pins[2].folder = f }                      // X adds c
+        clock.advance()
+        try await x.sync()
+        clock.advance()
+        a.edit { p in p.pins[3].folder = f }                      // A adds d; its merged save fails
+        flaky.failingType = RecordMapper.folderType
+        try await a.sync()
+        flaky.failingType = nil
+        // Meanwhile another Mac takes c out again.
+        var removed = try #require(await server.record(named: "folder-" + f.id.uuidString))
+        removed.fields["members"] = .strings(["a.com", "b.com"])
+        removed.modifiedAt = clock.t.addingTimeInterval(30); removed.modifiedBy = "Y"
+        _ = try await server.modify(saving: [removed], deleting: [])
+        clock.advance()
+        try await a.sync(); try await x.sync(); try await a.sync()
+        #expect(Set(a.local.pins.filter { $0.folder != nil }.map(\.key.host)) == ["a.com", "b.com", "d.com"])
+        #expect(folderLayout(x) == folderLayout(a))
+    }
+}
+
+/// B before the pin records reach it: it sees every record except the pins.
+struct PinsHiddenTransport: SyncTransport {
+    let base: any SyncTransport
+    func fetchChanges(since token: Data?) async throws -> SyncChangeSet {
+        var cs = try await base.fetchChanges(since: token)
+        cs.changed.removeAll { $0.recordType == RecordMapper.pinType }
+        return cs
+    }
+    func modify(saving: [SyncRecord], deleting: [SyncRecordID]) async throws -> SyncModifyResult {
+        try await base.modify(saving: saving, deleting: deleting)
     }
 }

@@ -6,11 +6,10 @@ import PlinthModel
 /// Record layout (one record type each; names are unique across types):
 /// - `Pin` "pin-<host>": key, name, homeURL, order. One pin per site key. A pin page's live state
 ///   (current URL, scroll, usage, dwell) is never synced.
-/// - `PinFolder` "folder-<uuid>": folderID, name, members (the pin site keys; the pins' own order
-///   decides how they sit on the bar). Folder
-///   membership lives only here, so a pin's `order` changing never touches it; 0.2.0 clients do
-///   not know the type and leave it alone. One pin per site key. A pin page's live state
-///   (current URL, scroll, usage, dwell) is never synced.
+/// - `PinFolder` "folder-<uuid>": folderID, name, nameEditedAt, members (the pin site keys, sorted).
+///   Folder membership lives only here, so a pin's `order` changing never touches it, and the pins'
+///   own order decides how members sit on the bar. 0.2.0 clients do not know the type and leave it
+///   alone.
 /// - `ShelfPage` "shelf-<page uuid>": pageID, key, siteName, url, rawTitle, name, customName?,
 ///   shelvedAt, lastUsed. Regrouped into one `ShelfEntry` per key when read back.
 /// - `HistoryEntry` "history-<uuid>": entryID, url, title, name, key, visitedAt, dwell.
@@ -41,16 +40,13 @@ public enum RecordMapper {
     static func isMergedType(_ type: String) -> Bool { type == pinType || type == shelfType || type == folderType }
 
     /// Fields an earlier build wrote that no version defines now. They are ignored on read and the
-    /// transport always clears them, so saving the record once removes them from the server.
+    /// transport clears them, but only on a record that was fetched carrying them (`SyncRecord.clearKeys`).
     public static let legacyKeys: [String: [String]] = [pinType: ["folderID", "folderName"]]
 
-    /// The fields the transport sets to nil on a save when the record does not carry them.
-    public static func clearedKeys(for type: String) -> [String] { (fieldKeys[type] ?? []) + (legacyKeys[type] ?? []) }
-
-    /// The record has keys its type does not define.
-    static func hasUnknownFields(_ r: SyncRecord) -> Bool {
-        guard let keys = fieldKeys[r.recordType], !r.isTombstone else { return false }
-        return r.fields.keys.contains { !keys.contains($0) }
+    /// The record carries a field only an earlier build wrote (see `legacyKeys`).
+    static func legacyKeysPresent(in r: SyncRecord) -> [String] {
+        guard !r.isTombstone else { return [] }
+        return (legacyKeys[r.recordType] ?? []).filter { r.fields[$0] != nil }
     }
 
     /// The record without fields its type does not define: leftovers from other versions are not

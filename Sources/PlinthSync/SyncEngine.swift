@@ -83,8 +83,8 @@ public struct SyncOutcome: Sendable, Equatable {
         /// the local history by the next merge (kept until a sync's result is applied).
         var pendingRemoteDeletes: Set<UUID> = []
         var lastSyncedAt: Date?
-        /// Fetched records that carried fields their type no longer defines; each is saved once so
-        /// the server copy loses them (an earlier release's fields make a 0.2.0 Mac re-upload).
+        /// Records the server holds with fields only an earlier build wrote (`RecordMapper.legacyKeys`);
+        /// each is saved once so the server copy loses them (they make a 0.2.0 Mac re-upload).
         var dirty: Set<String>?
     }
 
@@ -104,6 +104,9 @@ public struct SyncOutcome: Sendable, Equatable {
         if let stateURL, let data = try? Data(contentsOf: stateURL),
            let s = try? JSONDecoder().decode(State.self, from: data), s.version == 1 {
             state = s
+            for (name, r) in s.server where !RecordMapper.legacyKeysPresent(in: r).isEmpty {
+                state.dirty = (state.dirty ?? []).union([name])
+            }
         } else {
             state = State()
         }
@@ -186,7 +189,7 @@ public struct SyncOutcome: Sendable, Equatable {
         for r in hist.uploads { extra[r.recordName] = r }
         if let r = ownDeviceRecord(s, openPages: openPages, at: t) { extra[r.recordName] = r }
         s.dirty = s.dirty?.filter { name in s.server[name].map { !$0.isTombstone } ?? false }
-        for name in s.dirty ?? [] { extra[name] = s.server[name] }
+        for name in s.dirty ?? [] { extra[name] = s.server[name].map(RecordMapper.known) }
         if let p = s.pendingClear {
             let current = s.server[RecordMapper.clearName]
             if let d = current?["clearedAt"]?.dateValue, d >= p {
@@ -233,18 +236,31 @@ public struct SyncOutcome: Sendable, Equatable {
     private func localRecordSet(for payload: SyncPayload, _ s: State, at t: Date) -> [String: SyncRecord] {
         var recs = RecordMapper.records(for: payload, previous: previousRecords(s))
         let pinKeys = Set(payload.pins.map(\.key.host))
+        /// A member whose pin this Mac has never had and the server does not call deleted.
+        func notArrived(_ key: String) -> Bool {
+            let pin = RecordMapper.pinName(SiteKey(key))
+            return !pinKeys.contains(key) && s.localRef[pin] == nil && s.server[pin]?.isTombstone != true
+                && s.stamps[pin]?.isTombstone != true
+        }
+        func liveMembers(_ r: SyncRecord?) -> [String] {
+            r.flatMap { $0.isTombstone ? nil : $0["members"]?.stringsValue } ?? []
+        }
         for (name, var r) in recs where r.recordType == RecordMapper.folderType {
             let bases = [s.stamps[name], s.localRef[name], s.server[name]].compactMap { $0 }.filter { !$0.isTombstone }
             let title = r["name"]?.stringValue
             let same = bases.first { $0["name"]?.stringValue == title }
             r.fields["nameEditedAt"] = .date(same.map { $0["nameEditedAt"]?.dateValue ?? $0.modifiedAt } ?? t)
             var members = r["members"]?.stringsValue ?? []
-            for key in s.server[name].flatMap({ $0.isTombstone ? nil : $0["members"]?.stringsValue }) ?? [] where !pinKeys.contains(key) && !members.contains(key) {
-                let pin = RecordMapper.pinName(SiteKey(key))
-                if s.localRef[pin] == nil, s.server[pin]?.isTombstone != true, s.stamps[pin]?.isTombstone != true { members.append(key) }
-            }
+            for key in liveMembers(s.server[name]) where !members.contains(key) && notArrived(key) { members.append(key) }
             r.fields["members"] = .strings(members.sorted())
             recs[name] = r
+        }
+        // A folder none of whose pins has arrived yet is not a folder this Mac deleted.
+        for name in Set(s.server.keys).union(s.localRef.keys) where recs[name] == nil {
+            guard let base = [s.server[name], s.localRef[name]].compactMap({ $0 }).first(where: { $0.recordType == RecordMapper.folderType && !$0.isTombstone }),
+                  s.stamps[name]?.isTombstone != true || s.localRef[name] == nil else { continue }
+            let members = liveMembers(base)
+            if !members.isEmpty, members.allSatisfy(notArrived) { recs[name] = RecordMapper.known(base) }
         }
         return recs
     }
@@ -304,7 +320,7 @@ public struct SyncOutcome: Sendable, Equatable {
                 if r.recordType == RecordMapper.historyType {
                     if let e = RecordMapper.historyEntry(from: r) { history[e.id] = e }
                 } else {
-                    if RecordMapper.hasUnknownFields(r) { s.dirty = (s.dirty ?? []).union([r.recordName]) }
+                    if !RecordMapper.legacyKeysPresent(in: r).isEmpty { s.dirty = (s.dirty ?? []).union([r.recordName]) }
                     server[r.recordName] = RecordMapper.known(r)
                 }
             }
@@ -441,6 +457,9 @@ public struct SyncOutcome: Sendable, Equatable {
         // A folder stamp as it was before a merge: a retry merges this, not the merge result, so
         // another Mac's earlier edits are never mistaken for ours.
         var premerge: [String: SyncRecord] = [:]
+        // A merged stamp that was not saved goes back to its pre-merge form, so the next sync
+        // merges against the same base instead of mistaking another Mac's edits for ours.
+        defer { for (name, original) in premerge where s.stamps[name] != nil { s.stamps[name] = original } }
         let ownDevice = RecordMapper.deviceName(deviceID)
         for _ in 0..<Self.maxPushRounds {
             var saves: [SyncRecord] = []
@@ -490,6 +509,9 @@ public struct SyncOutcome: Sendable, Equatable {
                 .filter { !stamped.contains($0.recordName) }
                 .filter { $0.recordType != RecordMapper.deviceType || $0.recordName == ownDevice }
                 .sorted { $0.recordName < $1.recordName }
+            for i in saves.indices where s.dirty?.contains(saves[i].recordName) == true {
+                saves[i].clearKeys = RecordMapper.legacyKeys[saves[i].recordType]
+            }
             if saves.isEmpty && deletes.isEmpty { return }
 
             let result = try await transport.modify(saving: saves, deleting: deletes)

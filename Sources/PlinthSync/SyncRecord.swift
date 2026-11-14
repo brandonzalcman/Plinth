@@ -76,6 +76,9 @@ public struct SyncRecord: Codable, Sendable, Equatable {
     /// Opaque server version (CloudKit: archived system fields). nil for a record the server
     /// has not seen yet. Saving with a stale tag is reported back as a conflict.
     public var serverTag: Data?
+    /// Fields the transport sets to nil on this save, besides those its type defines and the record
+    /// leaves out: leftovers an earlier build wrote to the server copy.
+    public var clearKeys: [String]?
 
     public init(recordType: String, recordName: String, fields: [String: SyncValue] = [:],
                 modifiedAt: Date = .distantPast, modifiedBy: String = "", isTombstone: Bool = false,

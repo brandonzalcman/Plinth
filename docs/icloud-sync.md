@@ -32,6 +32,12 @@ also has the fields `editedAt` (date: when the edit was made, by that Mac's cloc
 | `HistoryClear` | `history-clear` | clearedAt |
 | `Device` | `device-<device id>` | deviceID, deviceName, pages (JSON data) |
 
+A development build briefly wrote `folderID` and `folderName` on `Pin` records. Fields the app does not
+define are ignored when read. A `Pin` record fetched carrying those two is saved once with them
+cleared, so a 0.2.0 Mac stops re-uploading it; a record without them is never saved with a mention of
+them. That cleanup has only been exercised against an in-memory model of CloudKit, not against CloudKit
+itself.
+
 The device ID is a random UUID, created once per Mac and stored in user defaults
 (`PlinthSyncDeviceID`). It is not tied to the hardware.
 
