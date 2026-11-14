@@ -4,7 +4,8 @@ import PlinthModel
 /// Converts between the synced part of the store (`SyncPayload`, open pages) and records.
 ///
 /// Record layout (one record type each; names are unique across types):
-/// - `Pin` "pin-<host>": key, name, homeURL, order. One pin per site key. A pin page's live state
+/// - `Pin` "pin-<host>": key, name, homeURL, order, and when the pin is in a folder, folderID and
+///   folderName (optional: 0.2.0 clients ignore them and leave them on the server). One pin per site key. A pin page's live state
 ///   (current URL, scroll, usage, dwell) is never synced.
 /// - `ShelfPage` "shelf-<page uuid>": pageID, key, siteName, url, rawTitle, name, customName?,
 ///   shelvedAt, lastUsed. Regrouped into one `ShelfEntry` per key when read back.
@@ -23,7 +24,7 @@ public enum RecordMapper {
     /// Every field each record type can carry. The CloudKit transport clears fields that a new
     /// version leaves out (CloudKit otherwise keeps a key the save does not mention).
     public static let fieldKeys: [String: [String]] = [
-        pinType: ["key", "name", "homeURL", "order"],
+        pinType: ["key", "name", "homeURL", "order", "folderID", "folderName"],
         shelfType: ["pageID", "key", "siteName", "url", "rawTitle", "name", "customName", "shelvedAt", "lastUsed"],
         historyType: ["entryID", "url", "title", "name", "key", "visitedAt", "dwell"],
         clearType: ["clearedAt"],
@@ -61,12 +62,17 @@ public enum RecordMapper {
         var seen = Set<SiteKey>()
         var out: [SyncRecord] = []
         for pin in pins where seen.insert(pin.key).inserted {
-            out.append(SyncRecord(recordType: pinType, recordName: pinName(pin.key), fields: [
+            var fields: [String: SyncValue] = [
                 "key": .string(pin.key.host),
                 "name": .string(pin.name),
                 "homeURL": .string(pin.homeURL.absoluteString),
                 "order": .int(out.count),
-            ]))
+            ]
+            if let folder = pin.folder {
+                fields["folderID"] = .string(folder.id.uuidString)
+                fields["folderName"] = .string(folder.name)
+            }
+            out.append(SyncRecord(recordType: pinType, recordName: pinName(pin.key), fields: fields))
         }
         return out
     }
@@ -133,20 +139,24 @@ public enum RecordMapper {
     public static func pins(from records: [SyncRecord], local: [PinnedSite], now: Date) -> [PinnedSite] {
         let localByKey = Dictionary(local.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
         let live = records.filter { $0.recordType == pinType && !$0.isTombstone }
-            .compactMap { r -> (order: Int, key: SiteKey, name: String, home: URL)? in
+            .compactMap { r -> (order: Int, key: SiteKey, name: String, home: URL, folder: PinFolder?)? in
                 guard let host = r["key"]?.stringValue, let name = r["name"]?.stringValue,
                       let s = r["homeURL"]?.stringValue, let home = URL(string: s) else { return nil }
-                return (r["order"]?.intValue ?? Int.max, SiteKey(host), name, home)
+                let folder = r["folderID"]?.stringValue.flatMap(UUID.init(uuidString:)).map {
+                    PinFolder(id: $0, name: r["folderName"]?.stringValue ?? PinFolder.defaultName)
+                }
+                return (r["order"]?.intValue ?? Int.max, SiteKey(host), name, home, folder)
             }
             .sorted { ($0.order, $0.key.host) < ($1.order, $1.key.host) }
         return live.map { item in
             if var pin = localByKey[item.key] {
                 pin.name = item.name
                 pin.homeURL = item.home
+                pin.folder = item.folder
                 return pin
             }
             let page = Page(url: item.home, name: item.name, usage: Usage(at: now))
-            return PinnedSite(key: item.key, name: item.name, homeURL: item.home, page: page)
+            return PinnedSite(key: item.key, name: item.name, homeURL: item.home, page: page, folder: item.folder)
         }
     }
 

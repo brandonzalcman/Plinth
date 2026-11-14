@@ -117,11 +117,11 @@ private struct BarContent: View {
     /// Room actually left for the sites region, from this view's own arithmetic.
     private var sitesRoom: CGFloat {
         let m = ctx.metrics
-        let pins = CGFloat(layout.pins.count)
+        let pins = CGFloat(layout.pinSlots.count)
         var fixed = m.barPadding * 2
         fixed += BottomBarView.navWidth(metrics: m)                            // back, forward, reload
         fixed += pins * (m.tile + m.itemGap)                                   // pins, each with its gap
-        if !layout.pins.isEmpty { fixed += m.dividerWidth + m.itemGap }        // divider
+        if !layout.pinSlots.isEmpty { fixed += m.dividerWidth + m.itemGap }        // divider
         fixed += m.itemGap + m.tile                                            // gap, new page
         fixed += m.itemGap * 2                                                 // either side of the flexible space
         fixed += BottomBarView.shelfWidth + BottomBarView.shelfGap + searchWidth
@@ -144,10 +144,16 @@ private struct BarContent: View {
         let _ = { ctx.drag.layout = layout }()
         HStack(spacing: m.itemGap) {
             NavButtons(state: nav, ctx: ctx)
-            ForEach(layout.pins) { pin in
-                PinTileView(pin: pin, ctx: ctx).transition(itemTransition)
+            let folders = layout.pinSlots.compactMap { slot -> BarFolderItem? in
+                if case .folder(let f) = slot { return f } else { return nil }
             }
-            if !layout.pins.isEmpty {
+            ForEach(layout.pinSlots) { slot in
+                switch slot {
+                case .pin(let pin): PinTileView(pin: pin, folders: folders, ctx: ctx).transition(itemTransition)
+                case .folder(let f): FolderTileView(folder: f, folders: folders, ctx: ctx).transition(itemTransition)
+                }
+            }
+            if !layout.pinSlots.isEmpty {
                 Rectangle()
                     .fill(ctx.palette.divider)
                     .frame(width: m.dividerWidth, height: m.dividerHeight)

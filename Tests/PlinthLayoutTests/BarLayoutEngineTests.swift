@@ -728,3 +728,37 @@ private func folded(_ s: Site) -> Site { var s = s; s.isFolded = true; return s 
         #expect(tight.sites[1].form == .collapsed && !tight.sites[1].isFolded)
     }
 }
+
+@Suite struct PinFolderLayoutTests {
+    private func inFolder(_ p: PinnedSite, _ f: PinFolder) -> PinnedSite { var p = p; p.folder = f; return p }
+
+    @Test func aFolderIsOnePinTileWide() {
+        let f = PinFolder(name: "Work")
+        let pins = [pin("a"), inFolder(pin("b"), f), inFolder(pin("c"), f), inFolder(pin("d"), f)]
+        let withFolder = run(input(pins: pins, []), width: 1000)
+        let two = run(input(pins: [pin("a"), pin("b")], []), width: 1000)
+        #expect(withFolder.pinSlots.count == 2)
+        #expect(withFolder.pins.count == 4)
+        #expect(withFolder.sitesAvailable == two.sitesAvailable)
+        guard case .folder(let item) = withFolder.pinSlots[1] else { Issue.record("expected a folder"); return }
+        #expect(item.name == "Work" && item.members.count == 3)
+    }
+
+    @Test func membersGroupAtTheFirstMemberAndKeepShortcuts() {
+        let f = PinFolder(name: "Work")
+        let pins = [inFolder(pin("a"), f), pin("b"), inFolder(pin("c"), f)]
+        let layout = run(input(pins: pins, []), width: 1000)
+        #expect(layout.pins.map(\.name) == ["a", "c", "b"])
+        #expect(layout.pins.map(\.shortcut) == [1, 2, 3])
+        #expect(layout.pinSlots.count == 2)
+    }
+
+    @Test func folderIsCurrentWhenAMemberIs() {
+        let f = PinFolder(name: "Work")
+        let b = inFolder(pin("b"), f)
+        let layout = run(input(pins: [inFolder(pin("a"), f), b], [], selected: b.page.id), width: 1000)
+        guard case .folder(let item) = layout.pinSlots[0] else { Issue.record("expected a folder"); return }
+        #expect(item.isCurrent)
+        #expect(item.members.map(\.isCurrent) == [false, true])
+    }
+}

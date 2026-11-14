@@ -139,13 +139,13 @@ struct SplitBracket: Shape {
 struct BarLayoutSignature: Hashable {
     struct PageSig: Hashable { var id: PageID; var name: String; var current: Bool; var fading: Bool; var split: Bool }
     struct SiteSig: Hashable { var id: SiteID; var form: Int; var fading: Bool; var pages: [PageSig] }
-    struct PinSig: Hashable { var id: SiteID; var current: Bool }
+    struct PinSig: Hashable { var id: SiteID; var current: Bool; var folder: UUID? }
 
     var pins: [PinSig]
     var sites: [SiteSig]
 
     init(_ layout: BarLayout) {
-        pins = layout.pins.map { PinSig(id: $0.id, current: $0.isCurrent) }
+        pins = layout.pins.map { PinSig(id: $0.id, current: $0.isCurrent, folder: $0.folderID) }
         sites = layout.sites.map { site in
             let form: Int
             switch site.form {

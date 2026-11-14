@@ -331,6 +331,11 @@ final class AppController: NSObject, NSApplicationDelegate {
         case .setKept(let id, let kept): store.setKept(id, kept)
         case .pinSite(let id): store.pin(site: id)
         case .unpin(let id): store.unpin(id, into: windowID)
+        case .movePinToFolder(let id, let folder):
+            if let folder { store.movePin(id, toFolder: folder) } else { store.createPinFolder(with: id) }
+        case .removePinFromFolder(let id): store.removePinFromFolder(id)
+        case .renamePinFolder(let id, let name): store.renamePinFolder(id, to: name)
+        case .ungroupPinFolder(let id): store.ungroupPinFolder(id)
         case .resetPin(let id): store.resetPin(id)
         case .shelveSite(let id): store.shelve(site: id)
         case .closeSite(let id): store.closeSite(id)

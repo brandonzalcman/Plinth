@@ -6,6 +6,7 @@ import PlinthModel
 
 struct PinTileView: View {
     let pin: BarPinItem
+    var folders: [BarFolderItem] = []
     let ctx: BarContext
     @State private var hovering = false
 
@@ -48,6 +49,7 @@ struct PinTileView: View {
         .onHover { over in withAnimation(ctx.hoverAnimation) { hovering = over } }
         .help(pin.name + shortcutSuffix(pin.shortcut))
         .contextMenu {
+            moveToFolderMenu(pin, folders: folders, ctx: ctx)
             Button("Reset to Home") { ctx.onAction(.resetPin(pin.id)) }
             Button("Unpin") { ctx.onAction(.unpin(pin.id)) }
         }

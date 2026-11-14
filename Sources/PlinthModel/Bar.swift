@@ -72,9 +72,37 @@ public struct BarPinItem: Identifiable, Sendable, Equatable {
     public var isCurrent: Bool
     /// 1...9 when ⌘-number reaches this page.
     public var shortcut: Int?
+    public var folderID: UUID?
 
-    public init(id: SiteID, pageID: PageID, key: SiteKey, name: String, isCurrent: Bool, shortcut: Int?) {
+    public init(id: SiteID, pageID: PageID, key: SiteKey, name: String, isCurrent: Bool, shortcut: Int?, folderID: UUID? = nil) {
         self.id = id; self.pageID = pageID; self.key = key; self.name = name; self.isCurrent = isCurrent; self.shortcut = shortcut
+        self.folderID = folderID
+    }
+}
+
+/// A pin folder as one tile: its members in order. Always one pin tile wide.
+public struct BarFolderItem: Identifiable, Sendable, Equatable {
+    public var id: UUID
+    public var name: String
+    public var members: [BarPinItem]
+    /// One of the members is the current page.
+    public var isCurrent: Bool
+
+    public init(id: UUID, name: String, members: [BarPinItem]) {
+        self.id = id; self.name = name; self.members = members; self.isCurrent = members.contains { $0.isCurrent }
+    }
+}
+
+/// One tile in the pins block: a pin on its own, or a folder.
+public enum BarPinSlot: Identifiable, Sendable, Equatable {
+    case pin(BarPinItem)
+    case folder(BarFolderItem)
+
+    public var id: String {
+        switch self {
+        case .pin(let p): return "pin-" + p.id.raw.uuidString
+        case .folder(let f): return "folder-" + f.id.uuidString
+        }
     }
 }
 
@@ -131,7 +159,10 @@ public struct BarSiteItem: Identifiable, Sendable, Equatable {
 }
 
 public struct BarLayout: Sendable, Equatable {
+    /// Every pin, folder members included, in bar order.
     public var pins: [BarPinItem]
+    /// The tiles of the pins block, in order: a folder is one tile however many pins it holds.
+    public var pinSlots: [BarPinSlot] = []
     public var sites: [BarSiteItem]
     /// Width of the sites region as laid out.
     public var sitesWidth: CGFloat
@@ -140,8 +171,8 @@ public struct BarLayout: Sendable, Equatable {
     /// True only when collapsing and shortening were not enough.
     public var scrolls: Bool
 
-    public init(pins: [BarPinItem], sites: [BarSiteItem], sitesWidth: CGFloat, sitesAvailable: CGFloat, scrolls: Bool) {
-        self.pins = pins; self.sites = sites; self.sitesWidth = sitesWidth; self.sitesAvailable = sitesAvailable; self.scrolls = scrolls
+    public init(pins: [BarPinItem], pinSlots: [BarPinSlot]? = nil, sites: [BarSiteItem], sitesWidth: CGFloat, sitesAvailable: CGFloat, scrolls: Bool) {
+        self.pins = pins; self.pinSlots = pinSlots ?? pins.map { .pin($0) }; self.sites = sites; self.sitesWidth = sitesWidth; self.sitesAvailable = sitesAvailable; self.scrolls = scrolls
     }
 }
 
@@ -176,6 +207,12 @@ public enum BarAction: Sendable, Equatable {
     case setKept(SiteID, Bool)
     case pinSite(SiteID)
     case unpin(SiteID)
+    /// Put a pin in a folder (a new one when the id is nil, named `PinFolder.defaultName`).
+    case movePinToFolder(SiteID, folder: UUID?)
+    case removePinFromFolder(SiteID)
+    case renamePinFolder(UUID, String)
+    /// Dissolve a folder: its pins go back among the others.
+    case ungroupPinFolder(UUID)
     case resetPin(SiteID)
     case shelveSite(SiteID)
     case closeSite(SiteID)
