@@ -190,7 +190,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.2.0;
+				MARKETING_VERSION = 0.2.1;
 				PLINTH_ENTITLEMENTS = App/Plinth.entitlements;
 				PLINTH_PROFILE = "";
 				PRODUCT_BUNDLE_IDENTIFIER = app.plinth.Plinth;
@@ -221,7 +221,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.2.0;
+				MARKETING_VERSION = 0.2.1;
 				PLINTH_ENTITLEMENTS = App/Plinth.entitlements;
 				PLINTH_PROFILE = "";
 				PRODUCT_BUNDLE_IDENTIFIER = app.plinth.Plinth;
