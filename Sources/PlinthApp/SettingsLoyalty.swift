@@ -4,6 +4,12 @@ import PlinthLoyalty
 struct LoyaltySettingsView: View {
     let app: AppController
     @Environment(\.settingsTheme) private var t
+    private var sharer: ShareCardSharer { app.cardSharer }
+
+    private func cardContent(_ engine: LoyaltyEngine, _ totals: LoyaltyTotals) -> ShareCardContent {
+        let chosen = LoyaltyColourway.named(app.settings.value.appIcon).flatMap { engine.isUnlocked($0) ? $0 : nil } ?? .sunrise
+        return ShareCardContent(level: totals.level, points: totals.points, streak: totals.streak, colourway: chosen)
+    }
 
     var body: some View {
         // Reading the revision makes this view refresh when points change.
@@ -14,7 +20,7 @@ struct LoyaltySettingsView: View {
             if engine.isEnabled {
                 SettingsCard(heading: "Your level") {
                     HStack(spacing: 16) {
-                        LoyaltyBadge(level: totals.level, colourway: LoyaltyColourway.all.last { $0.unlockLevel <= totals.level.number } ?? .sunrise, size: 64)
+                        LoyaltyBadge(level: totals.level, colourway: cardContent(engine, totals).colourway, size: 64)
                         VStack(alignment: .leading, spacing: 5) {
                             Text("\(totals.level.name) · \(totals.points) points").font(.system(size: 15, weight: .semibold)).foregroundStyle(t.p.primary)
                             if let progress = totals.progress, let next = totals.level.next {
@@ -30,6 +36,22 @@ struct LoyaltySettingsView: View {
                     .padding(14)
                     SettingsDivider()
                     SettingsNote(text: "\(totals.streak)-day streak · \(totals.daysOfUse) \(totals.daysOfUse == 1 ? "day" : "days") of use · \(totals.shares) \(totals.shares == 1 ? "share" : "shares")")
+                }
+
+                SettingsCard(heading: "Share") {
+                    ShareCardView(content: cardContent(engine, totals))
+                        .scaleEffect(0.3, anchor: .topLeading)
+                        .frame(width: ShareCardView.size.width * 0.3, height: ShareCardView.size.height * 0.3, alignment: .topLeading)
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .padding(14)
+                        .accessibilityLabel("Share card preview: level \(totals.level.number), \(totals.level.name), \(totals.points) points")
+                    SettingsDivider()
+                    SettingsRow(title: "Share your level",
+                                caption: "Makes an image with your level badge and points, and opens the share sheet. Sharing earns 15 points, up to 3 a day. The card shows no pages or sites.") {
+                        ShareAnchorButton(title: "Share…") { view in
+                            sharer.present(cardContent(engine, totals), from: view)
+                        }.fixedSize()
+                    }
                 }
 
                 SettingsCard(heading: "Levels and what they unlock") {
