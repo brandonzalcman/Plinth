@@ -68,9 +68,15 @@ import PlinthModel
     }
 
     @Test func plinthIsNotListedTwiceWhenHistoryHasIt() {
-        load([visit("https://getplinth.dev/", daysAgo: 1), visit("https://getplinth.dev/", daysAgo: 2), visit("https://www.getplinth.dev/privacy", daysAgo: 1)])
-        #expect(store.suggestions(for: "plinth").filter { $0.key.host.hasSuffix(PlinthPromo.host) }.count <= 2)
+        load([visit("https://getplinth.dev/", daysAgo: 1), visit("https://getplinth.dev/", daysAgo: 2), visit("https://www.getplinth.dev/", daysAgo: 3)])
+        #expect(store.suggestions(for: "plinth").filter { $0.key.host.hasSuffix(PlinthPromo.host) }.count == 1)
         #expect(Set(store.suggestions(for: "plinth").map(\.id)).count == store.suggestions(for: "plinth").count)
+    }
+
+    @Test func thePlinthSiteIsNeverASuggestedPage() {
+        load([visit("https://getplinth.dev/", daysAgo: 0), visit("https://getplinth.dev/", daysAgo: 1),
+              visit("https://www.getplinth.dev/privacy", daysAgo: 0), visit("https://a.com/", daysAgo: 2)])
+        #expect(store.suggestedPages().map(\.key.host) == ["a.com"])
     }
 
     @Test func plinthDoesNotCrowdUnrelatedQueries() {
