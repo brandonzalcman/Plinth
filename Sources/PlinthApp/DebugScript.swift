@@ -356,6 +356,7 @@ enum DebugScript {
             let days = max(Int(arg) ?? 0, 0) / 10
             var awards: [String: Int] = [:]
             for i in 0..<days { awards[String(format: "day:2025-%02d-%02d", i / 28 + 1, i % 28 + 1)] = 10 }
+            log("active=\(NSApp.isActive) welcome=\(app.welcome?.window?.isVisible == true)")
             app.loyalty.ingest([PlinthLoyalty.LoyaltyLedger(deviceID: "debug", platform: .mac, awards: awards).encoded()])
         case "settings":
             // settings <section id>: opens the Settings window on that section.
