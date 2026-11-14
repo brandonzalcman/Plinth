@@ -4,8 +4,11 @@ import PlinthModel
 /// Converts between the synced part of the store (`SyncPayload`, open pages) and records.
 ///
 /// Record layout (one record type each; names are unique across types):
-/// - `Pin` "pin-<host>": key, name, homeURL, order, and when the pin is in a folder, folderID and
-///   folderName (optional: 0.2.0 clients ignore them and leave them on the server). One pin per site key. A pin page's live state
+/// - `Pin` "pin-<host>": key, name, homeURL, order. One pin per site key. A pin page's live state
+///   (current URL, scroll, usage, dwell) is never synced.
+/// - `PinFolder` "folder-<uuid>": folderID, name, members (the pin site keys, in order). Folder
+///   membership lives only here, so a pin's `order` changing never touches it; 0.2.0 clients do
+///   not know the type and leave it alone. One pin per site key. A pin page's live state
 ///   (current URL, scroll, usage, dwell) is never synced.
 /// - `ShelfPage` "shelf-<page uuid>": pageID, key, siteName, url, rawTitle, name, customName?,
 ///   shelvedAt, lastUsed. Regrouped into one `ShelfEntry` per key when read back.
@@ -14,6 +17,7 @@ import PlinthModel
 /// - `Device` "device-<device id>": deviceID, deviceName, pages (JSON `[OpenPageSummary]`).
 public enum RecordMapper {
     public static let pinType = "Pin"
+    public static let folderType = "PinFolder"
     public static let shelfType = "ShelfPage"
     public static let historyType = "HistoryEntry"
     public static let clearType = "HistoryClear"
@@ -24,12 +28,16 @@ public enum RecordMapper {
     /// Every field each record type can carry. The CloudKit transport clears fields that a new
     /// version leaves out (CloudKit otherwise keeps a key the save does not mention).
     public static let fieldKeys: [String: [String]] = [
-        pinType: ["key", "name", "homeURL", "order", "folderID", "folderName"],
+        pinType: ["key", "name", "homeURL", "order"],
+        folderType: ["folderID", "name", "members"],
         shelfType: ["pageID", "key", "siteName", "url", "rawTitle", "name", "customName", "shelvedAt", "lastUsed"],
         historyType: ["entryID", "url", "title", "name", "key", "visitedAt", "dwell"],
         clearType: ["clearedAt"],
         deviceType: ["deviceID", "deviceName", "pages"],
     ]
+
+    /// Record types the engine merges with last-writer-wins and tracks as local state.
+    static func isMergedType(_ type: String) -> Bool { type == pinType || type == shelfType || type == folderType }
 
     // MARK: Names
 
@@ -42,6 +50,7 @@ public enum RecordMapper {
     }
 
     public static func pinName(_ key: SiteKey) -> String { "pin-" + safe(key.host) }
+    public static func folderName(_ id: UUID) -> String { "folder-" + id.uuidString }
     public static func shelfName(_ id: PageID) -> String { "shelf-" + id.raw.uuidString }
     public static func historyName(_ id: UUID) -> String { "history-" + id.uuidString }
     public static func deviceName(_ deviceID: String) -> String { "device-" + safe(deviceID) }
@@ -54,6 +63,7 @@ public enum RecordMapper {
     public static func records(for payload: SyncPayload, previous: [String: SyncRecord] = [:]) -> [String: SyncRecord] {
         var out: [String: SyncRecord] = [:]
         for r in pinRecords(payload.pins) { out[r.recordName] = r }
+        for r in folderRecords(payload.pins) { out[r.recordName] = r }
         for r in shelfRecords(payload.shelf, previous: previous) { out[r.recordName] = r }
         return out
     }
@@ -62,19 +72,34 @@ public enum RecordMapper {
         var seen = Set<SiteKey>()
         var out: [SyncRecord] = []
         for pin in pins where seen.insert(pin.key).inserted {
-            var fields: [String: SyncValue] = [
+            out.append(SyncRecord(recordType: pinType, recordName: pinName(pin.key), fields: [
                 "key": .string(pin.key.host),
                 "name": .string(pin.name),
                 "homeURL": .string(pin.homeURL.absoluteString),
                 "order": .int(out.count),
-            ]
-            if let folder = pin.folder {
-                fields["folderID"] = .string(folder.id.uuidString)
-                fields["folderName"] = .string(folder.name)
-            }
-            out.append(SyncRecord(recordType: pinType, recordName: pinName(pin.key), fields: fields))
+            ]))
         }
         return out
+    }
+
+    /// One record per folder: its name and member site keys in bar order.
+    public static func folderRecords(_ pins: [PinnedSite]) -> [SyncRecord] {
+        var seen = Set<SiteKey>()
+        var order: [UUID] = []
+        var names: [UUID: String] = [:]
+        var members: [UUID: [String]] = [:]
+        for pin in BarOrder.arranged(pins) where seen.insert(pin.key).inserted {
+            guard let f = pin.folder else { continue }
+            if names[f.id] == nil { names[f.id] = f.name; order.append(f.id) }
+            members[f.id, default: []].append(pin.key.host)
+        }
+        return order.map { id in
+            SyncRecord(recordType: folderType, recordName: folderName(id), fields: [
+                "folderID": .string(id.uuidString),
+                "name": .string(names[id] ?? PinFolder.defaultName),
+                "members": .strings(members[id] ?? []),
+            ])
+        }
     }
 
     public static func shelfRecords(_ shelf: [ShelfEntry], previous: [String: SyncRecord] = [:]) -> [SyncRecord] {
@@ -139,25 +164,50 @@ public enum RecordMapper {
     public static func pins(from records: [SyncRecord], local: [PinnedSite], now: Date) -> [PinnedSite] {
         let localByKey = Dictionary(local.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
         let live = records.filter { $0.recordType == pinType && !$0.isTombstone }
-            .compactMap { r -> (order: Int, key: SiteKey, name: String, home: URL, folder: PinFolder?)? in
+            .compactMap { r -> (order: Int, key: SiteKey, name: String, home: URL)? in
                 guard let host = r["key"]?.stringValue, let name = r["name"]?.stringValue,
                       let s = r["homeURL"]?.stringValue, let home = URL(string: s) else { return nil }
-                let folder = r["folderID"]?.stringValue.flatMap(UUID.init(uuidString:)).map {
-                    PinFolder(id: $0, name: r["folderName"]?.stringValue ?? PinFolder.defaultName)
-                }
-                return (r["order"]?.intValue ?? Int.max, SiteKey(host), name, home, folder)
+                return (r["order"]?.intValue ?? Int.max, SiteKey(host), name, home)
             }
             .sorted { ($0.order, $0.key.host) < ($1.order, $1.key.host) }
-        return live.map { item in
+        let folders = folderMembership(from: records)
+        let pins: [PinnedSite] = live.map { item in
+            let folder = folders[item.key]?.folder
             if var pin = localByKey[item.key] {
                 pin.name = item.name
                 pin.homeURL = item.home
-                pin.folder = item.folder
+                pin.folder = folder
                 return pin
             }
             let page = Page(url: item.home, name: item.name, usage: Usage(at: now))
-            return PinnedSite(key: item.key, name: item.name, homeURL: item.home, page: page, folder: item.folder)
+            return PinnedSite(key: item.key, name: item.name, homeURL: item.home, page: page, folder: folder)
         }
+        // A folder sits where its first member is, its members in the folder record's order.
+        var out: [PinnedSite] = []
+        var done = Set<UUID>()
+        for pin in pins {
+            guard let f = pin.folder else { out.append(pin); continue }
+            guard done.insert(f.id).inserted else { continue }
+            out += pins.filter { $0.folder?.id == f.id }
+                .sorted { (folders[$0.key]?.index ?? 0) < (folders[$1.key]?.index ?? 0) }
+        }
+        return out
+    }
+
+    /// Which folder each site key belongs to, and its place in the folder. When two live folder
+    /// records list one key (moved into different folders on two Macs), the later edit wins.
+    static func folderMembership(from records: [SyncRecord]) -> [SiteKey: (folder: PinFolder, index: Int)] {
+        var out: [SiteKey: (folder: PinFolder, index: Int)] = [:]
+        let live = records.filter { $0.recordType == folderType && !$0.isTombstone }
+            .sorted { ($0.modifiedAt, $0.recordName) < ($1.modifiedAt, $1.recordName) }
+        for r in live {
+            guard let id = r["folderID"]?.stringValue.flatMap(UUID.init(uuidString:)) else { continue }
+            let name = r["name"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 } ?? PinFolder.defaultName
+            for (i, host) in (r["members"]?.stringsValue ?? []).enumerated() {
+                out[SiteKey(host)] = (PinFolder(id: id, name: name), i)
+            }
+        }
+        return out
     }
 
     /// Shelf entries from live shelf-page records: one entry per key (so the same site shelved on

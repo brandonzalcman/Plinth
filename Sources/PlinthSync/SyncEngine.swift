@@ -23,6 +23,8 @@ public struct SyncOutcome: Sendable, Equatable {
 ///   seen on its Mac (`modifiedAt`); a deletion is a tombstone with its own time, so it beats older
 ///   edits and loses to newer ones. Pins are ordered by the winning `order` field (ties by host),
 ///   then renumbered. A pin page's live state never syncs.
+/// - **Pin folders** (one record per folder id: name and member keys): last writer wins per
+///   folder, independently of the pins' order. A key listed by two folders goes to the later edit.
 /// - **Shelf** (one record per shelved page id): last writer wins per page id. A page that leaves
 ///   the shelf locally (restored or removed) becomes a tombstone. Pages are regrouped into one
 ///   entry per site key, so the same site shelved on two Macs is one entry; two pages of one entry
@@ -443,7 +445,7 @@ public struct SyncOutcome: Sendable, Equatable {
             for c in result.conflicts {
                 guard let mine = sent[c.recordName] else { continue }
                 switch c.recordType {
-                case RecordMapper.pinType, RecordMapper.shelfType:
+                case RecordMapper.pinType, RecordMapper.shelfType, RecordMapper.folderType:
                     s.server[c.recordName] = c
                     names.insert(c.recordName)
                 case RecordMapper.historyType:
@@ -475,7 +477,7 @@ public struct SyncOutcome: Sendable, Equatable {
         switch r.recordType {
         case RecordMapper.historyType:
             if let e = RecordMapper.historyEntry(from: r) { s.historySynced[e.id] = RecordMapper.fingerprint(e) }
-        case RecordMapper.pinType, RecordMapper.shelfType:
+        case RecordMapper.pinType, RecordMapper.shelfType, RecordMapper.folderType:
             s.server[r.recordName] = r
             if let st = s.stamps[r.recordName], st.sameContent(as: r) { s.stamps[r.recordName] = nil }
         case RecordMapper.clearType:
@@ -491,7 +493,7 @@ public struct SyncOutcome: Sendable, Equatable {
         let names = Set(s.server.keys).union(s.localRef.keys)
         for name in names where s.stamps[name] == nil {
             let type = s.server[name]?.recordType ?? s.localRef[name]?.recordType
-            guard type == RecordMapper.pinType || type == RecordMapper.shelfType else { continue }
+            guard let type, RecordMapper.isMergedType(type) else { continue }
             if let r = s.server[name], !r.isTombstone { s.localRef[name] = r } else { s.localRef[name] = nil }
         }
     }
@@ -499,7 +501,7 @@ public struct SyncOutcome: Sendable, Equatable {
     /// The merged payload: server records overlaid with unsettled local ones.
     private func build(_ s: State, local: SyncPayload, history: [HistoryEntry]) -> SyncPayload {
         var effective = s.server.filter {
-            $0.value.recordType == RecordMapper.pinType || $0.value.recordType == RecordMapper.shelfType
+            RecordMapper.isMergedType($0.value.recordType)
         }
         for (k, v) in s.stamps { effective[k] = v }
         let live = effective.values.filter { !$0.isTombstone }.sorted { $0.recordName < $1.recordName }

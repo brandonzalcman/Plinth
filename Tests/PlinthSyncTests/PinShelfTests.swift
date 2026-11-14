@@ -223,46 +223,155 @@ import PlinthModel
     }
 }
 
+/// A 0.2.0 client: its engine does not know the `PinFolder` record type, so it never reads or writes it.
+struct OldClientTransport: SyncTransport {
+    let base: InMemoryTransport
+    func fetchChanges(since token: Data?) async throws -> SyncChangeSet {
+        var cs = try await base.fetchChanges(since: token)
+        cs.changed.removeAll { $0.recordType == RecordMapper.folderType }
+        cs.deleted.removeAll { $0.recordType == RecordMapper.folderType }
+        return cs
+    }
+    func modify(saving: [SyncRecord], deleting: [SyncRecordID]) async throws -> SyncModifyResult {
+        try await base.modify(saving: saving, deleting: deleting)
+    }
+}
+
 @MainActor @Suite struct PinFolderSyncTests {
     let clock = Clock()
     let server = InMemoryTransport()
 
-    func folderPins(_ f: PinFolder) -> [PinnedSite] {
-        var a = makePin("a.com"), b = makePin("b.com")
-        a.folder = f; b.folder = f
-        return [a, makePin("c.com"), b]
+    func pins(_ hosts: [String], folder f: PinFolder? = nil, in members: Set<String> = []) -> [PinnedSite] {
+        hosts.map { h in var p = makePin(h); if members.contains(h) { p.folder = f }; return p }
     }
+    func payload(_ p: [PinnedSite]) -> SyncPayload { SyncPayload(pins: p, shelf: [], history: []) }
+    func folderLayout(_ m: Mac) -> [String] { m.local.pins.map { $0.key.host + ($0.folder.map { "@" + $0.name } ?? "") } }
 
-    @Test func folderRoundTripsThroughRecords() {
+    @Test func foldersAreTheirOwnRecordsAndPinRecordsStayAsInZeroTwoZero() {
         let f = PinFolder(name: "Work")
-        let pins = folderPins(f)
-        let records = RecordMapper.pinRecords(pins)
-        #expect(records[0].fields["folderID"]?.stringValue == f.id.uuidString)
-        #expect(records[1].fields["folderID"] == nil)
-        let back = RecordMapper.pins(from: records, local: [], now: Date())
-        #expect(back.map(\.folder) == [f, nil, f])
+        let p = pins(["a.com", "b.com", "c.com"], folder: f, in: ["a.com", "c.com"])
+        let pinRecords = RecordMapper.pinRecords(p)
+        #expect(pinRecords.allSatisfy { Set($0.fields.keys) == ["key", "name", "homeURL", "order"] })
+        let folders = RecordMapper.folderRecords(p)
+        #expect(folders.count == 1)
+        #expect(folders[0].recordName == "folder-" + f.id.uuidString)
+        #expect(folders[0].fields["name"]?.stringValue == "Work")
+        #expect(folders[0].fields["members"]?.stringsValue == ["a.com", "c.com"])
+        let back = RecordMapper.pins(from: pinRecords + folders, local: [], now: Date())
+        #expect(back.map(\.key.host) == ["a.com", "c.com", "b.com"])
+        #expect(back.map(\.folder) == [f, f, nil])
     }
 
-    @Test func recordWithoutFolderFieldsIsAPlainPin() {
-        let r = SyncRecord(recordType: RecordMapper.pinType, recordName: "pin-a.com", fields: [
-            "key": .string("a.com"), "name": .string("A"), "homeURL": .string("https://a.com/"), "order": .int(0)])
-        #expect(RecordMapper.pins(from: [r], local: [], now: Date()).first?.folder == nil)
-    }
-
-    @Test func folderSyncsBetweenMacsAndSurvivesRename() async throws {
+    @Test func folderSyncsBetweenMacsRenamesAndEmpties() async throws {
         let f = PinFolder(name: "Work")
-        let a = Mac("A", server: server, clock: clock, local: SyncPayload(pins: folderPins(f), shelf: [], history: []))
+        let a = Mac("A", server: server, clock: clock, local: payload(pins(["a.com", "b.com", "c.com"], folder: f, in: ["a.com", "c.com"])))
         let b = Mac("B", server: server, clock: clock)
         try await a.sync(); try await b.sync()
-        #expect(b.local.pins.map(\.folder) == [f, nil, f])
+        #expect(folderLayout(b) == ["a.com@Work", "c.com@Work", "b.com"])
         b.edit { p in for i in p.pins.indices where p.pins[i].folder != nil { p.pins[i].folder?.name = "Reading" } }
         clock.advance()
         try await b.sync(); try await a.sync()
-        #expect(a.local.pins.map(\.folder?.name) == ["Reading", nil, "Reading"])
-        // Taking a pin out of its folder clears the fields on the server record.
-        a.edit { $0.pins[0].folder = nil }
+        #expect(folderLayout(a) == ["a.com@Reading", "c.com@Reading", "b.com"])
+        a.edit { p in for i in p.pins.indices { p.pins[i].folder = nil } }
         clock.advance()
         try await a.sync(); try await b.sync()
-        #expect(b.local.pins.map(\.folder?.name) == [nil, nil, "Reading"])
+        #expect(b.local.pins.allSatisfy { $0.folder == nil })
+        let leftover = await server.allRecords.filter { $0.recordType == RecordMapper.folderType && !$0.isTombstone }
+        #expect(leftover.isEmpty)
+    }
+
+    @Test func unrelatedPinEditDoesNotRevertAFolderMove() async throws {
+        let hosts = ["a.com", "b.com", "c.com", "d.com", "e.com"]
+        let a = Mac("A", server: server, clock: clock, local: payload(pins(hosts)))
+        let b = Mac("B", server: server, clock: clock)
+        try await a.sync(); try await b.sync()
+        // A puts d and e in a new folder; B, not yet synced, unpins b (every later pin's order shifts).
+        let f = PinFolder(name: "Work")
+        a.edit { p in for i in p.pins.indices where ["d.com", "e.com"].contains(p.pins[i].key.host) { p.pins[i].folder = f } }
+        clock.advance()
+        b.edit { $0.pins.remove(at: 1) }
+        clock.advance()
+        try await a.sync(); try await b.sync(); try await a.sync(); try await b.sync()
+        #expect(folderLayout(a) == ["a.com", "c.com", "d.com@Work", "e.com@Work"])
+        #expect(folderLayout(b) == folderLayout(a))
+    }
+
+    @Test func renameSurvivesAnUnrelatedUnpinOnAnotherMac() async throws {
+        let f = PinFolder(name: "Work")
+        let a = Mac("A", server: server, clock: clock, local: payload(pins(["a.com", "b.com", "c.com", "d.com"], folder: f, in: ["c.com", "d.com"])))
+        let b = Mac("B", server: server, clock: clock)
+        try await a.sync(); try await b.sync()
+        a.edit { p in for i in p.pins.indices where p.pins[i].folder != nil { p.pins[i].folder?.name = "Reading" } }
+        clock.advance()
+        b.edit { $0.pins.remove(at: 0) }
+        clock.advance()
+        try await a.sync(); try await b.sync(); try await a.sync(); try await b.sync()
+        #expect(folderLayout(a) == ["b.com", "c.com@Reading", "d.com@Reading"])
+        #expect(folderLayout(b) == folderLayout(a))
+    }
+
+    @Test func foldersCreatedOfflineOnTwoMacsBothSurvive() async throws {
+        let base = pins(["a.com", "b.com", "c.com", "d.com"])
+        let a = Mac("A", server: server, clock: clock, local: payload(base))
+        let b = Mac("B", server: server, clock: clock)
+        try await a.sync(); try await b.sync()
+        let fa = PinFolder(name: "Folder"), fb = PinFolder(name: "Folder")
+        a.edit { p in for i in [0, 1] { p.pins[i].folder = fa } }
+        b.edit { p in for i in [2, 3] { p.pins[i].folder = fb } }
+        clock.advance()
+        try await a.sync(); try await b.sync(); try await a.sync()
+        #expect(Set(a.local.pins.compactMap(\.folder?.id)).count == 2)
+        #expect(folderLayout(a) == folderLayout(b))
+        #expect(a.local.pins.allSatisfy { $0.folder != nil })
+    }
+
+    @Test func aPinInTwoFoldersGoesToTheLaterEdit() async throws {
+        let base = pins(["a.com", "b.com", "c.com"])
+        let a = Mac("A", server: server, clock: clock, local: payload(base))
+        let b = Mac("B", server: server, clock: clock)
+        try await a.sync(); try await b.sync()
+        let fa = PinFolder(name: "FromA"), fb = PinFolder(name: "FromB")
+        a.edit { p in p.pins[0].folder = fa; p.pins[1].folder = fa }
+        clock.advance()
+        b.edit { p in p.pins[1].folder = fb; p.pins[2].folder = fb }
+        clock.advance()
+        try await a.sync(); try await b.sync(); try await a.sync(); try await b.sync()
+        #expect(folderLayout(a) == folderLayout(b))
+        #expect(folderLayout(a) == ["a.com@FromA", "b.com@FromB", "c.com@FromB"])
+    }
+
+    // MARK: A 0.2.0 client alongside
+
+    func oldClient(_ id: String) -> Mac {
+        Mac(id, server: OldClientTransport(base: server), clock: clock)
+    }
+
+    @Test func oldClientSyncsFoldersWithoutChurn() async throws {
+        let f = PinFolder(name: "Work")
+        let new = Mac("N", server: server, clock: clock, local: payload(pins(["a.com", "b.com", "c.com", "d.com"], folder: f, in: ["b.com", "c.com"])))
+        try await new.sync()
+        let old = oldClient("O")
+        try await old.sync()
+        #expect(old.pinHosts.sorted() == ["a.com", "b.com", "c.com", "d.com"])
+        #expect(old.local.pins.allSatisfy { $0.folder == nil })
+        // With nothing changed, another sync on either Mac writes nothing to the pins or folders.
+        await server.clearLogs()
+        try await old.sync(); try await new.sync(); try await old.sync()
+        #expect(await server.saveLog.filter { $0.recordType == RecordMapper.pinType || $0.recordType == RecordMapper.folderType }.isEmpty)
+    }
+
+    @Test func oldClientReorderAndUnpinDoNotChangeMembership() async throws {
+        let f = PinFolder(name: "Work")
+        let new = Mac("N", server: server, clock: clock, local: payload(pins(["a.com", "b.com", "c.com", "d.com", "e.com"], folder: f, in: ["d.com", "e.com"])))
+        try await new.sync()
+        let old = oldClient("O")
+        try await old.sync()
+        clock.advance()
+        old.edit { p in p.pins.remove(at: 1); p.pins.reverse() }   // unpin b, reverse the rest
+        clock.advance()
+        try await old.sync(); try await new.sync(); try await old.sync(); try await new.sync()
+        #expect(Set(new.local.pins.filter { $0.folder != nil }.map(\.key.host)) == ["d.com", "e.com"])
+        #expect(new.local.pins.contains { $0.key.host == "b.com" } == false)
+        #expect(new.local.pins.first { $0.folder != nil }?.folder == f)
     }
 }
