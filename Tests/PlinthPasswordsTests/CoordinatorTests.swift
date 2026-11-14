@@ -210,7 +210,7 @@ private func saved(_ site: String, _ user: String, _ pw: String) -> Login {
         let prefs = PasswordPreferences(storageDirectory: nil)
         let c = PasswordsCoordinator(vault: vault, preferences: prefs, prompts: prompts, now: { clock })
         _ = await run(c, .submit(username: "amy", password: "pw", isNewPassword: false, action: nil), at: "https://a.com")
-        clock = Date(timeIntervalSince1970: 120)
+        clock = Date(timeIntervalSince1970: 200)
         _ = await run(c, .settled, at: "https://a.com")
         #expect(prompts.savePrompts.isEmpty)
     }
@@ -358,5 +358,45 @@ private func saved(_ site: String, _ user: String, _ pw: String) -> Login {
         #expect(PageEvent(body: ["kind": "identifier", "username": "amy"]) == .identifier(username: "amy"))
         #expect(PageEvent(body: ["kind": "identifier", "username": ""]) == nil)
         #expect(PageEvent(body: ["kind": "focus", "token": 3, "username": "amy"]) == .focus(token: 3, isNewPassword: false, action: nil, username: "amy"))
+    }
+}
+
+@MainActor
+@Suite struct HostedSignInTests {
+    /// A sign-in served from its own origin inside another site's page, with a two-factor step before it finishes.
+    @Test func aSlowTwoFactorStepStillOffersTheSave() async {
+        var clock = Date(timeIntervalSince1970: 0)
+        let prompts = FakePrompts()
+        let c = PasswordsCoordinator(vault: InMemoryVault(), preferences: PasswordPreferences(storageDirectory: nil), prompts: prompts, now: { clock })
+        let frame = origin("https://idmsa.example.net")
+        await c.handle(.submit(username: "amy@a.com", password: "pw", isNewPassword: false, action: nil), origin: frame, webView: nil, isMainFrame: false) { _, _, _ in }
+        clock = Date(timeIntervalSince1970: 150)
+        // The page around the frame moves on once the code is accepted.
+        await c.handle(.loaded(hasPassword: false), origin: origin("https://developer.a.com"), webView: nil, isMainFrame: true) { _, _, _ in }
+        #expect(prompts.savePrompts.map(\.origin) == [frame])
+    }
+
+    @Test func theFramesFirstStepNameIsUsedOnItsSecondStepAndSavedForTheFrame() async throws {
+        let (c, vault, _, prompts) = make()
+        let frame = origin("https://idmsa.example.net")
+        await c.handle(.identifier(username: "amy@a.com"), origin: frame, webView: nil, isMainFrame: false) { _, _, _ in }
+        await c.handle(.submit(username: "", password: "pw", isNewPassword: false, action: nil), origin: frame, webView: nil, isMainFrame: false) { _, _, _ in }
+        await c.handle(.settled, origin: frame, webView: nil, isMainFrame: false) { _, _, _ in }
+        #expect(prompts.savePrompts.map(\.username) == ["amy@a.com"])
+        #expect(try vault.list().map(\.origin) == [frame])
+    }
+
+    @Test func aLoginSavedForThePageIsNotFilledIntoItsFrame() async {
+        let (c, _, _, _) = make([saved("https://developer.a.com", "amy", "pw1")])
+        var filled = 0
+        await c.handle(.focus(token: 1, isNewPassword: false, action: nil), origin: origin("https://idmsa.example.net"), webView: nil, isMainFrame: false) { _, _, _ in filled += 1 }
+        #expect(filled == 0)
+    }
+
+    @Test func aLoginSavedForTheFrameIsFilledIntoThatFrame() async {
+        let (c, _, _, _) = make([saved("https://idmsa.example.net", "amy", "pw1")])
+        var filled = 0
+        await c.handle(.focus(token: 1, isNewPassword: false, action: nil), origin: origin("https://idmsa.example.net"), webView: nil, isMainFrame: false) { _, _, _ in filled += 1 }
+        #expect(filled == 1)
     }
 }

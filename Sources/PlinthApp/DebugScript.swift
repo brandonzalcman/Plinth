@@ -148,6 +148,7 @@ enum DebugScript {
                 let result = try? await view.evaluateJavaScript("(()=>{\(find)\(body)})()")
                 if let r = result as? String, r == "no element" { log("\(verb): no element \(parts[0])") }
             }
+        case "fx": await app.passwords?.debugFrame(arg)
         case "activate":
             // Makes the app and its window key, so the real clicks that follow reach the page.
             NSApp.activate(ignoringOtherApps: true)
