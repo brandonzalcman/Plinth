@@ -43,10 +43,14 @@ public struct CommandBarView: View {
     /// Index into `rows`; 0 is nearest the field.
     @State private var selection: Int?
     @State private var showsRecents = false
+    /// With nothing typed: rows `0..<suggestedEnd` are suggested pages, the rest (up to `bookmarkStart`) are shelved pages.
+    @State private var suggestedEnd = 0
     @State private var hovered: Int?
     @Environment(\.colorScheme) private var scheme
 
     static let maxRows = 8
+    /// Shelved pages listed when nothing is typed, at most; suggested pages take the rest of `maxRows` first.
+    static let maxShelfRows = 4
     static let maxMeaningRows = 4
     static let maxBookmarkRows = 3
     static let maxSuggestionRows = 3
@@ -101,8 +105,15 @@ public struct CommandBarView: View {
                         }
                         if bookmarkStart > 0 { divider(palette: palette) }
                     }
-                    ForEach(Array(rows.enumerated().prefix(bookmarkStart)).reversed(), id: \.offset) { index, row in
+                    // Nothing typed: shelved pages above, then the suggested pages under their own heading.
+                    ForEach(Array(rows.enumerated().prefix(bookmarkStart).dropFirst(suggestedEnd)).reversed(), id: \.offset) { index, row in
                         rowView(row, index: index, palette: palette)
+                    }
+                    if suggestedEnd > 0 {
+                        heading("Suggested", palette: palette)
+                        ForEach(Array(rows.enumerated().prefix(suggestedEnd)).reversed(), id: \.offset) { index, row in
+                            rowView(row, index: index, palette: palette)
+                        }
                     }
                 }
                 .padding(6)
@@ -296,11 +307,15 @@ public struct CommandBarView: View {
         }
         let meaningRows = meaning.prefix(Self.maxMeaningRows).map(Row.result)
         if query.isEmpty {
-            let recent = keyword.prefix(Self.maxRows).map(Row.result)
+            // Suggested pages (history) first, then what was put away, within `maxRows` in all.
+            let suggested = keyword.filter { !Self.isShelf($0.target) }.prefix(Self.maxRows)
+            let shelved = keyword.filter { Self.isShelf($0.target) }.prefix(min(Self.maxShelfRows, Self.maxRows - suggested.count))
+            let recent = (suggested + shelved).map(Row.result)
             rows = recent + bookmarkRows + meaningRows
+            suggestedEnd = suggested.count
             bookmarkStart = recent.count
             meaningStart = recent.count + bookmarkRows.count
-            showsRecents = !recent.isEmpty
+            showsRecents = !shelved.isEmpty
             if resetSelection { selection = nil }
         } else {
             // A confident top hit leads (and is what Return does); the literal "Go to" / "Search
@@ -319,6 +334,7 @@ public struct CommandBarView: View {
             bookmarkStart = head.count
             meaningStart = head.count + bookmarkRows.count
             showsRecents = false
+            suggestedEnd = 0
             if resetSelection { selection = 0 }
         }
         if let current = selection, !rows.indices.contains(current) { selection = rows.isEmpty ? nil : rows.count - 1 }
@@ -359,7 +375,7 @@ public struct CommandBarView: View {
             guard !rows.isEmpty else { return false }
             if let current = selection {
                 // The literal action is the floor while there is text; recents can be deselected.
-                if current > 0 { move(to: current - 1) } else if showsRecents { selection = nil }
+                if current > 0 { move(to: current - 1) } else if showsRecents || suggestedEnd > 0 { selection = nil }
             }
             return true
         case .submit(let option, let command, _):
