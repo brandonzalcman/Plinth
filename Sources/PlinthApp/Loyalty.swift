@@ -159,14 +159,14 @@ struct ArchShape: Shape {
         host.frame = NSRect(origin: .zero, size: host.fittingSize)
         let p = NSPanel(contentRect: host.frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         p.isOpaque = false; p.backgroundColor = .clear; p.hasShadow = false
-        p.level = .floating; p.ignoresMouseEvents = true; p.hidesOnDeactivate = true
+        p.level = .floating; p.ignoresMouseEvents = true
         p.contentView = host
         if let screen = (NSApp.keyWindow?.screen ?? NSScreen.main) {
             let f = screen.visibleFrame
             p.setFrameOrigin(NSPoint(x: f.midX - host.frame.width / 2, y: f.minY + 110))
         }
         p.alphaValue = 0
-        p.orderFront(nil)
+        p.orderFrontRegardless()   // only called while Plinth is the active app (see announceLevelUpIfPossible)
         NSAnimationContext.runAnimationGroup { $0.duration = 0.35; p.animator().alphaValue = 1 }
         panel = p
         dismissTask = Task { @MainActor in
