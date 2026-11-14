@@ -15,7 +15,7 @@ let package = Package(
         // The iOS app (a separate repository) depends on this product.
         .library(name: "PlinthCore", targets: [
             "PlinthModel", "PlinthRules", "PlinthFade", "PlinthLayout", "PlinthStore", "PlinthSettings",
-            "PlinthAI", "PlinthSync", "PlinthReader", "PlinthWebCore",
+            "PlinthAI", "PlinthSync", "PlinthReader", "PlinthWebCore", "PlinthLoyalty",
         ]),
     ],
     targets: [
@@ -29,7 +29,9 @@ let package = Package(
         // On-device AI (Foundation Models, NaturalLanguage) behind PlinthModel protocols.
         .target(name: "PlinthAI", dependencies: ["PlinthModel"]),
         // iCloud sync: record mapping, merge rules, transports (in-memory and CloudKit).
-        .target(name: "PlinthSync", dependencies: ["PlinthModel"]),
+        .target(name: "PlinthSync", dependencies: ["PlinthModel", "PlinthLoyalty"]),
+        // Loyalty points, levels and unlocks: per-device ledgers that add up across devices. Foundation only.
+        .target(name: "PlinthLoyalty"),
         // User settings: model, persistence, search engines, clearing ranges.
         .target(name: "PlinthSettings", dependencies: ["PlinthModel", "PlinthRules"]),
         // Bookmark and history import from Safari and Chrome.
@@ -47,7 +49,7 @@ let package = Package(
         // The app shell: wires the modules together.
         .target(
             name: "PlinthApp",
-            dependencies: ["PlinthModel", "PlinthRules", "PlinthFade", "PlinthLayout", "PlinthStore", "PlinthBarUI", "PlinthPanels", "PlinthWeb", "PlinthAI", "PlinthSync", "PlinthSettings", "PlinthImport", "PlinthPasswords"],
+            dependencies: ["PlinthModel", "PlinthRules", "PlinthFade", "PlinthLayout", "PlinthStore", "PlinthBarUI", "PlinthPanels", "PlinthWeb", "PlinthAI", "PlinthSync", "PlinthSettings", "PlinthImport", "PlinthPasswords", "PlinthLoyalty"],
             swiftSettings: ui
         ),
         // SwiftPM entry point; Scripts/bundle.sh wraps it in Plinth.app.
@@ -63,6 +65,7 @@ let package = Package(
         .testTarget(name: "PlinthWebTests", dependencies: ["PlinthWeb"]),
         .testTarget(name: "PlinthWebCoreTests", dependencies: ["PlinthWebCore", "PlinthSettings"]),
         .testTarget(name: "PlinthPasswordsTests", dependencies: ["PlinthPasswords"]),
+        .testTarget(name: "PlinthLoyaltyTests", dependencies: ["PlinthLoyalty", "PlinthSync", "PlinthModel"]),
         .testTarget(name: "PlinthImportTests", dependencies: ["PlinthImport", "PlinthStore", "PlinthModel", "PlinthRules"]),
     ]
 )

@@ -1,5 +1,7 @@
 import Foundation
 import PlinthModel
+import PlinthLoyalty
+import os
 
 public struct SyncOutcome: Sendable, Equatable {
     /// The new local state to apply. nil = nothing to change locally.
@@ -53,6 +55,13 @@ public struct SyncOutcome: Sendable, Equatable {
     static let maxPushRounds = 4
 
     public private(set) var isSyncing = false
+    /// This device's loyalty ledger (opaque to sync), uploaded as this device's own `Loyalty` record
+    /// at the next sync. Nil = nothing to upload. Other devices' ledgers come from `loyaltyLedgers()`.
+    public var ownLoyaltyLedger: Data?
+    /// Records the server refused for a reason other than a conflict, as of the last sync (for example
+    /// a record type that is missing from the CloudKit production schema). Also logged.
+    public private(set) var lastFailures: [SyncRecordID: String] = [:]
+    private static let log = Logger(subsystem: "dev.getplinth.Plinth", category: "sync")
     /// When the last sync finished successfully.
     public var lastSyncedAt: Date? { state.lastSyncedAt }
 
@@ -171,6 +180,7 @@ public struct SyncOutcome: Sendable, Equatable {
         guard !isSyncing else { throw SyncError.busy }
         isSyncing = true
         defer { isSyncing = false }
+        lastFailures = [:]
         let t = now()
         var s = state
 
@@ -188,6 +198,7 @@ public struct SyncOutcome: Sendable, Equatable {
         var extra: [String: SyncRecord] = [:]
         for r in hist.uploads { extra[r.recordName] = r }
         if let r = ownDeviceRecord(s, openPages: openPages, at: t) { extra[r.recordName] = r }
+        if let r = ownLoyaltyRecord(s, at: t) { extra[r.recordName] = r }
         s.dirty = s.dirty?.filter { name in s.server[name].map { !$0.isTombstone } ?? false }
         for name in s.dirty ?? [] { extra[name] = s.server[name].map(RecordMapper.known) }
         if let p = s.pendingClear {
@@ -438,6 +449,47 @@ public struct SyncOutcome: Sendable, Equatable {
         return r
     }
 
+    /// Every device's loyalty ledger as of the last sync, including this device's own copy on the
+    /// server (the loyalty engine merges it back, so a reinstall does not lose points). No network.
+    public func loyaltyLedgers() -> [Data] {
+        state.server.values
+            .filter { $0.recordType == RecordMapper.loyaltyType && !$0.isTombstone }
+            .sorted { $0.recordName < $1.recordName }
+            .compactMap { $0["ledger"]?.dataValue }
+    }
+
+    /// This device's own loyalty ledger merged with the server's copy of it (never overwriting keys
+    /// the server has), as a record to upload. Nil when there is nothing new to say.
+    private func ownLoyaltyRecord(_ s: State, at t: Date) -> SyncRecord? {
+        guard let local = ownLoyaltyLedger.flatMap(LoyaltyLedger.decode) else { return nil }
+        let name = RecordMapper.loyaltyName(deviceID)
+        let existing = s.server[name]
+        var merged = local
+        if let theirs = existing?["ledger"]?.dataValue.flatMap(LoyaltyLedger.decode), theirs.deviceID == local.deviceID {
+            merged.merge(theirs)
+        }
+        let data = merged.encoded()
+        ownLoyaltyLedger = data
+        var r = RecordMapper.loyaltyRecord(deviceID: deviceID, ledger: data)
+        if let existing, existing.sameContent(as: r) { return nil }
+        r.modifiedAt = t; r.modifiedBy = deviceID; r.serverTag = existing?.serverTag
+        return r
+    }
+
+    /// A save conflict on the own loyalty record: merge the server's version into ours and send again.
+    private func mergedLoyalty(mine: SyncRecord, theirs: SyncRecord) -> SyncRecord {
+        var m = mine
+        m.serverTag = theirs.serverTag
+        if let a = mine["ledger"]?.dataValue.flatMap(LoyaltyLedger.decode),
+           var b = theirs["ledger"]?.dataValue.flatMap(LoyaltyLedger.decode), a.deviceID == b.deviceID {
+            b.merge(a)
+            let data = b.encoded()
+            m.fields["ledger"] = .data(data)
+            ownLoyaltyLedger = data
+        }
+        return m
+    }
+
     private func otherDevices(_ s: State, at t: Date) -> [DeviceOpenPages] {
         let own = RecordMapper.deviceName(deviceID)
         return s.server.values
@@ -461,6 +513,7 @@ public struct SyncOutcome: Sendable, Equatable {
         // merges against the same base instead of mistaking another Mac's edits for ours.
         defer { for (name, original) in premerge where s.stamps[name] != nil { s.stamps[name] = original } }
         let ownDevice = RecordMapper.deviceName(deviceID)
+        let ownLoyalty = RecordMapper.loyaltyName(deviceID)
         for _ in 0..<Self.maxPushRounds {
             var saves: [SyncRecord] = []
             for name in names.sorted() {
@@ -503,11 +556,12 @@ public struct SyncOutcome: Sendable, Equatable {
                     s.stamps[name] = nil
                 }
             }
-            // Never write another Mac's open-pages record.
+            // Never write another Mac's open-pages or loyalty record.
             let stamped = Set(saves.map(\.recordName))
             saves += extra.values
                 .filter { !stamped.contains($0.recordName) }
                 .filter { $0.recordType != RecordMapper.deviceType || $0.recordName == ownDevice }
+                .filter { $0.recordType != RecordMapper.loyaltyType || $0.recordName == ownLoyalty }
                 .sorted { $0.recordName < $1.recordName }
             for i in saves.indices where s.dirty?.contains(saves[i].recordName) == true {
                 saves[i].clearKeys = RecordMapper.legacyKeys[saves[i].recordType]
@@ -519,6 +573,12 @@ public struct SyncOutcome: Sendable, Equatable {
             names = []; extra = [:]; deletes = []
 
             for r in result.saved { applySaved(&s, r) }
+            if !result.failed.isEmpty {
+                lastFailures.merge(result.failed) { _, new in new }
+                for (id, reason) in result.failed {
+                    Self.log.error("Sync could not save \(id.recordType, privacy: .public): \(reason, privacy: .public)")
+                }
+            }
             for id in result.deleted where id.recordType == RecordMapper.historyType {
                 if let u = UUID(uuidString: String(id.recordName.dropFirst("history-".count))) { s.historySynced[u] = nil }
             }
@@ -545,6 +605,10 @@ public struct SyncOutcome: Sendable, Equatable {
                     }
                 case RecordMapper.deviceType where c.recordName == ownDevice:
                     var m = mine; m.serverTag = c.serverTag; extra[m.recordName] = m
+                case RecordMapper.loyaltyType where c.recordName == ownLoyalty:
+                    s.server[c.recordName] = c
+                    let m = mergedLoyalty(mine: mine, theirs: c)
+                    extra[m.recordName] = m
                 default:
                     break
                 }
