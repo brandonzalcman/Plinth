@@ -21,10 +21,12 @@ public enum PlinthPromo {
     /// The page a brand-new profile opens first. Nil on every later launch, and whenever the
     /// launch already says what to open (a test or scripted launch, a restored session).
     /// `profileHadWindows` is whether the profile had any windows saved before this launch;
-    /// `hasCompletedOnboarding` is the welcome-guide flag. A new profile has neither.
+    /// `hasCompletedOnboarding` is the welcome-guide flag. A new profile has neither. `hasExplicitURLs`: the launch
+    /// itself carries a URL (a link from another app, a test launch). `alreadyOpened`: the shell stored that it
+    /// opened this page before; set it when the page opens, so it opens at most once per profile.
     public static func firstLaunchURL(hasCompletedOnboarding: Bool, profileHadWindows: Bool,
-                                      hasExplicitURLs: Bool = false) -> URL? {
-        guard !hasCompletedOnboarding, !profileHadWindows, !hasExplicitURLs else { return nil }
+                                      hasExplicitURLs: Bool = false, alreadyOpened: Bool = false) -> URL? {
+        guard !hasCompletedOnboarding, !profileHadWindows, !hasExplicitURLs, !alreadyOpened else { return nil }
         return url
     }
 }
