@@ -41,6 +41,12 @@ struct AppearanceSettingsView: View {
                 }
             }
 
+            SettingsCard(heading: "App icon") {
+                AppIconPicker(app: app)
+                SettingsDivider()
+                SettingsNote(text: "Changes Plinth's icon in the Dock while it runs. The icon in Finder and the Applications folder stays Sunrise, and the Dock goes back to it when Plinth quits. The other colours unlock as you level up.")
+            }
+
             SettingsCard(heading: "Bar") {
                 SettingsRow(title: "Fade pages to the shelf", caption: fadeCaption) {
                     SettingsMenuPicker(label: "Fade pages to the shelf",

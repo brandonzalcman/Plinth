@@ -34,6 +34,7 @@ extension AppController {
         engine.onChange = { [weak self] in
             guard let self else { return }
             self.loyaltyModel.bump()
+            self.applyAppIcon()
             if let level = self.loyalty.claimLevelUp() { LoyaltyToast.show(level: level) }
             self.pushLoyaltyToSync()
         }
