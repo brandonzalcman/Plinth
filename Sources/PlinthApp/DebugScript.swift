@@ -344,6 +344,13 @@ enum DebugScript {
             // welcome [card index]: replays the welcome guide, from the intro or at that card.
             app.showWelcomeGuide(startingAtCard: Int(arg))
         case "pw": app.passwords.debug(arg)
+        case "sharecard":
+            // sharecard <path>: writes the share card PNG for the current level.
+            let t = app.loyalty.totals
+            let way = LoyaltyColourway.named(app.settings.value.appIcon) ?? .sunrise
+            let data = ShareCard.pngData(ShareCardContent(level: t.level, points: t.points, streak: t.streak, colourway: way))
+            try? data?.write(to: URL(fileURLWithPath: arg))
+            log("sharecard \(data?.count ?? 0) bytes")
         case "loyaltypoints":
             // loyaltypoints <n>: adds n points from a made-up second device (past days), to see levels and level-ups.
             let days = max(Int(arg) ?? 0, 0) / 10
