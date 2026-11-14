@@ -133,10 +133,10 @@ enum DebugScript {
         case "selectpin": if let wid, let pin = app.store.pins.first { app.handle(.selectPin(pin.id), in: wid) }
         case "js": await js(app, arg)
         case "uiclick", "uiset":
-            // uiclick <id> | uiset <id> <text>: scripted pointer events / typing on the element (also inside shadow roots),
+            // uiclick <id or ?css-selector without spaces> | uiset <same> <text>: scripted pointer events / typing on the element (also inside shadow roots),
             // for pages where a real click cannot reach (an inactive window). Only the password test mode counts these as input.
             let parts = arg.split(separator: " ", maxSplits: 1).map(String.init)
-            let find = "const find=(root)=>{const hit=root.getElementById?root.getElementById('\(parts[0])'):root.querySelector('#\(parts[0])');if(hit)return hit;for(const h of root.querySelectorAll('*')){if(h.shadowRoot){const x=find(h.shadowRoot);if(x)return x}if(h.tagName==='IFRAME'){try{const d=h.contentDocument;if(d){const x=find(d);if(x)return x}}catch(_){}}}return null};const e=find(document);if(!e)return 'no element';const W=e.ownerDocument.defaultView;"
+            let find = "const find=(root)=>{const sel='\(parts[0])'.startsWith('?')?'\(parts[0])'.slice(1):'#'+'\(parts[0])';const hit=root.querySelector(sel);if(hit)return hit;for(const h of root.querySelectorAll('*')){if(h.shadowRoot){const x=find(h.shadowRoot);if(x)return x}if(h.tagName==='IFRAME'){try{const d=h.contentDocument;if(d){const x=find(d);if(x)return x}}catch(_){}}}return null};const e=find(document);if(!e)return 'no element';const W=e.ownerDocument.defaultView;"
             let body: String
             if verb == "uiclick" {
                 body = "for(const t of ['pointerdown','mousedown']){e.dispatchEvent(new W.MouseEvent(t,{bubbles:true,composed:true,cancelable:true}))};if(e.focus)e.focus();for(const t of ['pointerup','mouseup']){e.dispatchEvent(new W.MouseEvent(t,{bubbles:true,composed:true,cancelable:true}))};e.click();return 'clicked'"
