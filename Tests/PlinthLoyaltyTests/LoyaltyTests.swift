@@ -46,7 +46,9 @@ let utc = TimeZone(identifier: "UTC")!
         e.record(.dayOfUse); clock.advance(days: 1)
         e.record(.dayOfUse); clock.advance(days: 2)
         #expect(e.totals.streak == 0)
-        #expect(e.record(.dayOfUse).pointsAdded == 10)
+        #expect(e.record(.dayOfUse).pointsAdded == 0)     // the first day back is held (see trust)
+        clock.advance(days: 1)
+        #expect(e.record(.dayOfUse).pointsAdded == 10)    // streak restarted, no bonus
         #expect(e.totals.streak == 1)
     }
 
@@ -120,6 +122,55 @@ let utc = TimeZone(identifier: "UTC")!
             clock.advance(days: back)
         }
         #expect(e.totals.points == earned)
+    }
+
+    @Test func oneWrongClockReadingCostsNothingLater() {
+        let e = engine("A", clock: clock)
+        e.record(.dayOfUse)                               // real day 1
+        clock.advance(days: 365); #expect(e.record(.dayOfUse).pointsAdded == 0); #expect(e.record(.share).pointsAdded == 0)
+        clock.advance(days: -364)                         // real day 2
+        #expect(e.record(.dayOfUse).pointsAdded > 0)
+        #expect(e.record(.share).pointsAdded == 15)
+        #expect(e.own.awards.keys.allSatisfy { !$0.contains("2027") })   // nothing future was written
+    }
+
+    @Test func twoDaysAheadOnceCostsNothing() {
+        let e = engine("A", clock: clock)
+        e.record(.dayOfUse)
+        clock.advance(days: 2); e.record(.dayOfUse)       // wrong clock, not paid
+        clock.advance(days: -1)                           // real day 2
+        #expect(e.record(.dayOfUse).pointsAdded > 0)
+    }
+
+    @Test func returningAfterALongAbsenceIsPaidOnTheSecondDay() {
+        let e = engine("A", clock: clock)
+        e.record(.dayOfUse)
+        clock.advance(days: 30)
+        #expect(e.record(.dayOfUse).pointsAdded == 0)     // could be a wrong clock: held
+        clock.advance(days: 1)
+        #expect(e.record(.dayOfUse).pointsAdded == 10)
+        #expect(e.record(.share).pointsAdded == 15)
+    }
+
+    @Test func trustSurvivesRelaunch() {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("loyalty-\(UUID()).json")
+        defer { try? FileManager.default.removeItem(at: file) }
+        let a = engine("A", clock: clock, file: file)
+        a.record(.dayOfUse); clock.advance(days: 1); a.record(.dayOfUse)
+        clock.advance(days: -30)
+        let b = engine("A", clock: clock, file: file)
+        #expect(b.record(.dayOfUse).pointsAdded == 0)
+    }
+
+    @Test func unknownOrMissingPlatformKeepsTheLedger() {
+        let json = #"{"deviceID":"V","platform":"visionos","awards":{"day:2026-03-09":10}}"#
+        let l = LoyaltyLedger.decode(Data(json.utf8))
+        #expect(l?.platform == .other)
+        #expect(LoyaltyLedger.decode(Data(#"{"deviceID":"V","awards":{"day:2026-03-09":10}}"#.utf8))?.platform == .other)
+        let e = engine("M", clock: clock)
+        e.ingest([Data(json.utf8)])
+        #expect(e.totals.points == 10)
+        #expect(e.totals.bothPlatforms == false)
     }
 
     @Test func shareOnTheNewestDayStillEarns() {

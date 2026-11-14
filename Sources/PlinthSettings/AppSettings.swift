@@ -52,6 +52,21 @@ public enum AccentChoice: String, Codable, CaseIterable, Sendable {
     }
 }
 
+public extension AccentChoice {
+    /// The accent on a dark surface (the dark bar and dark Settings). The brand colourways that are too
+    /// dark or too deep to show on #1B1A2E get a lighter variant with the same hue; the rest are unchanged.
+    func rgb(dark: Bool) -> (r: Double, g: Double, b: Double) {
+        guard dark else { return rgb }
+        switch self {
+        case .meadow: return (0x1E, 0x8A, 0x74)
+        case .ember: return (0xD9, 0x53, 0x2F)
+        case .midnight: return (0x5A, 0x4F, 0xD8)
+        case .mono: return (0x6A, 0x6A, 0x66)
+        default: return rgb
+        }
+    }
+}
+
 /// How long sites stay on the bar before fading to the shelf.
 public enum FadeBehavior: String, Codable, CaseIterable, Sendable {
     case shorter, standard, longer

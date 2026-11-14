@@ -8,7 +8,7 @@ public enum LoyaltyRules {
     public static let streakBonusPerDay = 2
     public static let streakBonusCap = 10
     public static let sharePoints = 15
-    /// Shares that earn points, per device per day.
+    /// Shares that earn points, per platform per day.
     public static let maxSharesPerDay = 3
     public static let milestonePoints = 25
     /// Once, when the same iCloud account has earned on both a Mac and an iPhone.
