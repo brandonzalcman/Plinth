@@ -238,6 +238,26 @@ let utc = TimeZone(identifier: "UTC")!
         #expect(renamed.totals.points == 25 + 12)
     }
 
+    @Test func aDamagedFileCannotTurnThisDevicesLedgerIntoOther() throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("loyalty-\(UUID()).json")
+        defer { try? FileManager.default.removeItem(at: file) }
+        let json = #"{"own":{"deviceID":"A","awards":{"day:2026-03-09":10}},"remote":{},"enabled":true}"#
+        try Data(json.utf8).write(to: file)
+        let e = engine("A", .mac, clock: clock, file: file)
+        #expect(e.own.platform == .mac)
+        #expect(e.record(.dayOfUse).pointsAdded == 12)     // today, with the streak bonus for yesterday's key
+        #expect(e.record(.dayOfUse).pointsAdded == 0)
+    }
+
+    @Test func aLedgerWithOnlyAFutureKeyDoesNotCountAsAPlatform() {
+        let mac = engine("M", .mac, clock: clock)
+        mac.record(.dayOfUse)
+        let phone = LoyaltyLedger(deviceID: "P", platform: .ios, awards: ["day:2031-01-01": 10])
+        mac.ingest([phone.encoded()])
+        #expect(mac.totals.bothPlatforms == false)
+        #expect(mac.totals.points == 10)
+    }
+
     @Test func inviteAwardsNothingYet() {
         let e = engine("A", clock: clock)
         #expect(e.record(.invite).pointsAdded == 0)

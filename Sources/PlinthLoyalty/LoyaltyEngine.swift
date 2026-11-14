@@ -57,6 +57,7 @@ public enum LoyaltyEvent: Sendable, Equatable {
             remote = f.remote.filter { $0.key != deviceID }
             if f.own.deviceID == deviceID {
                 own = f.own
+                own.platform = platform   // a damaged file must not make this device's ledger `other`
             } else if !f.own.awards.isEmpty {
                 // This device got a new ID (a reinstall or restore): what the old ID earned still counts.
                 remote[f.own.deviceID] = f.own
