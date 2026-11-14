@@ -93,7 +93,7 @@ extension BrowserStore {
     }
 
     /// "https://www.example.com/a/b/?q=1" -> "example.com/a/b".
-    static func displayURL(_ url: URL) -> String {
+    public static func displayURL(_ url: URL) -> String {
         guard var host = url.host, !host.isEmpty else { return url.absoluteString }
         if host.hasPrefix("www.") { host.removeFirst(4) }
         var path = url.path

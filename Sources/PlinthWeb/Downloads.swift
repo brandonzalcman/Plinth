@@ -45,8 +45,7 @@ extension WebViewPool: WKDownloadDelegate {
         let record = DownloadRecord(id: UUID(), download: download)
         activeDownloads[key] = record
 
-        let guess = download.originalRequest?.url?.lastPathComponent ?? ""
-        let filename = guess.isEmpty || guess == "/" ? "Download" : guess
+        let filename = DownloadNaming.provisionalName(for: download.originalRequest?.url)
         downloads.items.insert(DownloadItem(id: record.id, filename: filename, progress: nil, state: .running,
                                             fileURL: nil, startedAt: Date(), sourceURL: download.originalRequest?.url), at: 0)
 
@@ -225,18 +224,6 @@ extension WebViewPool: WKDownloadDelegate {
 
     /// "report.pdf", then "report 2.pdf", "report 3.pdf", … Path separators and a leading dot are removed.
     static func uniqueDestination(in folder: URL, suggested: String) -> URL {
-        var name = suggested.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        while name.hasPrefix(".") { name.removeFirst() }
-        if name.isEmpty { name = "download" }
-        let base = (name as NSString).deletingPathExtension
-        let ext = (name as NSString).pathExtension
-        var candidate = folder.appendingPathComponent(name)
-        var counter = 2
-        while FileManager.default.fileExists(atPath: candidate.path) {
-            candidate = folder.appendingPathComponent(ext.isEmpty ? "\(base) \(counter)" : "\(base) \(counter).\(ext)")
-            counter += 1
-        }
-        return candidate
+        DownloadNaming.uniqueDestination(in: folder, suggested: suggested)
     }
 }

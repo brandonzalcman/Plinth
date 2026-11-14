@@ -504,54 +504,19 @@ public final class WebViewPool: NSObject {
             callbacks.didScroll(entry.id, max(0, y))
         case "meta":
             // A message from a document that has since been navigated away from.
-            guard let pageURL = entry.webView.url,
-                  let sender = (body["url"] as? String).flatMap({ URL(string: $0) }),
-                  sender.host == pageURL.host else { return }
-            let hint = (body["siteName"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-            let siteName = hint.flatMap { $0.isEmpty || $0.count > 80 ? nil : $0 }
+            guard let pageURL = entry.webView.url, PageMeta.isCurrent(body, pageURL: pageURL) else { return }
+            let siteName = PageMeta.siteName(body)
             if siteName != entry.siteNameHint {
                 entry.siteNameHint = siteName
                 reportUpdate(entry.id)
             }
             guard ["http", "https"].contains(pageURL.scheme?.lowercased() ?? "") else { return }
-            let icons = (body["icons"] as? [[String: Any]]) ?? []
             // A private page's icon stays in memory: a file per host would be a record of where it went.
             let persistent = entry.webView.configuration.websiteDataStore.isPersistent
-            favicons.noteIcon(candidates: Self.rankedIcons(icons), pageURL: pageURL, key: siteKey(pageURL), persist: persistent)
+            favicons.noteIcon(candidates: PageMeta.iconCandidates(body), pageURL: pageURL, key: siteKey(pageURL), persist: persistent)
         default:
             break
         }
-    }
-
-    /// Orders icon links best first: the smallest one that is still at least 64 px, else the largest.
-    static func rankedIcons(_ icons: [[String: Any]]) -> [URL] {
-        var scored: [(url: URL, size: Int)] = []
-        for icon in icons {
-            guard let href = icon["href"] as? String, let url = URL(string: href) else { continue }
-            let rel = (icon["rel"] as? String ?? "").lowercased()
-            let sizes = (icon["sizes"] as? String ?? "").lowercased()
-            let type = (icon["type"] as? String ?? "").lowercased()
-            var size = 0
-            for token in sizes.split(separator: " ") {
-                if token == "any" { size = max(size, 128); continue }
-                let parts = token.split(separator: "x")
-                if parts.count == 2, let w = Int(parts[0]), let h = Int(parts[1]) { size = max(size, min(w, h)) }
-            }
-            if size == 0 {
-                if rel.contains("apple-touch-icon") { size = 180 }
-                else if type.contains("svg") || url.pathExtension.lowercased() == "svg" { size = 128 }
-                else if url.pathExtension.lowercased() == "ico" { size = 16 }
-                else { size = 32 }
-            }
-            scored.append((url, size))
-        }
-        scored.sort { a, b in
-            let aBig = a.size >= 64, bBig = b.size >= 64
-            if aBig != bBig { return aBig }
-            return aBig ? a.size < b.size : a.size > b.size
-        }
-        var seen = Set<URL>()
-        return scored.compactMap { seen.insert($0.url).inserted ? $0.url : nil }
     }
 }
 
@@ -575,26 +540,11 @@ enum PageScript {
       var handler = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.\(WebViewPool.messageName);
       if (!handler) { return; }
 
-      function metaContent(selector) {
-        var el = document.querySelector(selector);
-        var value = el && el.getAttribute('content');
-        return value ? value.trim() : null;
-      }
+      \(PageMeta.collectorFunction)
       var lastMeta = null;
       function postMeta() {
-        var icons = [];
-        var links = document.querySelectorAll('link[rel][href]');
-        for (var i = 0; i < links.length && icons.length < 24; i++) {
-          var rel = (links[i].getAttribute('rel') || '').toLowerCase();
-          var tokens = rel.split(/\\s+/);
-          if (tokens.indexOf('icon') < 0 && rel.indexOf('apple-touch-icon') < 0) { continue; }
-          if (!links[i].href || links[i].href.indexOf('http') !== 0) { continue; }
-          icons.push({ href: links[i].href, rel: rel,
-                       sizes: links[i].getAttribute('sizes') || '', type: links[i].getAttribute('type') || '' });
-        }
-        var message = { type: 'meta', url: location.href,
-                        siteName: metaContent('meta[property="og:site_name"]') || metaContent('meta[name="application-name"]'),
-                        icons: icons };
+        var meta = plinthCollectMeta();
+        var message = { type: 'meta', url: meta.url, siteName: meta.siteName, icons: meta.icons };
         var encoded = JSON.stringify(message);
         if (encoded === lastMeta) { return; }
         lastMeta = encoded;

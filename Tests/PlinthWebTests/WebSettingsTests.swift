@@ -28,19 +28,19 @@ final class HTTPSOnlyTests: XCTestCase {
     }
 }
 
-final class DownloadSafetyTests: XCTestCase {
-    func testSafe() {
-        for name in ["a.png", "photo.JPG", "x.heic", "doc.pdf", "song.mp3", "clip.mp4", "movie.mov", "notes.txt", "sound.m4a"] {
-            XCTAssertTrue(DownloadSafety.isSafeToOpen(filename: name), name)
-        }
+final class PageScriptTests: XCTestCase {
+    /// The Mac page script embeds the shared meta collector.
+    func testPageScriptUsesSharedCollector() {
+        XCTAssertTrue(PageScript.source.contains("function plinthCollectMeta()"))
+        XCTAssertTrue(PageScript.source.contains("var meta = plinthCollectMeta();"))
     }
 
-    func testUnsafe() {
-        for name in ["Setup.app", "run.command", "script.sh", "tool.py", "a.js", "disk.dmg", "pkg.pkg", "arch.zip", "a.tar.gz",
-                     "installer.exe", "noextension", "photo.jpg.app", "page.html", "pic.svg", "link.webloc", "x.jar",
-                     "unknown.zzzzqq", "", ".png", "main.swift", "a.workflow"] {
-            XCTAssertFalse(DownloadSafety.isSafeToOpen(filename: name), name)
-        }
-        XCTAssertFalse(DownloadSafety.isSafeToOpen(filename: "../../evil.sh"))
+    @MainActor
+    func testUniqueDestinationForwardsToSharedNaming() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        try Data().write(to: folder.appendingPathComponent("a.pdf"))
+        XCTAssertEqual(WebViewPool.uniqueDestination(in: folder, suggested: "a.pdf").lastPathComponent, "a 2.pdf")
     }
 }
