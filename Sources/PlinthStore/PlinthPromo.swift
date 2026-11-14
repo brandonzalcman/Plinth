@@ -8,13 +8,13 @@ import PlinthModel
 /// well-known site, with no history needed, and not twice when the history has it). Nothing is shown
 /// for it when nothing is typed.
 public enum PlinthPromo {
-    public static let title = "Plinth"
     public static let host = "getplinth.dev"
     public static let url = URL(string: "https://getplinth.dev")!
 
     /// True for the Plinth site's own host (with or without "www.").
     public static func isPlinthHost(_ host: String?) -> Bool {
-        guard let host = host?.lowercased() else { return false }
+        guard var host = host?.lowercased() else { return false }
+        if host.hasSuffix(".") { host.removeLast() }
         return host == Self.host || host == "www." + Self.host
     }
 

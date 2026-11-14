@@ -28,6 +28,8 @@ Run the app on a throwaway profile, so your own browsing data is never touched:
 Scripts/bundle.sh && open -n build/Plinth.app --env PLINTH_STORAGE=/tmp/plinth-dev
 ```
 
+A fresh throwaway profile opens getplinth.dev as its first page, so that launch loads the site over the network. Any other `PLINTH_` variable (for example `PLINTH_OPEN`) skips it.
+
 `PLINTH_AI=fake` lets you work on the AI interface on a Mac without Apple Intelligence.
 
 ## How the code is organised

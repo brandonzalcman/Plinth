@@ -89,7 +89,7 @@ Prefer to build it yourself? See [Build from source](#build-from-source).
 
 ## Using Plinth
 
-**Open a page.** Press ⌘L or ⌘T and type an address or a search. The command bar also finds open pages, pins, shelved pages, bookmarks and history. Results found by meaning appear under their own heading. With nothing typed, it lists the pages you go back to most under "Suggested", plus what you put away recently. A brand-new profile opens getplinth.dev as its first page, under the welcome guide, and typing "plinth" or "getplinth" suggests the site. With iCloud sync on, that includes pages you visited on your other devices.
+**Open a page.** Press ⌘L or ⌘T and type an address or a search. The command bar also finds open pages, pins, shelved pages, bookmarks and history. Results found by meaning appear under their own heading. With nothing typed, it lists the pages you go back to most under "Suggested", plus what you put away recently. With iCloud sync on, that includes pages you visited on your other devices. A brand-new profile opens getplinth.dev as its first page, under the welcome guide, and typing "plinth" or "getplinth" suggests the site.
 
 <p align="center"><img src="docs/images/command-bar.jpg" alt="The command bar" width="720"></p>
 

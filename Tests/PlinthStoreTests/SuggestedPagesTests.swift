@@ -91,5 +91,6 @@ import PlinthModel
         #expect(PlinthPromo.firstLaunchURL(hasCompletedOnboarding: false, profileHadWindows: false, hasExplicitURLs: true) == nil)
         #expect(PlinthPromo.firstLaunchURL(hasCompletedOnboarding: false, profileHadWindows: false, alreadyOpened: true) == nil)
         #expect(PlinthPromo.isPlinthHost("www.getplinth.dev") && !PlinthPromo.isPlinthHost("evil-getplinth.dev"))
+        #expect(PlinthPromo.isPlinthHost("getplinth.dev."))
     }
 }
