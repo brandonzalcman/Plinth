@@ -102,39 +102,60 @@ enum FrecencyScorer {
 /// added at the front of the history list, rebuilt from scratch when anything else changed.
 struct SuggestionIndex: Sendable {
     private(set) var aggregates: [String: SuggestionAggregate] = [:]
-    private var firstID: UUID?
-    private var ingested = 0
+    /// What was ingested, newest first, in the order of the history list it came from.
+    private var seen: [Seen] = []
+
+    private struct Seen: Sendable {
+        var id: UUID
+        var canon: String
+        var visitedAt: Date
+        var dwell: TimeInterval
+        init(_ entry: HistoryEntry) { id = entry.id; canon = URLCanonical.key(entry.url); visitedAt = entry.visitedAt; dwell = entry.dwell }
+    }
 
     init() {}
 
     init(history: [HistoryEntry]) {
         for entry in history.reversed() { ingest(entry) } // oldest first, so the newest ends up on top
-        firstID = history.first?.id
-        ingested = history.count
+        seen = history.map(Seen.init)
     }
 
-    /// Brings the index in line with `history` (newest first). Cheap when only new visits arrived.
+    /// Brings the index in line with `history` (newest first). Incremental only when the new list is
+    /// the old one with visits added in front and, at the history cap, entries dropped from the end
+    /// (those are taken out of the index again). Anything else (a merge that brought in older
+    /// entries, a deleted entry, a ranged delete) rebuilds from scratch.
     mutating func update(with history: [HistoryEntry]) {
         guard let first = history.first else {
-            if ingested != 0 { self = SuggestionIndex() }
+            if !seen.isEmpty { self = SuggestionIndex() }
             return
         }
-        if first.id == firstID, history.count == ingested {
+        if first.id == seen.first?.id, history.count == seen.count, history.last?.id == seen.last?.id {
             // Same list; a title can still arrive late for the newest visit.
             refreshTitle(of: first)
             return
         }
-        // Visits added in front stay incremental, also at the history cap where each new visit pushes the
-        // oldest one off the end (the tail may only shrink). A merge that also added older entries from
-        // another device makes the tail longer than what was ingested and needs a rebuild.
-        if let known = firstID, let offset = history.firstIndex(where: { $0.id == known }), offset > 0, offset <= 500,
-           history.count - offset <= ingested {
-            for entry in history[..<offset].reversed() { ingest(entry) }
-            firstID = first.id
-            ingested = history.count
-            return
+        if let known = seen.first?.id, let offset = history.firstIndex(where: { $0.id == known }), offset > 0, offset <= 500 {
+            let kept = history.count - offset
+            if kept <= seen.count, history[offset...].elementsEqual(seen[..<kept], by: { $0.id == $1.id }) {
+                for dropped in seen[kept...] { remove(dropped) }
+                seen.removeLast(seen.count - kept)
+                for entry in history[..<offset].reversed() { ingest(entry) }
+                seen.insert(contentsOf: history[..<offset].map(Seen.init), at: 0)
+                return
+            }
         }
         self = SuggestionIndex(history: history)
+    }
+
+    /// Takes one dropped (oldest) visit out again.
+    private mutating func remove(_ visit: Seen) {
+        guard var a = aggregates[visit.canon] else { return }
+        a.visits -= 1
+        if a.visits <= 0 { aggregates[visit.canon] = nil; return }
+        a.dwell = max(0, a.dwell - visit.dwell)
+        if let k = a.samples.firstIndex(of: visit.visitedAt) { a.samples.remove(at: k) }
+        if a.lastVisit == visit.visitedAt, let newest = a.samples.max() { a.lastVisit = newest }
+        aggregates[visit.canon] = a
     }
 
     private mutating func refreshTitle(of entry: HistoryEntry) {
