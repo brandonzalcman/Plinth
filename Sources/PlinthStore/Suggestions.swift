@@ -124,10 +124,11 @@ struct SuggestionIndex: Sendable {
             refreshTitle(of: first)
             return
         }
-        // Only when the old list is still the tail of the new one (visits were only added in front).
-        // A merge can also add older entries from another device; that needs a rebuild.
+        // Visits added in front stay incremental, also at the history cap where each new visit pushes the
+        // oldest one off the end (the tail may only shrink). A merge that also added older entries from
+        // another device makes the tail longer than what was ingested and needs a rebuild.
         if let known = firstID, let offset = history.firstIndex(where: { $0.id == known }), offset > 0, offset <= 500,
-           history.count - offset == ingested {
+           history.count - offset <= ingested {
             for entry in history[..<offset].reversed() { ingest(entry) }
             firstID = first.id
             ingested = history.count
