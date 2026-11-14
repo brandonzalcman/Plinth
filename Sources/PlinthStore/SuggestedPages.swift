@@ -1,9 +1,9 @@
 import Foundation
 import PlinthModel
 
-
 // What the command bar offers before anything is typed: the pages the user (on any device whose
-// history has synced in) goes back to most, then the Plinth promo row. Shared by every platform.
+// history has synced in) goes back to most. Shared by every platform. The Plinth site itself is never
+// listed here: it is suggested when typed, and opens as the first page of a new profile.
 
 extension SuggestionIndex {
     /// The best pages by frecency, one row per canonical page, at most `hostCap` per site.
@@ -11,7 +11,7 @@ extension SuggestionIndex {
     func topPages(limit: Int, hostCap: Int = SuggestionRanker.hostCapHistory, excluding: Set<String>, now: Date) -> [SearchResult] {
         guard limit > 0 else { return [] }
         let scored = aggregates.values.compactMap { a -> (SuggestionAggregate, Double)? in
-            guard !excluding.contains(a.canon), !SuggestionRanker.isDownload(a.foldedURL) else { return nil }
+            guard !excluding.contains(a.canon), !PlinthPromo.isPlinthHost(a.host), !SuggestionRanker.isDownload(a.foldedURL) else { return nil }
             let score = FrecencyScorer.score(samples: a.samples.sorted(by: >).prefix(FrecencyScorer.sampleCount).map { $0 },
                                              visits: a.visits, dwell: a.dwell, now: now)
             return score > 0 ? (a, score) : nil
