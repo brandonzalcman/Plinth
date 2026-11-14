@@ -417,7 +417,7 @@ public struct CommandBarView: View {
     // MARK: Text helpers
 
     static func tag(for result: SearchResult) -> String {
-        result.isBookmark ? "Bookmark" : result.id.hasPrefix("promo-") ? "Plinth" : tag(for: result.target)
+        result.isBookmark ? "Bookmark" : tag(for: result.target)
     }
 
     static func tag(for target: SearchResult.Target) -> String {

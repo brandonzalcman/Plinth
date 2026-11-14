@@ -86,10 +86,7 @@ struct PanelLayer: View {
                         if query.isEmpty {
                             _ = app.store.suggestions(for: "") // forgets the last typed query
                             // Pages other devices visited count too: synced history feeds the suggestions.
-                            // The Plinth row follows the suggested pages and shows in private windows too:
-                            // it is a fixed row and reads nothing from the history but a visit count.
-                            let promo = app.store.plinthPromo().map { [$0] } ?? []
-                            return controller.isPrivate ? promo : app.store.suggestedPages() + promo + recentShelf()
+                            return controller.isPrivate ? [] : app.store.suggestedPages() + recentShelf()
                         }
                         // Ranked by frecency and past choices, one row per page, a few per site.
                         let suggestions = app.store.suggestions(for: query, limit: 7)

@@ -18,9 +18,8 @@ import PlinthModel
                                       history: entries.sorted { $0.visitedAt > $1.visitedAt }))
     }
 
-    @Test func emptyHistoryHasNoSuggestionsButThePromo() {
+    @Test func emptyHistoryHasNoSuggestions() {
         #expect(store.suggestedPages().isEmpty)
-        #expect(store.plinthPromo()?.target == .history(PlinthPromo.url))
     }
 
     @Test func mostVisitedAndRecentFirstOnePerPage() {
@@ -60,14 +59,23 @@ import PlinthModel
         #expect(store.suggestedPages().map(\.subtitle) == ["a.com"])
     }
 
-    @Test func promoStopsAfterThreeVisitsAndIsNotAlsoASuggestion() {
-        load([visit("https://getplinth.dev/", daysAgo: 1), visit("https://a.com/")])
-        #expect(store.plinthPromo() != nil)
-        #expect(!store.suggestedPages().contains { $0.key.host == "getplinth.dev" })
-        load([visit("https://getplinth.dev/", daysAgo: 1), visit("https://getplinth.dev/", daysAgo: 2),
-              visit("https://getplinth.dev", daysAgo: 3), visit("https://a.com/")])
-        #expect(store.plinthPromo() == nil)
-        #expect(store.suggestedPages().contains { $0.key.host == "getplinth.dev" })
+    @Test func plinthIsSuggestedWhenTypedEvenWithoutHistory() {
+        for typed in ["plinth", "Plin", "get", "getplinth", "pli"] {
+            #expect(store.suggestions(for: typed).contains { $0.target == .history(URL(string: "https://getplinth.dev/")!) }, "\(typed)")
+        }
+        #expect(store.suggestions(for: "").isEmpty)
+        #expect(store.suggestedPages().isEmpty)
+    }
+
+    @Test func plinthIsNotListedTwiceWhenHistoryHasIt() {
+        load([visit("https://getplinth.dev/", daysAgo: 1), visit("https://getplinth.dev/", daysAgo: 2), visit("https://www.getplinth.dev/privacy", daysAgo: 1)])
+        #expect(store.suggestions(for: "plinth").filter { $0.key.host.hasSuffix(PlinthPromo.host) }.count <= 2)
+        #expect(Set(store.suggestions(for: "plinth").map(\.id)).count == store.suggestions(for: "plinth").count)
+    }
+
+    @Test func plinthDoesNotCrowdUnrelatedQueries() {
+        load([visit("https://github.com/", daysAgo: 1), visit("https://github.com/", daysAgo: 2)])
+        #expect(!store.suggestions(for: "github").contains { $0.key.host == PlinthPromo.host })
     }
 
     @Test func firstLaunchRule() {

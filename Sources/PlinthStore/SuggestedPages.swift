@@ -35,12 +35,12 @@ extension SuggestionIndex {
 }
 
 extension BrowserStore {
-    /// How many suggested pages the empty command bar lists (the promo row comes after them).
+    /// How many suggested pages the empty command bar lists.
     public static let suggestedPagesDefault = 4
 
     /// With nothing typed: the most visited and most recent pages from the history (which holds
     /// the visits other devices synced in), best first. Pages that are already open, pinned or
-    /// shelved are left out, since the bar lists those anyway, and so is the Plinth site while the promo row is shown. Empty in a private window: pass `isPrivate`.
+    /// shelved are left out, since the bar lists those anyway. Empty in a private window: pass `isPrivate`.
     public func suggestedPages(limit: Int = BrowserStore.suggestedPagesDefault, isPrivate: Bool = false) -> [SearchResult] {
         guard !isPrivate, limit > 0 else { return [] }
         suggestionIndex.update(with: history)
@@ -50,18 +50,6 @@ extension BrowserStore {
         }
         for pin in pins { skip.insert(URLCanonical.key(pin.page.url)); skip.insert(URLCanonical.key(pin.homeURL)) }
         for entry in shelf { for page in entry.pages { skip.insert(URLCanonical.key(page.url)) } }
-        if plinthPromo() != nil { skip.insert(URLCanonical.key(PlinthPromo.url)) }
         return suggestionIndex.topPages(limit: limit, excluding: skip, now: now())
-    }
-
-    /// The "Plinth" row for the empty command bar, or nil once the user has visited the site
-    /// `PlinthPromo.hideAfterVisits` times. Last in the list, after `suggestedPages`. Needs no
-    /// private-window check: it is a fixed row.
-    public func plinthPromo() -> SearchResult? {
-        suggestionIndex.update(with: history)
-        let visits = suggestionIndex.aggregates[URLCanonical.key(PlinthPromo.url)]?.visits ?? 0
-        guard PlinthPromo.isShown(visits: visits) else { return nil }
-        return SearchResult(id: PlinthPromo.resultID, target: .history(PlinthPromo.url), title: PlinthPromo.title,
-                            subtitle: PlinthPromo.subtitle, key: SiteKey(PlinthPromo.host))
     }
 }
