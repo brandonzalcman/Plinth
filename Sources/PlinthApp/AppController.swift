@@ -107,6 +107,14 @@ final class AppController: NSObject, NSApplicationDelegate {
                 if let url = URL(string: text.trimmingCharacters(in: .whitespaces)) { store.openPage(url: url, in: first) }
             }
         }
+        // A brand-new profile starts on the Plinth site, under the welcome guide. Not when the launch says
+        // what to open (PLINTH_OPEN) or is scripted (PLINTH_STEPS).
+        if let first = PlinthPromo.firstLaunchURL(hasCompletedOnboarding: settings.value.hasCompletedOnboarding,
+                                                  profileHadWindows: profileHadWindows,
+                                                  hasExplicitURLs: environment["PLINTH_OPEN"] != nil || environment["PLINTH_STEPS"] != nil),
+           let window = store.windows.first(where: { !$0.isPrivate }) {
+            store.openPage(url: first, in: window.id)
+        }
         for window in store.windows { showController(for: window.id) }
         NSApp.activate(ignoringOtherApps: true)
 

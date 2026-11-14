@@ -18,8 +18,9 @@ import PlinthModel
                                       history: entries.sorted { $0.visitedAt > $1.visitedAt }))
     }
 
-    @Test func emptyHistoryHasNoSuggestions() {
+    @Test func emptyHistoryHasNoSuggestionsButThePromo() {
         #expect(store.suggestedPages().isEmpty)
+        #expect(store.plinthPromo()?.target == .history(PlinthPromo.url))
     }
 
     @Test func mostVisitedAndRecentFirstOnePerPage() {
@@ -57,5 +58,23 @@ import PlinthModel
     @Test func downloadsAreNotSuggested() {
         load([visit("https://a.com/setup.dmg"), visit("https://a.com/")])
         #expect(store.suggestedPages().map(\.subtitle) == ["a.com"])
+    }
+
+    @Test func promoStopsAfterThreeVisitsAndIsNotAlsoASuggestion() {
+        load([visit("https://getplinth.dev/", daysAgo: 1), visit("https://a.com/")])
+        #expect(store.plinthPromo() != nil)
+        #expect(!store.suggestedPages().contains { $0.key.host == "getplinth.dev" })
+        load([visit("https://getplinth.dev/", daysAgo: 1), visit("https://getplinth.dev/", daysAgo: 2),
+              visit("https://getplinth.dev", daysAgo: 3), visit("https://a.com/")])
+        #expect(store.plinthPromo() == nil)
+        #expect(store.suggestedPages().contains { $0.key.host == "getplinth.dev" })
+    }
+
+    @Test func firstLaunchRule() {
+        #expect(PlinthPromo.firstLaunchURL(hasCompletedOnboarding: false, profileHadWindows: false) == PlinthPromo.url)
+        #expect(PlinthPromo.firstLaunchURL(hasCompletedOnboarding: true, profileHadWindows: false) == nil)
+        #expect(PlinthPromo.firstLaunchURL(hasCompletedOnboarding: false, profileHadWindows: true) == nil)
+        #expect(PlinthPromo.firstLaunchURL(hasCompletedOnboarding: false, profileHadWindows: false, hasExplicitURLs: true) == nil)
+        #expect(PlinthPromo.isPlinthHost("www.getplinth.dev") && !PlinthPromo.isPlinthHost("evil-getplinth.dev"))
     }
 }
