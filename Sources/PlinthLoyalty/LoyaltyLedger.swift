@@ -3,6 +3,9 @@ import Foundation
 /// The platform a device earns points on.
 public enum LoyaltyPlatform: String, Codable, Sendable, CaseIterable {
     case mac, ios
+    /// A platform this version does not know (a later app on another platform), or a missing one.
+    /// Its points still count, as one group.
+    case other
 }
 
 /// One-off feature milestones. Each is worth points once per iCloud account, however many devices
@@ -19,8 +22,8 @@ public enum LoyaltyMilestone: String, Codable, Sendable, CaseIterable {
 /// add up. Nothing in here names a page, a site or a search; keys carry only a kind and a date.
 ///
 /// Key forms:
-/// - `day:yyyy-MM-dd`: the first use of the day on this device (daily points plus streak bonus).
-/// - `share:yyyy-MM-dd:n`: the n-th share of that day on this device.
+/// - `day:yyyy-MM-dd`: the first use of the day on this platform (daily points plus streak bonus).
+/// - `share:yyyy-MM-dd:n`: the n-th share of that day on this platform.
 /// - `once:<milestone>`: a one-off milestone (counted once across all devices).
 public struct LoyaltyLedger: Codable, Equatable, Sendable {
     public var deviceID: String
@@ -29,6 +32,16 @@ public struct LoyaltyLedger: Codable, Equatable, Sendable {
 
     public init(deviceID: String, platform: LoyaltyPlatform, awards: [String: Int] = [:]) {
         self.deviceID = deviceID; self.platform = platform; self.awards = awards
+    }
+
+    private enum CodingKeys: String, CodingKey { case deviceID, platform, awards }
+
+    /// Lenient: a missing or unknown platform becomes `.other` instead of dropping the ledger.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        deviceID = try c.decode(String.self, forKey: .deviceID)
+        platform = (try? c.decodeIfPresent(LoyaltyPlatform.self, forKey: .platform)) ?? .other
+        awards = (try? c.decodeIfPresent([String: Int].self, forKey: .awards)) ?? [:]
     }
 
     /// The largest award a single key may carry. Larger values from another device (which could be

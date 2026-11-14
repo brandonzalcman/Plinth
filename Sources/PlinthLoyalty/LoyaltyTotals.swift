@@ -55,7 +55,8 @@ public struct LoyaltyTotals: Equatable, Sendable {
             }
         }
         points += once.values.reduce(0, +)
-        let both = perPlatform.filter { $0.value.contains { LoyaltyLedger.parse($0.key) != nil && $0.value > 0 } }.count >= 2
+        func earned(_ p: LoyaltyPlatform) -> Bool { perPlatform[p]?.contains { LoyaltyLedger.parse($0.key) != nil && $0.value > 0 } ?? false }
+        let both = earned(.mac) && earned(.ios)
         if both { points += LoyaltyRules.bothPlatformsPoints }
         let level = LoyaltyLevel.level(forPoints: points)
         var progress: (Int, Int)?
