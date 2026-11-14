@@ -26,7 +26,7 @@ also has the fields `editedAt` (date: when the edit was made, by that Mac's cloc
 | Type | Record name | Fields |
 |---|---|---|
 | `Pin` | `pin-<host>` | key, name, homeURL, order |
-| `PinFolder` | `folder-<uuid>` | folderID, name, members (list of strings: the pins' site keys, in order) |
+| `PinFolder` | `folder-<uuid>` | folderID, name, members (list of strings: the pins' site keys) |
 | `ShelfPage` | `shelf-<page uuid>` | pageID, key, siteName, url, rawTitle, name, customName?, shelvedAt, lastUsed |
 | `HistoryEntry` | `history-<uuid>` | entryID, url, title, name, key, visitedAt, dwell |
 | `HistoryClear` | `history-clear` | clearedAt |

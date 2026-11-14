@@ -23,8 +23,11 @@ public struct SyncOutcome: Sendable, Equatable {
 ///   seen on its Mac (`modifiedAt`); a deletion is a tombstone with its own time, so it beats older
 ///   edits and loses to newer ones. Pins are ordered by the winning `order` field (ties by host),
 ///   then renumbered. A pin page's live state never syncs.
-/// - **Pin folders** (one record per folder id: name and member keys): last writer wins per
-///   folder, independently of the pins' order. A key listed by two folders goes to the later edit.
+/// - **Pin folders** (one record per folder id: name and member keys): when both Macs edited a
+///   folder, it merges against the last synced copy member by member (an add or remove on one side
+///   survives the other side's edits to other members; ungrouping removes every member the base
+///   had) and the name goes to whichever side changed it. A key listed by two folders goes to the
+///   later edit. The pins' own order places the members on the bar.
 /// - **Shelf** (one record per shelved page id): last writer wins per page id. A page that leaves
 ///   the shelf locally (restored or removed) becomes a tombstone. Pages are regrouped into one
 ///   entry per site key, so the same site shelved on two Macs is one entry; two pages of one entry
@@ -272,7 +275,7 @@ public struct SyncOutcome: Sendable, Equatable {
                 if r.recordType == RecordMapper.historyType {
                     if let e = RecordMapper.historyEntry(from: r) { history[e.id] = e }
                 } else {
-                    server[r.recordName] = r
+                    server[r.recordName] = RecordMapper.known(r)
                 }
             }
             for id in cs.deleted {
@@ -416,6 +419,23 @@ public struct SyncOutcome: Sendable, Equatable {
                     s.stamps[name] = nil
                     continue
                 }
+                if st.recordType == RecordMapper.folderType, let srv, !Self.sameState(srv, s.localRef[name]) {
+                    // Edited on both Macs since the base: merge member by member, not whole record.
+                    if let merged = RecordMapper.mergeFolder(base: s.localRef[name], local: st, server: srv) {
+                        if merged.sameContent(as: srv) { s.stamps[name] = nil } else {
+                            s.stamps[name] = merged
+                            var up = merged; up.serverTag = srv.serverTag
+                            saves.append(up)
+                        }
+                    } else if srv.isTombstone {
+                        s.stamps[name] = nil
+                    } else {
+                        let gone = srv.tombstone(at: max(st.modifiedAt, srv.modifiedAt), by: st.modifiedBy)
+                        s.stamps[name] = gone
+                        saves.append(gone)
+                    }
+                    continue
+                }
                 let localWins: Bool
                 if Self.sameState(srv, s.localRef[name]) { localWins = true }
                 else if let srv { localWins = Self.wins(st, over: srv) }
@@ -446,7 +466,7 @@ public struct SyncOutcome: Sendable, Equatable {
                 guard let mine = sent[c.recordName] else { continue }
                 switch c.recordType {
                 case RecordMapper.pinType, RecordMapper.shelfType, RecordMapper.folderType:
-                    s.server[c.recordName] = c
+                    s.server[c.recordName] = RecordMapper.known(c)
                     names.insert(c.recordName)
                 case RecordMapper.historyType:
                     if c.sameContent(as: mine) {
@@ -478,6 +498,7 @@ public struct SyncOutcome: Sendable, Equatable {
         case RecordMapper.historyType:
             if let e = RecordMapper.historyEntry(from: r) { s.historySynced[e.id] = RecordMapper.fingerprint(e) }
         case RecordMapper.pinType, RecordMapper.shelfType, RecordMapper.folderType:
+            let r = RecordMapper.known(r)
             s.server[r.recordName] = r
             if let st = s.stamps[r.recordName], st.sameContent(as: r) { s.stamps[r.recordName] = nil }
         case RecordMapper.clearType:

@@ -6,7 +6,8 @@ import PlinthModel
 /// Record layout (one record type each; names are unique across types):
 /// - `Pin` "pin-<host>": key, name, homeURL, order. One pin per site key. A pin page's live state
 ///   (current URL, scroll, usage, dwell) is never synced.
-/// - `PinFolder` "folder-<uuid>": folderID, name, members (the pin site keys, in order). Folder
+/// - `PinFolder` "folder-<uuid>": folderID, name, members (the pin site keys; the pins' own order
+///   decides how they sit on the bar). Folder
 ///   membership lives only here, so a pin's `order` changing never touches it; 0.2.0 clients do
 ///   not know the type and leave it alone. One pin per site key. A pin page's live state
 ///   (current URL, scroll, usage, dwell) is never synced.
@@ -38,6 +39,44 @@ public enum RecordMapper {
 
     /// Record types the engine merges with last-writer-wins and tracks as local state.
     static func isMergedType(_ type: String) -> Bool { type == pinType || type == shelfType || type == folderType }
+
+    /// The record without fields its type does not define: leftovers from other versions are not
+    /// part of the content, so they never make a record look edited.
+    static func known(_ r: SyncRecord) -> SyncRecord {
+        guard let keys = fieldKeys[r.recordType], !r.isTombstone else { return r }
+        var r = r
+        r.fields = r.fields.filter { keys.contains($0.key) }
+        return r
+    }
+
+    /// Three-way merge of a folder record edited on two Macs: members merge per member (a member
+    /// added or removed on one side survives the other side's edits to other members), the name
+    /// takes whichever side changed it (the later edit if both did). A tombstone counts as removing
+    /// every member the base had. `nil` when nothing is left, i.e. the folder is gone.
+    static func mergeFolder(base: SyncRecord?, local: SyncRecord, server: SyncRecord) -> SyncRecord? {
+        func members(_ r: SyncRecord?) -> [String] { r.flatMap { $0.isTombstone ? nil : $0["members"]?.stringsValue } ?? [] }
+        func name(_ r: SyncRecord?) -> String? { r.flatMap { $0.isTombstone ? nil : $0["name"]?.stringValue } }
+        let b = members(base), l = members(local), s = members(server)
+        let removedLocal = Set(b).subtracting(l)
+        let addedLocal = l.filter { !b.contains($0) }
+        var merged = s.filter { !removedLocal.contains($0) }
+        for m in addedLocal where !merged.contains(m) { merged.append(m) }
+        guard !merged.isEmpty else { return nil }
+        let nb = name(base), nl = name(local), ns = name(server)
+        let chosen: String?
+        if nl == nil || nl == nb { chosen = ns ?? nl }
+        else if ns == nil || ns == nb { chosen = nl }
+        else { chosen = local.modifiedAt >= server.modifiedAt ? nl : ns }
+        let template = local.isTombstone ? server : local
+        var out = template
+        out.fields = ["folderID": template["folderID"] ?? server["folderID"] ?? local["folderID"] ?? .string(""),
+                      "name": .string(chosen ?? PinFolder.defaultName), "members": .strings(merged)]
+        out.isTombstone = false
+        out.modifiedAt = max(local.modifiedAt, server.modifiedAt)
+        out.modifiedBy = local.modifiedBy
+        out.serverTag = server.serverTag
+        return out
+    }
 
     // MARK: Names
 
@@ -182,20 +221,12 @@ public enum RecordMapper {
             let page = Page(url: item.home, name: item.name, usage: Usage(at: now))
             return PinnedSite(key: item.key, name: item.name, homeURL: item.home, page: page, folder: folder)
         }
-        // A folder sits where its first member is, its members in the folder record's order.
-        var out: [PinnedSite] = []
-        var done = Set<UUID>()
-        for pin in pins {
-            guard let f = pin.folder else { out.append(pin); continue }
-            guard done.insert(f.id).inserted else { continue }
-            out += pins.filter { $0.folder?.id == f.id }
-                .sorted { (folders[$0.key]?.index ?? 0) < (folders[$1.key]?.index ?? 0) }
-        }
-        return out
+        // A folder sits where its first member is; members keep the pins' order.
+        return BarOrder.arranged(pins)
     }
 
-    /// Which folder each site key belongs to, and its place in the folder. When two live folder
-    /// records list one key (moved into different folders on two Macs), the later edit wins.
+    /// Which folder each site key belongs to. When two live folder records list one key (moved
+    /// into different folders on two Macs), the later edit wins.
     static func folderMembership(from records: [SyncRecord]) -> [SiteKey: (folder: PinFolder, index: Int)] {
         var out: [SiteKey: (folder: PinFolder, index: Int)] = [:]
         let live = records.filter { $0.recordType == folderType && !$0.isTombstone }
