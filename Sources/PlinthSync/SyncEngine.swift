@@ -83,6 +83,9 @@ public struct SyncOutcome: Sendable, Equatable {
         /// the local history by the next merge (kept until a sync's result is applied).
         var pendingRemoteDeletes: Set<UUID> = []
         var lastSyncedAt: Date?
+        /// Fetched records that carried fields their type no longer defines; each is saved once so
+        /// the server copy loses them (an earlier release's fields make a 0.2.0 Mac re-upload).
+        var dirty: Set<String>?
     }
 
     private struct LastInput {
@@ -113,7 +116,8 @@ public struct SyncOutcome: Sendable, Equatable {
     public func recordLocalChanges(_ local: SyncPayload) {
         guard !isSyncing else { return }
         var s = state
-        stamp(&s, RecordMapper.records(for: local, previous: previousRecords(s)), at: now())
+        let t = now()
+        stamp(&s, localRecordSet(for: local, s, at: t), at: t)
         if s != state { state = s; persist() }
     }
 
@@ -168,7 +172,7 @@ public struct SyncOutcome: Sendable, Equatable {
         var s = state
 
         // 1. Local edits since the base.
-        let localRecords = RecordMapper.records(for: local, previous: previousRecords(s))
+        let localRecords = localRecordSet(for: local, s, at: t)
         stamp(&s, localRecords, at: t)
 
         // 2. Remote changes.
@@ -181,6 +185,8 @@ public struct SyncOutcome: Sendable, Equatable {
         var extra: [String: SyncRecord] = [:]
         for r in hist.uploads { extra[r.recordName] = r }
         if let r = ownDeviceRecord(s, openPages: openPages, at: t) { extra[r.recordName] = r }
+        s.dirty = s.dirty?.filter { name in s.server[name].map { !$0.isTombstone } ?? false }
+        for name in s.dirty ?? [] { extra[name] = s.server[name] }
         if let p = s.pendingClear {
             let current = s.server[RecordMapper.clearName]
             if let d = current?["clearedAt"]?.dateValue, d >= p {
@@ -201,7 +207,7 @@ public struct SyncOutcome: Sendable, Equatable {
         // 5. Renumbered pin order, regrouped shelf times and hidden duplicates are written back
         //    now, so the next sync with no changes uploads nothing.
         let before = s.stamps
-        stamp(&s, RecordMapper.records(for: built, previous: previousRecords(s)), at: t)
+        stamp(&s, localRecordSet(for: built, s, at: t), at: t)
         let changed = Set(s.stamps.keys).union(before.keys).filter { s.stamps[$0] != before[$0] && s.stamps[$0] != nil }
         if !changed.isEmpty {
             try await push(&s, names: changed, extra: [:], deletes: [])
@@ -219,6 +225,29 @@ public struct SyncOutcome: Sendable, Equatable {
     }
 
     // MARK: Local changes
+
+    /// The payload as records, plus what only the engine knows about folders:
+    /// - `nameEditedAt`: when the folder's name last changed, kept while the name stays the same.
+    /// - Members whose pin has not reached this Mac yet stay listed, so a folder record that arrives
+    ///   ahead of its pins is not rewritten without them.
+    private func localRecordSet(for payload: SyncPayload, _ s: State, at t: Date) -> [String: SyncRecord] {
+        var recs = RecordMapper.records(for: payload, previous: previousRecords(s))
+        let pinKeys = Set(payload.pins.map(\.key.host))
+        for (name, var r) in recs where r.recordType == RecordMapper.folderType {
+            let bases = [s.stamps[name], s.localRef[name], s.server[name]].compactMap { $0 }.filter { !$0.isTombstone }
+            let title = r["name"]?.stringValue
+            let same = bases.first { $0["name"]?.stringValue == title }
+            r.fields["nameEditedAt"] = .date(same.map { $0["nameEditedAt"]?.dateValue ?? $0.modifiedAt } ?? t)
+            var members = r["members"]?.stringsValue ?? []
+            for key in s.server[name].flatMap({ $0.isTombstone ? nil : $0["members"]?.stringsValue }) ?? [] where !pinKeys.contains(key) && !members.contains(key) {
+                let pin = RecordMapper.pinName(SiteKey(key))
+                if s.localRef[pin] == nil, s.server[pin]?.isTombstone != true, s.stamps[pin]?.isTombstone != true { members.append(key) }
+            }
+            r.fields["members"] = .strings(members.sorted())
+            recs[name] = r
+        }
+        return recs
+    }
 
     /// Records that already exist for a name (so shelved pages keep their first `shelvedAt`).
     private func previousRecords(_ s: State) -> [String: SyncRecord] {
@@ -275,6 +304,7 @@ public struct SyncOutcome: Sendable, Equatable {
                 if r.recordType == RecordMapper.historyType {
                     if let e = RecordMapper.historyEntry(from: r) { history[e.id] = e }
                 } else {
+                    if RecordMapper.hasUnknownFields(r) { s.dirty = (s.dirty ?? []).union([r.recordName]) }
                     server[r.recordName] = RecordMapper.known(r)
                 }
             }
@@ -408,10 +438,15 @@ public struct SyncOutcome: Sendable, Equatable {
     /// last writer wins), uploads the winners, and re-merges anything the server reports as a conflict.
     private func push(_ s: inout State, names: Set<String>, extra: [String: SyncRecord], deletes: [SyncRecordID]) async throws {
         var names = names, extra = extra, deletes = deletes
+        // A folder stamp as it was before a merge: a retry merges this, not the merge result, so
+        // another Mac's earlier edits are never mistaken for ours.
+        var premerge: [String: SyncRecord] = [:]
         let ownDevice = RecordMapper.deviceName(deviceID)
         for _ in 0..<Self.maxPushRounds {
             var saves: [SyncRecord] = []
             for name in names.sorted() {
+                // A retry starts from the stamp as it was before any merge.
+                if let original = premerge[name], s.stamps[name] != nil { s.stamps[name] = original }
                 guard let st = s.stamps[name] else { continue }
                 let srv = s.server[name]
                 if Self.sameState(st, srv) {
@@ -421,6 +456,7 @@ public struct SyncOutcome: Sendable, Equatable {
                 }
                 if st.recordType == RecordMapper.folderType, let srv, !Self.sameState(srv, s.localRef[name]) {
                     // Edited on both Macs since the base: merge member by member, not whole record.
+                    premerge[name] = st
                     if let merged = RecordMapper.mergeFolder(base: s.localRef[name], local: st, server: srv) {
                         if merged.sameContent(as: srv) { s.stamps[name] = nil } else {
                             s.stamps[name] = merged
@@ -449,7 +485,9 @@ public struct SyncOutcome: Sendable, Equatable {
                 }
             }
             // Never write another Mac's open-pages record.
+            let stamped = Set(saves.map(\.recordName))
             saves += extra.values
+                .filter { !stamped.contains($0.recordName) }
                 .filter { $0.recordType != RecordMapper.deviceType || $0.recordName == ownDevice }
                 .sorted { $0.recordName < $1.recordName }
             if saves.isEmpty && deletes.isEmpty { return }
@@ -499,6 +537,7 @@ public struct SyncOutcome: Sendable, Equatable {
             if let e = RecordMapper.historyEntry(from: r) { s.historySynced[e.id] = RecordMapper.fingerprint(e) }
         case RecordMapper.pinType, RecordMapper.shelfType, RecordMapper.folderType:
             let r = RecordMapper.known(r)
+            s.dirty?.remove(r.recordName)
             s.server[r.recordName] = r
             if let st = s.stamps[r.recordName], st.sameContent(as: r) { s.stamps[r.recordName] = nil }
         case RecordMapper.clearType:

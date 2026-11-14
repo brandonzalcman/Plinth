@@ -30,7 +30,7 @@ public enum RecordMapper {
     /// version leaves out (CloudKit otherwise keeps a key the save does not mention).
     public static let fieldKeys: [String: [String]] = [
         pinType: ["key", "name", "homeURL", "order"],
-        folderType: ["folderID", "name", "members"],
+        folderType: ["folderID", "name", "nameEditedAt", "members"],
         shelfType: ["pageID", "key", "siteName", "url", "rawTitle", "name", "customName", "shelvedAt", "lastUsed"],
         historyType: ["entryID", "url", "title", "name", "key", "visitedAt", "dwell"],
         clearType: ["clearedAt"],
@@ -39,6 +39,19 @@ public enum RecordMapper {
 
     /// Record types the engine merges with last-writer-wins and tracks as local state.
     static func isMergedType(_ type: String) -> Bool { type == pinType || type == shelfType || type == folderType }
+
+    /// Fields an earlier build wrote that no version defines now. They are ignored on read and the
+    /// transport always clears them, so saving the record once removes them from the server.
+    public static let legacyKeys: [String: [String]] = [pinType: ["folderID", "folderName"]]
+
+    /// The fields the transport sets to nil on a save when the record does not carry them.
+    public static func clearedKeys(for type: String) -> [String] { (fieldKeys[type] ?? []) + (legacyKeys[type] ?? []) }
+
+    /// The record has keys its type does not define.
+    static func hasUnknownFields(_ r: SyncRecord) -> Bool {
+        guard let keys = fieldKeys[r.recordType], !r.isTombstone else { return false }
+        return r.fields.keys.contains { !keys.contains($0) }
+    }
 
     /// The record without fields its type does not define: leftovers from other versions are not
     /// part of the content, so they never make a record look edited.
@@ -56,6 +69,7 @@ public enum RecordMapper {
     static func mergeFolder(base: SyncRecord?, local: SyncRecord, server: SyncRecord) -> SyncRecord? {
         func members(_ r: SyncRecord?) -> [String] { r.flatMap { $0.isTombstone ? nil : $0["members"]?.stringsValue } ?? [] }
         func name(_ r: SyncRecord?) -> String? { r.flatMap { $0.isTombstone ? nil : $0["name"]?.stringValue } }
+        func nameTime(_ r: SyncRecord) -> Date { r["nameEditedAt"]?.dateValue ?? r.modifiedAt }
         let b = members(base), l = members(local), s = members(server)
         let removedLocal = Set(b).subtracting(l)
         let addedLocal = l.filter { !b.contains($0) }
@@ -63,14 +77,20 @@ public enum RecordMapper {
         for m in addedLocal where !merged.contains(m) { merged.append(m) }
         guard !merged.isEmpty else { return nil }
         let nb = name(base), nl = name(local), ns = name(server)
-        let chosen: String?
-        if nl == nil || nl == nb { chosen = ns ?? nl }
-        else if ns == nil || ns == nb { chosen = nl }
-        else { chosen = local.modifiedAt >= server.modifiedAt ? nl : ns }
+        // The name goes to the side that changed it; when both did, to the later rename.
+        let fromLocal: Bool
+        if nl == nil { fromLocal = false }
+        else if ns == nil { fromLocal = true }
+        else if nl == nb { fromLocal = false }
+        else if ns == nb { fromLocal = true }
+        else { fromLocal = nameTime(local) >= nameTime(server) }
+        let source = fromLocal ? local : server
         let template = local.isTombstone ? server : local
         var out = template
         out.fields = ["folderID": template["folderID"] ?? server["folderID"] ?? local["folderID"] ?? .string(""),
-                      "name": .string(chosen ?? PinFolder.defaultName), "members": .strings(merged)]
+                      "name": .string(name(source) ?? PinFolder.defaultName),
+                      "nameEditedAt": .date(nameTime(source)),
+                      "members": .strings(merged.sorted())]
         out.isTombstone = false
         out.modifiedAt = max(local.modifiedAt, server.modifiedAt)
         out.modifiedBy = local.modifiedBy
@@ -136,7 +156,7 @@ public enum RecordMapper {
             SyncRecord(recordType: folderType, recordName: folderName(id), fields: [
                 "folderID": .string(id.uuidString),
                 "name": .string(names[id] ?? PinFolder.defaultName),
-                "members": .strings(members[id] ?? []),
+                "members": .strings((members[id] ?? []).sorted()),
             ])
         }
     }

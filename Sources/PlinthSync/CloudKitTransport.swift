@@ -134,7 +134,7 @@ public actor CloudKitTransport: SyncTransport {
             record = CKRecord(recordType: r.recordType, recordID: CKRecord.ID(recordName: r.recordName, zoneID: zoneID))
         }
         // A save only sends the keys it sets, so clear every key this version leaves out.
-        for key in RecordMapper.fieldKeys[r.recordType] ?? [] where r.fields[key] == nil || r.isTombstone {
+        for key in RecordMapper.clearedKeys(for: r.recordType) where r.fields[key] == nil || r.isTombstone {
             record[key] = nil as (any __CKRecordObjCValue)?
         }
         if !r.isTombstone {

@@ -232,7 +232,9 @@ struct KeyKeepingTransport: SyncTransport {
         var merged = saving
         for i in merged.indices where !merged[i].isTombstone {
             if let current = await base.record(named: merged[i].recordName), !current.isTombstone {
-                merged[i].fields = current.fields.merging(merged[i].fields) { _, new in new }
+                var kept = current.fields
+                for key in RecordMapper.clearedKeys(for: merged[i].recordType) where merged[i].fields[key] == nil { kept[key] = nil }
+                merged[i].fields = kept.merging(merged[i].fields) { _, new in new }
             }
         }
         return try await base.modify(saving: merged, deleting: deleting)
@@ -394,16 +396,28 @@ struct OldClientTransport: SyncTransport {
 
     // MARK: Per-member merge and leftovers
 
-    @Test func leftoverFolderFieldsOnPinRecordsDoNotChurn() async throws {
+    /// What a 0.2.0 client compares: every key on the fetched record counts.
+    func pinRecordsHaveExactlyTheFourFields() async -> Bool {
+        await server.allRecords.filter { $0.recordType == RecordMapper.pinType && !$0.isTombstone }
+            .allSatisfy { Set($0.fields.keys) == ["key", "name", "homeURL", "order"] }
+    }
+
+    @Test func leftoverFolderFieldsAreCleanedOnceThenQuiet() async throws {
         // A main build with the first folder PR wrote folderID/folderName on Pin records.
         let keeping = KeyKeepingTransport(base: server)
         let a = Mac("A", server: keeping, clock: clock, local: payload(pins(["a.com", "b.com"])))
         try await a.sync()
-        var rec = try #require(await server.record(named: "pin-a.com"))
-        rec.fields["folderID"] = .string(UUID().uuidString)
-        rec.fields["folderName"] = .string("Old")
-        _ = try await server.modify(saving: [rec], deleting: [])
+        for name in ["pin-a.com", "pin-b.com"] {
+            var rec = try #require(await server.record(named: name))
+            rec.fields["folderID"] = .string(UUID().uuidString)
+            rec.fields["folderName"] = .string("Old")
+            _ = try await server.modify(saving: [rec], deleting: [])
+        }
+        #expect(await !pinRecordsHaveExactlyTheFourFields())
+        await server.clearLogs()
         try await a.sync()
+        #expect(await server.saveLog.filter { $0.recordType == RecordMapper.pinType }.count == 2)
+        #expect(await pinRecordsHaveExactlyTheFourFields())
         await server.clearLogs()
         for _ in 0..<4 { try await a.sync() }
         #expect(await server.saveLog.filter { $0.recordType == RecordMapper.pinType }.isEmpty)
@@ -413,6 +427,46 @@ struct OldClientTransport: SyncTransport {
         await server.clearLogs()
         for _ in 0..<3 { try await b.sync() }
         #expect(await server.saveLog.filter { $0.recordType == RecordMapper.pinType }.isEmpty)
+    }
+
+    @Test func engineStateSavedByTheFirstFolderBuildUploadsOncePerPinThenGoesQuiet() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("plinth-sync-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let stateURL = dir.appendingPathComponent("sync.json")
+        let keeping = KeyKeepingTransport(base: server)
+        let first = Mac("A", server: keeping, clock: clock, stateURL: stateURL, local: payload(pins(["a.com", "b.com", "c.com"])))
+        try await first.sync()
+        // Rewrite the saved base the way that build left it: two extra fields on every Pin record.
+        var root = try #require(JSONSerialization.jsonObject(with: Data(contentsOf: stateURL)) as? [String: Any])
+        func addLegacy(_ table: Any?) -> [String: Any] {
+            var out = (table as? [String: Any]) ?? [:]
+            for (name, value) in out where name.hasPrefix("pin-") {
+                var rec = value as! [String: Any]
+                var fields = rec["fields"] as! [String: Any]
+                fields["folderID"] = ["string": ["_0": UUID().uuidString]]
+                fields["folderName"] = ["string": ["_0": "Old"]]
+                rec["fields"] = fields
+                out[name] = rec
+            }
+            return out
+        }
+        root["server"] = addLegacy(root["server"]); root["localRef"] = addLegacy(root["localRef"])
+        try JSONSerialization.data(withJSONObject: root).write(to: stateURL)
+        for name in ["pin-a.com", "pin-b.com", "pin-c.com"] {
+            var rec = try #require(await server.record(named: name))
+            rec.fields["folderID"] = .string(UUID().uuidString); rec.fields["folderName"] = .string("Old")
+            _ = try await server.modify(saving: [rec], deleting: [])
+        }
+        let upgraded = Mac("A", server: keeping, clock: clock, stateURL: stateURL, local: first.local)
+        await server.clearLogs()
+        try await upgraded.sync()
+        #expect(await server.saveLog.filter { $0.recordType == RecordMapper.pinType }.count == 3)
+        #expect(await pinRecordsHaveExactlyTheFourFields())
+        await server.clearLogs()
+        for _ in 0..<3 { try await upgraded.sync() }
+        let later = await server.saveLog.filter { $0.recordType != RecordMapper.deviceType }
+        #expect(later.isEmpty)
     }
 
     @Test func concurrentAddAndRemoveOfDifferentMembersBothSurvive() async throws {
@@ -475,5 +529,62 @@ struct OldClientTransport: SyncTransport {
         clock.advance()
         try await old.sync(); try await new.sync(); try await old.sync(); try await new.sync()
         #expect(new.pinHosts == ["c.com", "b.com", "a.com"])
+    }
+
+    @Test func laterRenameWinsEvenAfterAnotherMacEditsMembers() async throws {
+        let f = PinFolder(name: "Work")
+        let a = Mac("A", server: server, clock: clock, local: payload(pins(["a.com", "b.com", "c.com"], folder: f, in: ["a.com", "b.com"])))
+        let b = Mac("B", server: server, clock: clock)
+        try await a.sync(); try await b.sync()
+        b.edit { p in for i in p.pins.indices where p.pins[i].folder != nil { p.pins[i].folder?.name = "B-name" } }
+        try await b.sync()
+        clock.advance()
+        a.edit { p in for i in p.pins.indices where p.pins[i].folder != nil { p.pins[i].folder?.name = "A-name" } }   // later, offline
+        clock.advance()
+        b.edit { p in p.pins[2].folder = p.pins[0].folder }       // B adds c: bumps the record's own time
+        try await b.sync()
+        clock.advance()
+        try await a.sync(); try await b.sync(); try await a.sync()
+        #expect(folderLayout(a) == ["a.com@A-name", "b.com@A-name", "c.com@A-name"])
+        #expect(folderLayout(b) == folderLayout(a))
+    }
+
+    @Test func retryAfterAConflictDoesNotBringBackARemovedMember() async throws {
+        let f = PinFolder(name: "Work")
+        let a = Mac("A", server: server, clock: clock, local: payload(pins(["a.com", "b.com", "c.com", "d.com"], folder: f, in: ["a.com", "b.com"])))
+        let x = Mac("X", server: server, clock: clock)
+        try await a.sync(); try await x.sync()
+        x.edit { p in p.pins[2].folder = f }                      // X adds c
+        clock.advance()
+        try await x.sync()
+        clock.advance()
+        a.edit { p in p.pins[3].folder = f }                      // A adds d
+        // Before A's merged save, another Mac removes c again: the save is refused and A merges again.
+        var removed = try #require(await server.record(named: "folder-" + f.id.uuidString))
+        removed.fields["members"] = .strings(["a.com", "b.com"])
+        removed.modifiedAt = clock.t.addingTimeInterval(30); removed.modifiedBy = "Y"
+        await server.injectBeforeNextModify(removed)
+        try await a.sync(); try await x.sync(); try await a.sync()
+        #expect(folderLayout(a) == ["a.com@Work", "b.com@Work", "d.com@Work", "c.com"])
+        #expect(folderLayout(x) == folderLayout(a))
+    }
+
+    @Test func aFolderRecordAheadOfAMembersPinIsNotRewrittenWithoutIt() async throws {
+        let f = PinFolder(name: "Work")
+        let a = Mac("A", server: server, clock: clock, local: payload(pins(["a.com", "b.com"], folder: f, in: ["a.com", "b.com"])))
+        try await a.sync()
+        var ahead = try #require(await server.record(named: "folder-" + f.id.uuidString))
+        ahead.fields["members"] = .strings(["a.com", "b.com", "z.com"])
+        ahead.modifiedAt = clock.t.addingTimeInterval(5)
+        _ = try await server.modify(saving: [ahead], deleting: [])
+        let b = Mac("B", server: server, clock: clock)
+        await server.clearLogs()
+        try await b.sync(); try await b.sync()
+        #expect(await server.saveLog.filter { $0.recordType == RecordMapper.folderType }.isEmpty)
+        // z's pin arrives later and lands in the folder.
+        a.edit { $0.pins.append(makePin("z.com")) }
+        clock.advance()
+        try await a.sync(); try await b.sync()
+        #expect(folderLayout(b).contains("z.com@Work"))
     }
 }
