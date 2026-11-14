@@ -141,10 +141,23 @@ public struct PinnedSite: Identifiable, Codable, Sendable, Equatable {
     /// Where the pin goes back to when reset.
     public var homeURL: URL
     public var page: Page
+    /// The folder this pin sits in, if any. Folders exist only as the pins that name them: the
+    /// last member leaving removes the folder. Saved before folders existed: no folder.
+    public var folder: PinFolder?
 
-    public init(id: SiteID = SiteID(), key: SiteKey, name: String, homeURL: URL, page: Page) {
-        self.id = id; self.key = key; self.name = name; self.homeURL = homeURL; self.page = page
+    public init(id: SiteID = SiteID(), key: SiteKey, name: String, homeURL: URL, page: Page, folder: PinFolder? = nil) {
+        self.id = id; self.key = key; self.name = name; self.homeURL = homeURL; self.page = page; self.folder = folder
     }
+}
+
+/// A named holder of pins, drawn as one tile on the bar. Every member pin carries the same value.
+public struct PinFolder: Codable, Sendable, Equatable, Hashable, Identifiable {
+    public let id: UUID
+    public var name: String
+
+    public init(id: UUID = UUID(), name: String) { self.id = id; self.name = name }
+
+    public static let defaultName = "Folder"
 }
 
 // MARK: - Windows
@@ -287,7 +300,21 @@ public struct SearchResult: Identifiable, Sendable, Equatable {
 public enum BarOrder {
     /// The order ⌘1–9 counts in: every page button left to right, pins first, then each
     /// site's pages in order. Independent of how the bar is currently collapsed.
+    /// Pins in folders count like any other pin, in the order the bar shows them.
     public static func pageOrder(pins: [PinnedSite], sites: [Site]) -> [PageID] {
-        pins.map(\.page.id) + sites.flatMap { $0.pages.map(\.id) }
+        arranged(pins).map(\.page.id) + sites.flatMap { $0.pages.map(\.id) }
+    }
+
+    /// Pins in bar order: the members of a folder sit together where its first member is.
+    public static func arranged(_ pins: [PinnedSite]) -> [PinnedSite] {
+        guard pins.contains(where: { $0.folder != nil }) else { return pins }
+        var out: [PinnedSite] = []
+        var done = Set<UUID>()
+        for pin in pins {
+            guard let folder = pin.folder else { out.append(pin); continue }
+            guard done.insert(folder.id).inserted else { continue }
+            out.append(contentsOf: pins.filter { $0.folder?.id == folder.id })
+        }
+        return out
     }
 }

@@ -708,6 +708,7 @@ public final class BrowserStore {
             keptPins.append(pin)
         }
         if keptPins != pins { pins = keptPins }
+        pruneAndTidyPinFolders()
 
         var keptWindows: [WindowState] = []
         for old in windows where seenWindows.insert(old.id).inserted {

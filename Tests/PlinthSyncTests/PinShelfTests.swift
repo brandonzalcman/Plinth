@@ -222,3 +222,47 @@ import PlinthModel
         #expect(await server.saveLog.isEmpty)
     }
 }
+
+@MainActor @Suite struct PinFolderSyncTests {
+    let clock = Clock()
+    let server = InMemoryTransport()
+
+    func folderPins(_ f: PinFolder) -> [PinnedSite] {
+        var a = makePin("a.com"), b = makePin("b.com")
+        a.folder = f; b.folder = f
+        return [a, makePin("c.com"), b]
+    }
+
+    @Test func folderRoundTripsThroughRecords() {
+        let f = PinFolder(name: "Work")
+        let pins = folderPins(f)
+        let records = RecordMapper.pinRecords(pins)
+        #expect(records[0].fields["folderID"]?.stringValue == f.id.uuidString)
+        #expect(records[1].fields["folderID"] == nil)
+        let back = RecordMapper.pins(from: records, local: [], now: Date())
+        #expect(back.map(\.folder) == [f, nil, f])
+    }
+
+    @Test func recordWithoutFolderFieldsIsAPlainPin() {
+        let r = SyncRecord(recordType: RecordMapper.pinType, recordName: "pin-a.com", fields: [
+            "key": .string("a.com"), "name": .string("A"), "homeURL": .string("https://a.com/"), "order": .int(0)])
+        #expect(RecordMapper.pins(from: [r], local: [], now: Date()).first?.folder == nil)
+    }
+
+    @Test func folderSyncsBetweenMacsAndSurvivesRename() async throws {
+        let f = PinFolder(name: "Work")
+        let a = Mac("A", server: server, clock: clock, local: SyncPayload(pins: folderPins(f), shelf: [], history: []))
+        let b = Mac("B", server: server, clock: clock)
+        try await a.sync(); try await b.sync()
+        #expect(b.local.pins.map(\.folder) == [f, nil, f])
+        b.edit { p in for i in p.pins.indices where p.pins[i].folder != nil { p.pins[i].folder?.name = "Reading" } }
+        clock.advance()
+        try await b.sync(); try await a.sync()
+        #expect(a.local.pins.map(\.folder?.name) == ["Reading", nil, "Reading"])
+        // Taking a pin out of its folder clears the fields on the server record.
+        a.edit { $0.pins[0].folder = nil }
+        clock.advance()
+        try await a.sync(); try await b.sync()
+        #expect(b.local.pins.map(\.folder?.name) == [nil, nil, "Reading"])
+    }
+}

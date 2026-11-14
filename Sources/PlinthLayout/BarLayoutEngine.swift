@@ -63,7 +63,7 @@ public struct BarLayoutEngine: BarLayouting {
             + measure(searchShortcut, .regular) + metrics.searchPadding
     }
 
-    /// Width of the pins, the divider after them and the gaps around the divider. Zero without pins.
+    /// Width of the pin tiles (a folder is one tile), the divider after them and the gaps around the divider. Zero without pins.
     public static func pinsBlockWidth(pinCount: Int, metrics: BarMetrics) -> CGFloat {
         guard pinCount > 0 else { return 0 }
         let n = CGFloat(pinCount)
@@ -176,12 +176,24 @@ public struct BarLayoutEngine: BarLayouting {
             shortcuts[id] = index + 1
         }
 
-        let pins = input.pins.map {
+        let pins = BarOrder.arranged(input.pins).map {
             BarPinItem(id: $0.id, pageID: $0.page.id, key: $0.key, name: $0.name,
-                       isCurrent: visible.contains($0.page.id), shortcut: shortcuts[$0.page.id])
+                       isCurrent: visible.contains($0.page.id), shortcut: shortcuts[$0.page.id], folderID: $0.folder?.id)
+        }
+        var folderNames: [UUID: String] = [:]
+        for pin in input.pins { if let f = pin.folder, folderNames[f.id] == nil { folderNames[f.id] = f.name } }
+        var pinSlots: [BarPinSlot] = []
+        for pin in pins {
+            guard let fid = pin.folderID else { pinSlots.append(.pin(pin)); continue }
+            if case .folder(var f)? = pinSlots.last, f.id == fid {
+                f.members.append(pin); f.isCurrent = f.isCurrent || pin.isCurrent
+                pinSlots[pinSlots.count - 1] = .folder(f)
+            } else {
+                pinSlots.append(.folder(BarFolderItem(id: fid, name: folderNames[fid] ?? PinFolder.defaultName, members: [pin])))
+            }
         }
 
-        let available = E.sitesAvailable(barWidth: barWidth, pinCount: input.pins.count, metrics: m, measure: measure)
+        let available = E.sitesAvailable(barWidth: barWidth, pinCount: pinSlots.count, metrics: m, measure: measure)
         func natural(_ text: String, _ style: BarTextStyle) -> CGFloat {
             min(max(0, measure(text, style)), m.maxLabelWidth)
         }
@@ -286,7 +298,7 @@ public struct BarLayoutEngine: BarLayouting {
             items.append(item)
         }
         let sitesWidth = E.sitesWidth(of: items, metrics: m)
-        return BarLayout(pins: pins, sites: items, sitesWidth: sitesWidth, sitesAvailable: available,
+        return BarLayout(pins: pins, pinSlots: pinSlots, sites: items, sitesWidth: sitesWidth, sitesAvailable: available,
                          scrolls: sitesWidth > available + E.epsilon)
     }
 

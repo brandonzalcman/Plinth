@@ -32,6 +32,7 @@ extension BrowserStore {
                 let name = remote.name.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !name.isEmpty { local.name = name }
                 local.homeURL = remote.homeURL
+                local.folder = remote.folder
                 local.page.name = displayName(local.page, siteName: local.name)
                 newPins.append(local)
             } else {
@@ -39,12 +40,13 @@ extension BrowserStore {
                 let name = remote.name.isEmpty ? identity.siteName(for: remote.key) : remote.name
                 page.name = displayName(page, siteName: name)
                 let id = localSiteIDs.contains(remote.id) || newPins.contains(where: { $0.id == remote.id }) ? SiteID() : remote.id
-                newPins.append(PinnedSite(id: id, key: remote.key, name: name, homeURL: remote.homeURL, page: page))
+                newPins.append(PinnedSite(id: id, key: remote.key, name: name, homeURL: remote.homeURL, page: page, folder: remote.folder))
             }
         }
         let keptPinKeys = Set(newPins.map(\.key))
         let removedPinPages = pins.filter { !keptPinKeys.contains($0.key) }.map(\.page.id)
         pins = newPins
+        pruneAndTidyPinFolders()
 
         // Shelf
         var onBar = Set<PageID>()
