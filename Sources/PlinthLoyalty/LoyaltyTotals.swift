@@ -20,72 +20,86 @@ public struct LoyaltyTotals: Equatable, Sendable {
             && a.progress?.earned == b.progress?.earned && a.progress?.needed == b.progress?.needed
     }
 
-    /// Adds up ledgers. Per-device awards sum; milestone keys count once however many devices hold
-    /// them; the both-platforms bonus applies once when ledgers from a Mac and an iPhone exist.
-    /// `today` is a `yyyy-MM-dd` day; day keys too far past it are ignored.
-    public static func compute(ledgers: [LoyaltyLedger], today: String, calendar: Calendar) -> LoyaltyTotals {
-        let latest = LoyaltyDay.string(byAdding: LoyaltyRules.maxFutureDays, to: today, calendar: calendar) ?? today
+    /// Adds up ledgers.
+    ///
+    /// A day of use and a share count once per **platform** per day: ledgers of the same platform
+    /// (two Macs, or one Mac after a reinstall gave it a new device ID) are merged key by key first, so
+    /// the same day is never paid twice. Mac and iPhone add together. Milestone keys count once across
+    /// everything, and the both-platforms bonus applies once when a Mac and an iPhone have earned.
+    /// `today` is a `yyyy-MM-dd` day; day keys more than `maxFutureDays` past it are ignored.
+    public static func compute(ledgers: [LoyaltyLedger], today: String) -> LoyaltyTotals {
+        let latest = LoyaltyDay.string(byAdding: LoyaltyRules.maxFutureDays, to: today) ?? today
+        var perPlatform: [LoyaltyPlatform: [String: Int]] = [:]
+        for ledger in ledgers {
+            for (key, raw) in ledger.awards {
+                let value = min(max(raw, 0), LoyaltyLedger.maxAward)
+                if value > (perPlatform[ledger.platform]?[key] ?? 0) { perPlatform[ledger.platform, default: [:]][key] = value }
+            }
+        }
         var points = 0, days = 0, shares = 0
         var once: [LoyaltyMilestone: Int] = [:]
         var dayStrings = Set<String>()
-        var platforms = Set<LoyaltyPlatform>()
-        for ledger in ledgers {
-            var earnedAnything = false
-            for (key, raw) in ledger.awards.prefix(LoyaltyLedger.maxKeys) {
-                let value = min(max(raw, 0), LoyaltyLedger.maxAward)
+        for awards in perPlatform.values {
+            for (key, value) in awards {
                 guard value > 0, let kind = LoyaltyLedger.parse(key) else { continue }
                 switch kind {
                 case .day(let d):
                     guard d <= latest else { continue }
-                    points += value; days += 1; dayStrings.insert(d); earnedAnything = true
+                    points += value; days += 1; dayStrings.insert(d)
                 case .share(let d):
                     guard d <= latest else { continue }
-                    points += value; shares += 1; earnedAnything = true
+                    points += value; shares += 1
                 case .once(let m):
-                    once[m] = max(once[m] ?? 0, value); earnedAnything = true
+                    once[m] = max(once[m] ?? 0, value)
                 }
             }
-            if earnedAnything { platforms.insert(ledger.platform) }
         }
         points += once.values.reduce(0, +)
-        let both = platforms.count >= 2
+        let both = perPlatform.filter { $0.value.contains { LoyaltyLedger.parse($0.key) != nil && $0.value > 0 } }.count >= 2
         if both { points += LoyaltyRules.bothPlatformsPoints }
         let level = LoyaltyLevel.level(forPoints: points)
         var progress: (Int, Int)?
         if let next = level.next { progress = (points - level.threshold, next.threshold - level.threshold) }
         return LoyaltyTotals(points: points, level: level, progress: progress,
-                             streak: streak(days: dayStrings, today: today, calendar: calendar),
+                             streak: streak(days: dayStrings, today: today),
                              daysOfUse: days, shares: shares, milestones: Set(once.keys), bothPlatforms: both)
     }
 
-    static func streak(days: Set<String>, today: String, calendar: Calendar) -> Int {
+    static func streak(days: Set<String>, today: String) -> Int {
         var cursor = today
-        if !days.contains(cursor), let y = LoyaltyDay.string(byAdding: -1, to: cursor, calendar: calendar) { cursor = y }
+        if !days.contains(cursor), let y = LoyaltyDay.string(byAdding: -1, to: cursor) { cursor = y }
         var n = 0
         while days.contains(cursor) {
             n += 1
-            guard let prev = LoyaltyDay.string(byAdding: -1, to: cursor, calendar: calendar) else { break }
+            guard let prev = LoyaltyDay.string(byAdding: -1, to: cursor) else { break }
             cursor = prev
         }
         return n
     }
 }
 
-/// Local calendar days as `yyyy-MM-dd` strings. They sort as dates.
+/// Local calendar days as `yyyy-MM-dd` strings. They sort as dates. Always the Gregorian calendar,
+/// whatever calendar the Mac displays, so keys look the same on every device.
 public enum LoyaltyDay {
-    public static func string(for date: Date, calendar: Calendar) -> String {
-        let c = calendar.dateComponents([.year, .month, .day], from: date)
+    static func calendar(_ zone: TimeZone) -> Calendar {
+        var c = Calendar(identifier: .gregorian)
+        c.timeZone = zone
+        return c
+    }
+
+    public static func string(for date: Date, in zone: TimeZone = .current) -> String {
+        let c = calendar(zone).dateComponents([.year, .month, .day], from: date)
         return String(format: "%04d-%02d-%02d", c.year ?? 0, c.month ?? 0, c.day ?? 0)
     }
 
-    public static func date(from day: String, calendar: Calendar) -> Date? {
+    public static func string(byAdding days: Int, to day: String) -> String? {
         let p = day.split(separator: "-").compactMap { Int($0) }
         guard p.count == 3 else { return nil }
-        return calendar.date(from: DateComponents(year: p[0], month: p[1], day: p[2], hour: 12))
-    }
-
-    public static func string(byAdding days: Int, to day: String, calendar: Calendar) -> String? {
-        guard let d = date(from: day, calendar: calendar), let n = calendar.date(byAdding: .day, value: days, to: d) else { return nil }
-        return string(for: n, calendar: calendar)
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "UTC")!
+        guard let d = cal.date(from: DateComponents(year: p[0], month: p[1], day: p[2], hour: 12)),
+              let n = cal.date(byAdding: .day, value: days, to: d) else { return nil }
+        let c = cal.dateComponents([.year, .month, .day], from: n)
+        return String(format: "%04d-%02d-%02d", c.year ?? 0, c.month ?? 0, c.day ?? 0)
     }
 }
