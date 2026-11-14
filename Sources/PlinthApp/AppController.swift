@@ -52,6 +52,8 @@ final class AppController: NSObject, NSApplicationDelegate {
     let loyaltyModel = LoyaltyModel()
     /// During the first minute of the first run, level-ups are acknowledged without a card.
     var silentUntil: Date?
+    /// Runs the share sheet for the loyalty card; held here so it outlives the Settings window.
+    lazy var cardSharer = ShareCardSharer { [weak self] in self?.earn(.share) }
     var otherDevices: [DeviceOpenPages] = []
     /// Ends the shelf's "Clear all" Undo window (see ShelfUndo.swift).
     var shelfUndoTask: Task<Void, Never>?

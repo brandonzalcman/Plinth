@@ -4,12 +4,7 @@ import PlinthLoyalty
 struct LoyaltySettingsView: View {
     let app: AppController
     @Environment(\.settingsTheme) private var t
-    @State private var sharer: ShareCardSharer
-
-    init(app: AppController) {
-        self.app = app
-        _sharer = State(initialValue: ShareCardSharer { app.earn(.share) })
-    }
+    private var sharer: ShareCardSharer { app.cardSharer }
 
     private func cardContent(_ engine: LoyaltyEngine, _ totals: LoyaltyTotals) -> ShareCardContent {
         let chosen = LoyaltyColourway.named(app.settings.value.appIcon).flatMap { engine.isUnlocked($0) ? $0 : nil } ?? .sunrise

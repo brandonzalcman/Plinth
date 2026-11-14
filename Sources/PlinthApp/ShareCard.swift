@@ -79,22 +79,39 @@ struct ShareCardView: View {
     }
 }
 
-/// Opens the system share sheet for the card and counts a completed share.
+/// Opens the system share sheet for the card and counts a completed share. Any completed action of the
+/// sheet counts (AirDrop, Messages, Copy, Save...), up to the daily cap, and the PNG is deleted afterwards.
+/// Held by `AppController`, so closing Settings before a share completes does not lose the points.
 @MainActor final class ShareCardSharer: NSObject, NSSharingServicePickerDelegate, NSSharingServiceDelegate {
     private let onShared: () -> Void
+    private var currentFile: URL?
     init(onShared: @escaping () -> Void) { self.onShared = onShared }
 
     func present(_ content: ShareCardContent, from view: NSView) {
+        cleanUp()
         guard let url = ShareCard.fileURL(for: content) else { return }
+        currentFile = url
         let picker = NSSharingServicePicker(items: [url])
         picker.delegate = self
         picker.show(relativeTo: view.bounds, of: view, preferredEdge: .minY)
     }
 
+    private func cleanUp() {
+        if let url = currentFile { try? FileManager.default.removeItem(at: url) }
+        currentFile = nil
+    }
+
     nonisolated func sharingServicePicker(_ picker: NSSharingServicePicker, delegateFor service: NSSharingService) -> NSSharingServiceDelegate? { self }
 
     nonisolated func sharingService(_ service: NSSharingService, didShareItems items: [Any]) {
-        Task { @MainActor in self.onShared() }
+        Task { @MainActor in
+            self.onShared()
+            self.cleanUp()
+        }
+    }
+
+    nonisolated func sharingService(_ service: NSSharingService, didFailToShareItems items: [Any], error: Error) {
+        Task { @MainActor in self.cleanUp() }
     }
 }
 
