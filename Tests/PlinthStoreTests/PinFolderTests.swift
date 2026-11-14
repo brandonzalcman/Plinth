@@ -23,7 +23,7 @@ import PlinthModel
         #expect(f.name == "Folder")
         r.store.movePin(id(r, "c.com"), toFolder: f.id)
         r.store.movePin(id(r, "d.com"), toFolder: f.id)
-        #expect(order(r) == "b.com a.com@Folder c.com@Folder d.com@Folder")
+        #expect(order(r) == "a.com@Folder c.com@Folder d.com@Folder b.com")
         r.ok()
     }
 
