@@ -85,7 +85,8 @@ struct PanelLayer: View {
                     results: { query in
                         if query.isEmpty {
                             _ = app.store.suggestions(for: "") // forgets the last typed query
-                            return controller.isPrivate ? [] : recentShelf()
+                            // Pages other devices visited count too: synced history feeds the suggestions.
+                            return controller.isPrivate ? [] : app.store.suggestedPages() + recentShelf()
                         }
                         // Ranked by frecency and past choices, one row per page, a few per site.
                         let suggestions = app.store.suggestions(for: query, limit: 7)

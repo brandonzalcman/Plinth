@@ -124,7 +124,10 @@ struct SuggestionIndex: Sendable {
             refreshTitle(of: first)
             return
         }
-        if let known = firstID, let offset = history.firstIndex(where: { $0.id == known }), offset > 0, offset <= 500 {
+        // Only when the old list is still the tail of the new one (visits were only added in front).
+        // A merge can also add older entries from another device; that needs a rebuild.
+        if let known = firstID, let offset = history.firstIndex(where: { $0.id == known }), offset > 0, offset <= 500,
+           history.count - offset == ingested {
             for entry in history[..<offset].reversed() { ingest(entry) }
             firstID = first.id
             ingested = history.count

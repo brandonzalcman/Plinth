@@ -57,7 +57,7 @@ let package = Package(
         .testTarget(name: "PlinthLayoutTests", dependencies: ["PlinthLayout"]),
         .testTarget(name: "PlinthStoreTests", dependencies: ["PlinthStore"]),
         .testTarget(name: "PlinthAITests", dependencies: ["PlinthAI"]),
-        .testTarget(name: "PlinthSyncTests", dependencies: ["PlinthSync"]),
+        .testTarget(name: "PlinthSyncTests", dependencies: ["PlinthSync", "PlinthStore"]),
         .testTarget(name: "PlinthSettingsTests", dependencies: ["PlinthSettings"]),
         .testTarget(name: "PlinthReaderTests", dependencies: ["PlinthReader", "PlinthModel"]),
         .testTarget(name: "PlinthWebTests", dependencies: ["PlinthWeb"]),
