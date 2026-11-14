@@ -87,7 +87,8 @@ public final class PasswordsCoordinator: NSObject, WKScriptMessageHandler {
     var identifier: Identifier?
     static let identifierLifetime: TimeInterval = 600
     private var prompting = false
-    static let pendingLifetime: TimeInterval = 60
+    /// Long enough to type a two-factor code before the sign-in finishes.
+    static let pendingLifetime: TimeInterval = 180
 
     public init(vault: PasswordVault, preferences: PasswordPreferences, prompts: PasswordPrompting, now: @escaping () -> Date = Date.init) {
         self.vault = vault
@@ -100,6 +101,7 @@ public final class PasswordsCoordinator: NSObject, WKScriptMessageHandler {
     // MARK: WebKit entry point
 
     public func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+        frameObserver?(message.frameInfo, message.webView)
         guard let event = PageEvent(body: message.body) else { return }
         let so = message.frameInfo.securityOrigin
         guard let origin = WebOrigin(scheme: so.protocol, host: so.host, port: so.port) else { return }
@@ -204,6 +206,14 @@ public final class PasswordsCoordinator: NSObject, WKScriptMessageHandler {
         case .never: preferences.addNever(p.origin)
         }
     }
+
+    /// Test launches: where a login waits for its outcome (never the password).
+    public var debugPendingSummary: String {
+        pending.map { "\($0.origin) \($0.username) update=\($0.isUpdate) main=\($0.isMainFrame)" } ?? "none"
+    }
+
+    /// Test launches: told about the frame every message came from, so scripted steps can reach into frames.
+    public var frameObserver: ((WKFrameInfo, WKWebView?) -> Void)?
 
     /// Called after a login is saved so the Settings list can refresh.
     public var savedHook: (@MainActor () -> Void)?
