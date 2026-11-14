@@ -100,6 +100,7 @@ final class AppController: NSObject, NSApplicationDelegate {
         storageDirectory = support
         setUpPasswords()
         setUpLoyalty()
+        applyAppIcon()
         connect()
         connectFeatures()
         pool.apply(settings.value)
@@ -168,6 +169,7 @@ final class AppController: NSObject, NSApplicationDelegate {
     private func settingsDidChange(from old: AppSettings, to new: AppSettings) {
         pool.apply(new)
         if old.searchEngine != new.searchEngine { resolver.engine = new.searchEngine }
+        if old.appIcon != new.appIcon { applyAppIcon() }
         if old.fadeBehavior != new.fadeBehavior {
             store.setFader(Self.fader(for: new.fadeBehavior))
             scheduleFade()
