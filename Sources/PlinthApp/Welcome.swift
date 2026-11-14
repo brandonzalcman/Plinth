@@ -362,7 +362,7 @@ private struct WelcomeGuide: View {
 
     var body: some View {
         let p = PanelPalette(scheme)
-        let accent = app.accent
+        let accent = app.accent(dark: scheme == .dark)
         VStack(spacing: 0) {
             HStack {
                 Spacer()

@@ -188,6 +188,9 @@ final class AppController: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Redraws every window's bar and panels (for example when a level drop re-locks the saved accent).
+    func refreshAllContent() { for controller in controllers.values { controller.refreshContent() } }
+
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
@@ -198,6 +201,7 @@ final class AppController: NSObject, NSApplicationDelegate {
     func applicationDidBecomeActive(_ notification: Notification) {
         scheduleFade()
         earnDayOfUse()
+        announceLevelUpIfPossible()
     }
 
     func applicationWillTerminate(_ notification: Notification) {

@@ -86,15 +86,24 @@ struct ShareCardView: View {
         return url
     }
 
-    /// Removes every share card left in the temporary directory (at launch and at quit).
-    static func removeLeftovers() { try? FileManager.default.removeItem(at: folder) }
+    /// Removes share cards older than `age` from the temporary directory (at launch and at quit). A
+    /// younger folder may belong to a share in flight, in this or another running Plinth, and a card
+    /// copied to the pasteboard stays valid for a while.
+    static func removeLeftovers(olderThan age: TimeInterval = 600) {
+        let fm = FileManager.default
+        guard let items = try? fm.contentsOfDirectory(at: folder, includingPropertiesForKeys: [.creationDateKey]) else { return }
+        for url in items {
+            let created = (try? url.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast
+            if Date().timeIntervalSince(created) > age { try? fm.removeItem(at: url) }
+        }
+    }
 }
 
 /// Opens the system share sheet for the card and counts a completed share. Any completed action of the
-/// sheet counts (AirDrop, Messages, Copy, Save...), up to the daily cap. Each share has its own file,
-/// removed a little after the share ends (so the receiving service has read it), and anything left is
-/// removed at launch and quit. Held by `AppController`, so closing Settings before a share completes
-/// does not lose the points.
+/// sheet counts (AirDrop, Messages, Copy, Save...), up to the daily cap. Each share has its own file in
+/// its own folder. Nothing is deleted while the share may still be read (a copy leaves a file URL on the
+/// pasteboard): folders older than ten minutes are removed at launch and quit. Held by `AppController`,
+/// so closing Settings before a share completes does not lose the points.
 @MainActor final class ShareCardSharer: NSObject, NSSharingServicePickerDelegate, NSSharingServiceDelegate {
     private let onShared: () -> Void
     init(onShared: @escaping () -> Void) { self.onShared = onShared }
@@ -106,31 +115,10 @@ struct ShareCardView: View {
         picker.show(relativeTo: view.bounds, of: view, preferredEdge: .minY)
     }
 
-    /// Deletes the share's own folder, keyed by the shared item's URL, after a short delay.
-    private func scheduleRemoval(of items: [Any]) {
-        for case let url as URL in items {
-            let dir = url.deletingLastPathComponent()
-            guard dir.deletingLastPathComponent().lastPathComponent == ShareCard.folder.lastPathComponent else { continue }
-            Task { @MainActor in
-                try? await Task.sleep(for: .seconds(60))
-                try? FileManager.default.removeItem(at: dir)
-            }
-        }
-    }
-
     nonisolated func sharingServicePicker(_ picker: NSSharingServicePicker, delegateFor service: NSSharingService) -> NSSharingServiceDelegate? { self }
 
     nonisolated func sharingService(_ service: NSSharingService, didShareItems items: [Any]) {
-        let urls = items.compactMap { $0 as? URL }
-        Task { @MainActor in
-            self.onShared()
-            self.scheduleRemoval(of: urls)
-        }
-    }
-
-    nonisolated func sharingService(_ service: NSSharingService, didFailToShareItems items: [Any], error: Error) {
-        let urls = items.compactMap { $0 as? URL }
-        Task { @MainActor in self.scheduleRemoval(of: urls) }
+        Task { @MainActor in self.onShared() }
     }
 }
 

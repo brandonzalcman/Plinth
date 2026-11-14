@@ -8,7 +8,7 @@ public struct LoyaltyTotals: Equatable, Sendable {
     public var progress: (earned: Int, needed: Int)?
     /// Consecutive days of use ending today (or yesterday, if today has no use yet), on any device.
     public var streak: Int
-    /// Days of use, counted on each device and added together.
+    /// Days of use, counted once per platform per day and added together.
     public var daysOfUse: Int
     public var shares: Int
     public var milestones: Set<LoyaltyMilestone>
@@ -55,7 +55,16 @@ public struct LoyaltyTotals: Equatable, Sendable {
             }
         }
         points += once.values.reduce(0, +)
-        func earned(_ p: LoyaltyPlatform) -> Bool { perPlatform[p]?.contains { LoyaltyLedger.parse($0.key) != nil && $0.value > 0 } ?? false }
+        // A platform has earned only if it has a valid key that counts: a future-dated key does not.
+        func earned(_ p: LoyaltyPlatform) -> Bool {
+            perPlatform[p]?.contains { key, value in
+                guard value > 0, let kind = LoyaltyLedger.parse(key) else { return false }
+                switch kind {
+                case .day(let d), .share(let d): return d <= latest
+                case .once: return true
+                }
+            } ?? false
+        }
         let both = earned(.mac) && earned(.ios)
         if both { points += LoyaltyRules.bothPlatformsPoints }
         let level = LoyaltyLevel.level(forPoints: points)

@@ -2,7 +2,7 @@ import Foundation
 
 /// Point values, caps and levels. One place, so Mac and iOS agree.
 public enum LoyaltyRules {
-    /// Points for the first use of a day on a device.
+    /// Points for the first use of a day on a platform.
     public static let dailyPoints = 10
     /// Extra points per consecutive day already in the streak, capped.
     public static let streakBonusPerDay = 2
@@ -13,7 +13,7 @@ public enum LoyaltyRules {
     public static let milestonePoints = 25
     /// Once, when the same iCloud account has earned on both a Mac and an iPhone.
     public static let bothPlatformsPoints = 50
-    /// Day keys further than this many days past today are ignored (a wrong clock must not mint points).
+    /// Day keys further than this many days past today are ignored (a wrong clock's key does not count until its date).
     public static let maxFutureDays = 2
 }
 
