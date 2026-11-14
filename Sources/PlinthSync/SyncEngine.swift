@@ -48,6 +48,13 @@ public struct SyncOutcome: Sendable, Equatable {
     static let maxPushRounds = 4
 
     public private(set) var isSyncing = false
+    /// This device's loyalty ledger (opaque to sync), uploaded as this device's own `Loyalty` record
+    /// at the next sync. Nil = nothing to upload. Other devices' ledgers come from `loyaltyLedgers()`.
+    public var ownLoyaltyLedger: Data?
+    /// Called when the server already holds a different copy of this device's own ledger (a
+    /// reinstall, or a restored backup), before anything is uploaded. Receives the server's copy and
+    /// the local one, and returns the merged ledger to upload, so an older copy is never overwritten.
+    public var mergeOwnLoyalty: ((_ server: Data, _ local: Data) -> Data)?
     /// When the last sync finished successfully.
     public var lastSyncedAt: Date? { state.lastSyncedAt }
 
@@ -176,6 +183,7 @@ public struct SyncOutcome: Sendable, Equatable {
         var extra: [String: SyncRecord] = [:]
         for r in hist.uploads { extra[r.recordName] = r }
         if let r = ownDeviceRecord(s, openPages: openPages, at: t) { extra[r.recordName] = r }
+        if let r = ownLoyaltyRecord(s, at: t) { extra[r.recordName] = r }
         if let p = s.pendingClear {
             let current = s.server[RecordMapper.clearName]
             if let d = current?["clearedAt"]?.dateValue, d >= p {
@@ -387,6 +395,28 @@ public struct SyncOutcome: Sendable, Equatable {
         return r
     }
 
+    /// Every device's loyalty ledger as of the last sync, including this device's own copy on the
+    /// server (the loyalty engine merges it back, so a reinstall does not lose points). No network.
+    public func loyaltyLedgers() -> [Data] {
+        state.server.values
+            .filter { $0.recordType == RecordMapper.loyaltyType && !$0.isTombstone }
+            .sorted { $0.recordName < $1.recordName }
+            .compactMap { $0["ledger"]?.dataValue }
+    }
+
+    private func ownLoyaltyRecord(_ s: State, at t: Date) -> SyncRecord? {
+        guard var data = ownLoyaltyLedger else { return nil }
+        let existing = s.server[RecordMapper.loyaltyName(deviceID)]
+        if let theirs = existing?["ledger"]?.dataValue, theirs != data, let merge = mergeOwnLoyalty {
+            data = merge(theirs, data)
+            ownLoyaltyLedger = data
+        }
+        var r = RecordMapper.loyaltyRecord(deviceID: deviceID, ledger: data)
+        if let existing, existing.sameContent(as: r) { return nil }
+        r.modifiedAt = t; r.modifiedBy = deviceID; r.serverTag = existing?.serverTag
+        return r
+    }
+
     private func otherDevices(_ s: State, at t: Date) -> [DeviceOpenPages] {
         let own = RecordMapper.deviceName(deviceID)
         return s.server.values
@@ -404,6 +434,7 @@ public struct SyncOutcome: Sendable, Equatable {
     private func push(_ s: inout State, names: Set<String>, extra: [String: SyncRecord], deletes: [SyncRecordID]) async throws {
         var names = names, extra = extra, deletes = deletes
         let ownDevice = RecordMapper.deviceName(deviceID)
+        let ownLoyalty = RecordMapper.loyaltyName(deviceID)
         for _ in 0..<Self.maxPushRounds {
             var saves: [SyncRecord] = []
             for name in names.sorted() {
@@ -426,9 +457,10 @@ public struct SyncOutcome: Sendable, Equatable {
                     s.stamps[name] = nil
                 }
             }
-            // Never write another Mac's open-pages record.
+            // Never write another Mac's open-pages or loyalty record.
             saves += extra.values
                 .filter { $0.recordType != RecordMapper.deviceType || $0.recordName == ownDevice }
+                .filter { $0.recordType != RecordMapper.loyaltyType || $0.recordName == ownLoyalty }
                 .sorted { $0.recordName < $1.recordName }
             if saves.isEmpty && deletes.isEmpty { return }
 
@@ -461,7 +493,9 @@ public struct SyncOutcome: Sendable, Equatable {
                     } else {
                         var m = mine; m.serverTag = c.serverTag; extra[m.recordName] = m
                     }
-                case RecordMapper.deviceType where c.recordName == ownDevice:
+                case RecordMapper.deviceType where c.recordName == ownDevice,
+                     RecordMapper.loyaltyType where c.recordName == ownLoyalty:
+                    s.server[c.recordName] = c
                     var m = mine; m.serverTag = c.serverTag; extra[m.recordName] = m
                 default:
                     break
