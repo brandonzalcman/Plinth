@@ -95,6 +95,19 @@ let utc = TimeZone(identifier: "UTC")!
         #expect(Set(ups).count == ups.count)
     }
 
+    @Test func levelUpIsClaimedOnceEvenWhenPointsArriveFromAnotherDevice() {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("loyalty-\(UUID()).json")
+        defer { try? FileManager.default.removeItem(at: file) }
+        let mac = engine("M", clock: clock, file: file)
+        #expect(mac.claimLevelUp() == nil)
+        var awards: [String: Int] = [:]
+        for d in 1...12 { awards[String(format: "day:2026-02-%02d", d)] = 10 }
+        mac.ingest([LoyaltyLedger(deviceID: "P", platform: .ios, awards: awards).encoded()])
+        #expect(mac.claimLevelUp()?.number == 2)
+        #expect(mac.claimLevelUp() == nil)
+        #expect(engine("M", clock: clock, file: file).claimLevelUp() == nil)   // remembered across launches
+    }
+
     @Test func unknownOrMissingPlatformKeepsTheLedger() {
         let json = #"{"deviceID":"V","platform":"visionos","awards":{"day:2026-03-09":10}}"#
         let l = LoyaltyLedger.decode(Data(json.utf8))

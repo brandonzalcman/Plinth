@@ -5,6 +5,7 @@ import PlinthRules
 import PlinthSettings
 import PlinthWeb
 import PlinthBarUI
+import PlinthLoyalty
 
 /// Test-launch hook: `PLINTH_STEPS="wait 3; peek http://…; wait 4; promote; …"` drives features
 /// through the same entry points the UI uses, logging to stdout. Inactive unless the variable is set.
@@ -344,6 +345,13 @@ enum DebugScript {
             // welcome [card index]: replays the welcome guide, from the intro or at that card.
             app.showWelcomeGuide(startingAtCard: Int(arg))
         case "pw": app.passwords.debug(arg)
+        case "loyaltypoints":
+            // loyaltypoints <n>: adds n points from a made-up second device (past days), to see levels and level-ups.
+            let days = max(Int(arg) ?? 0, 0) / 10
+            var awards: [String: Int] = [:]
+            for i in 0..<days { awards[String(format: "day:2025-%02d-%02d", i / 28 + 1, i % 28 + 1)] = 10 }
+            log("active=\(NSApp.isActive) welcome=\(app.welcome?.window?.isVisible == true)")
+            app.loyalty.ingest([PlinthLoyalty.LoyaltyLedger(deviceID: "debug", platform: .mac, awards: awards).encoded()])
         case "settings":
             // settings <section id>: opens the Settings window on that section.
             app.menuSettings(nil)

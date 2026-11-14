@@ -4,7 +4,7 @@ import PlinthPanels
 
 /// The sections, in sidebar order. The raw value is the stable id used by `select(section:)`.
 enum SettingsSection: String, CaseIterable, Identifiable {
-    case general, privacy, passwords, downloads, startup, appearance, ai, `import`
+    case general, privacy, passwords, downloads, startup, appearance, loyalty, ai, `import`
     var id: String { rawValue }
 
     var title: String {
@@ -15,6 +15,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .downloads: "Downloads"
         case .startup: "Startup & Pages"
         case .appearance: "Appearance & Bar"
+        case .loyalty: "Points & Levels"
         case .ai: "On-device AI"
         case .import: "Import"
         }
@@ -28,6 +29,7 @@ enum SettingsSection: String, CaseIterable, Identifiable {
         case .downloads: "arrow.down.circle"
         case .startup: "house"
         case .appearance: "paintbrush"
+        case .loyalty: "rosette"
         case .ai: "sparkles"
         case .import: "square.and.arrow.down"
         }
@@ -41,7 +43,8 @@ struct SettingsRoot: View {
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        let theme = SettingsTheme(p: PanelPalette(scheme), accent: app.accent,
+        let _ = app.loyaltyModel.revision
+        let theme = SettingsTheme(p: PanelPalette(scheme), accent: app.accent(dark: scheme == .dark),
                                   amber: scheme == .dark ? Color(red: 0.95, green: 0.70, blue: 0.30) : Color(red: 0.70, green: 0.42, blue: 0.0),
                                   danger: scheme == .dark ? Color(red: 1.0, green: 0.45, blue: 0.45) : Color(red: 0.78, green: 0.18, blue: 0.18),
                                   isDark: scheme == .dark)
@@ -69,6 +72,7 @@ struct SettingsRoot: View {
         case .downloads: DownloadsSettingsView(app: app)
         case .startup: StartupSettingsView(app: app)
         case .appearance: AppearanceSettingsView(app: app)
+        case .loyalty: LoyaltySettingsView(app: app)
         case .ai: AISettingsView(app: app)
         case .import: ImportSettingsView(app: app)
         }

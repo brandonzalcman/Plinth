@@ -7,6 +7,9 @@ struct AppearanceSettingsView: View {
     private var settings: SettingsStore { app.settings }
 
     /// The same steps the page zoom commands use.
+    static let brandAccents: [AccentChoice] = [.dusk, .meadow, .ember, .midnight, .mono]
+    static let standardAccents: [AccentChoice] = AccentChoice.allCases.filter { !brandAccents.contains($0) }
+
     static let zoomSteps: [Double] = [0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3]
 
     private var zoomIndex: Int {
@@ -27,7 +30,13 @@ struct AppearanceSettingsView: View {
             SettingsCard(heading: "Accent colour") {
                 SettingsRow(title: "Accent", caption: "Used for the current page, buttons and switches. Applies immediately.") {
                     HStack(spacing: 9) {
-                        ForEach(AccentChoice.allCases, id: \.self) { choice in swatch(choice) }
+                        ForEach(Self.standardAccents, id: \.self) { choice in swatch(choice) }
+                    }
+                }
+                SettingsDivider()
+                SettingsRow(title: "Brand colours", caption: "Unlock one for each level you reach, from Points & Levels.") {
+                    HStack(spacing: 9) {
+                        ForEach(Self.brandAccents, id: \.self) { choice in swatch(choice) }
                     }
                 }
             }
@@ -95,18 +104,26 @@ struct AppearanceSettingsView: View {
     }
 
     private func swatch(_ choice: AccentChoice) -> some View {
-        let c = choice.rgb
+        let c = choice.rgb(dark: t.isDark)
         let color = Color(red: c.r / 255, green: c.g / 255, blue: c.b / 255)
-        let on = settings.value.accent == choice
-        return Button { settings.update { $0.accent = choice } } label: {
+        let _ = app.loyaltyModel.revision
+        let level = app.loyalty.totals.level.number
+        let locked = choice.unlockLevel > level
+        // A saved accent the level no longer unlocks is not shown as selected: blue is in use.
+        let effective = settings.value.accent.unlockLevel > level ? AccentChoice.blue : settings.value.accent
+        let on = effective == choice
+        return Button { if !locked { settings.update { $0.accent = choice } } } label: {
             Circle().fill(color).frame(width: 20, height: 20)
+                .overlay { if locked { Image(systemName: "lock.fill").font(.system(size: 8, weight: .bold)).foregroundStyle(.white) } }
+                .opacity(locked ? 0.55 : 1)
                 .padding(3)
                 .overlay(Circle().strokeBorder(on ? t.p.primary : .clear, lineWidth: 2))
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
-        .help(choice.displayName)
-        .accessibilityLabel(choice.displayName)
+        .disabled(locked)
+        .help(locked ? "\(choice.displayName): unlocks at level \(choice.unlockLevel)" : choice.displayName)
+        .accessibilityLabel(locked ? "\(choice.displayName), locked until level \(choice.unlockLevel)" : choice.displayName)
         .accessibilityAddTraits(on ? [.isSelected] : [])
     }
 }
