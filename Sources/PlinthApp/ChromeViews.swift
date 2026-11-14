@@ -10,6 +10,9 @@ struct BarHost: View {
     let app: AppController
     let windowID: WindowID
     let chrome: WindowChrome
+    /// The accent follows the appearance this view is drawn in (a private window's bar is always dark).
+    @Environment(\.colorScheme) private var scheme
+    private var accent: Color { app.accent(dark: scheme == .dark) }
 
     var body: some View {
         let state = app.store.window(windowID)
@@ -39,7 +42,7 @@ struct BarHost: View {
             layoutForWidth: { width in
                 engine.layout(input, barWidth: width, metrics: .standard, measure: BarTextMeasurer.width)
             },
-            accent: app.accent,
+            accent: accent,
             icon: { app.pool.favicons.image(for: $0) },
             downloads: downloads,
             nav: nav,
@@ -51,7 +54,7 @@ struct BarHost: View {
             if let progress = chrome.progress {
                 GeometryReader { proxy in
                     Capsule()
-                        .fill(app.accent)
+                        .fill(accent)
                         .frame(width: max(8, (proxy.size.width - 40) * progress), height: 2)
                         .padding(.leading, 20)
                         .animation(.easeOut(duration: 0.2), value: progress)
@@ -68,6 +71,8 @@ struct PanelLayer: View {
     let app: AppController
     let controller: BrowserWindowController
     let chrome: WindowChrome
+    @Environment(\.colorScheme) private var scheme
+    var accent: Color { app.accent(dark: scheme == .dark) }
 
     var body: some View {
         let metrics = BarMetrics.standard
@@ -81,7 +86,7 @@ struct PanelLayer: View {
                 CommandBarView(
                     initialText: text,
                     opensNewPage: newPage,
-                    accent: app.accent,
+                    accent: accent,
                     results: { query in
                         if query.isEmpty {
                             _ = app.store.suggestions(for: "") // forgets the last typed query
@@ -106,7 +111,7 @@ struct PanelLayer: View {
                 Color.black.opacity(0.001).onTapGesture { controller.dismissPanel() }
                 ShelfView(
                     entries: app.store.shelf,
-                    accent: app.accent,
+                    accent: accent,
                     icon: { app.pool.favicons.image(for: $0) },
                     snapshot: { app.pool.snapshot(for: $0) },
                     hasSnapshot: { app.pool.hasSnapshot(for: $0) },
@@ -132,7 +137,7 @@ struct PanelLayer: View {
                 Color.black.opacity(0.001).onTapGesture { controller.dismissPanel() }
                 DownloadsTrayView(
                     items: app.pool.downloads.items,
-                    accent: app.accent,
+                    accent: accent,
                     onOpen: { app.pool.openDownload(id: $0) },
                     onReveal: { app.pool.revealDownload(id: $0) },
                     onCancel: { app.pool.cancelDownload(id: $0) },
@@ -147,7 +152,7 @@ struct PanelLayer: View {
             ZStack(alignment: .bottomTrailing) {
                 Color.black.opacity(0.001).onTapGesture { controller.dismissPanel() }
                 HistoryView(
-                    accent: app.accent,
+                    accent: accent,
                     icon: { app.pool.favicons.image(for: $0) },
                     prepare: {
                         // Built off the main thread from a snapshot of the history.
@@ -187,7 +192,7 @@ struct PanelLayer: View {
                     isStreaming: chrome.askStreaming,
                     message: chrome.askMessage,
                     canTurnOn: app.ai.availability == .turnedOff,
-                    accent: app.accent,
+                    accent: accent,
                     initialQuestion: chrome.askQuestion,
                     onAsk: { controller.ask($0) },
                     onStop: { controller.stopAsk() },
@@ -201,7 +206,7 @@ struct PanelLayer: View {
             }
         case .find:
             FindBarView(
-                accent: app.accent,
+                accent: accent,
                 notFound: Binding(get: { chrome.findNotFound }, set: { chrome.findNotFound = $0 }),
                 onFind: { text, backwards in controller.find(text, backwards: backwards) },
                 onDismiss: { controller.dismissPanel() }
