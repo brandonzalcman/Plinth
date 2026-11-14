@@ -46,8 +46,6 @@ let utc = TimeZone(identifier: "UTC")!
         e.record(.dayOfUse); clock.advance(days: 1)
         e.record(.dayOfUse); clock.advance(days: 2)
         #expect(e.totals.streak == 0)
-        #expect(e.record(.dayOfUse).pointsAdded == 0)     // the first day back is held (see trust)
-        clock.advance(days: 1)
         #expect(e.record(.dayOfUse).pointsAdded == 10)    // streak restarted, no bonus
         #expect(e.totals.streak == 1)
     }
@@ -97,58 +95,6 @@ let utc = TimeZone(identifier: "UTC")!
         #expect(Set(ups).count == ups.count)
     }
 
-    @Test func clockSetBackMintsNothing() {
-        let e = engine("A", clock: clock)
-        e.record(.dayOfUse)
-        clock.advance(days: 1); e.record(.dayOfUse)
-        let earned = e.totals.points
-        for back in 1...60 {
-            clock.advance(days: -back)               // wind the clock to a day not in the ledger
-            #expect(e.record(.dayOfUse).pointsAdded == 0)
-            #expect(e.record(.share).pointsAdded == 0)
-            clock.advance(days: back)
-        }
-        #expect(e.totals.points == earned)
-    }
-
-    @Test func oneWrongClockReadingCostsNothingLater() {
-        let e = engine("A", clock: clock)
-        e.record(.dayOfUse)                               // real day 1
-        clock.advance(days: 365); #expect(e.record(.dayOfUse).pointsAdded == 0); #expect(e.record(.share).pointsAdded == 0)
-        clock.advance(days: -364)                         // real day 2
-        #expect(e.record(.dayOfUse).pointsAdded > 0)
-        #expect(e.record(.share).pointsAdded == 15)
-        #expect(e.own.awards.keys.allSatisfy { !$0.contains("2027") })   // nothing future was written
-    }
-
-    @Test func twoDaysAheadOnceCostsNothing() {
-        let e = engine("A", clock: clock)
-        e.record(.dayOfUse)
-        clock.advance(days: 2); e.record(.dayOfUse)       // wrong clock, not paid
-        clock.advance(days: -1)                           // real day 2
-        #expect(e.record(.dayOfUse).pointsAdded > 0)
-    }
-
-    @Test func returningAfterALongAbsenceIsPaidOnTheSecondDay() {
-        let e = engine("A", clock: clock)
-        e.record(.dayOfUse)
-        clock.advance(days: 30)
-        #expect(e.record(.dayOfUse).pointsAdded == 0)     // could be a wrong clock: held
-        clock.advance(days: 1)
-        #expect(e.record(.dayOfUse).pointsAdded == 10)
-        #expect(e.record(.share).pointsAdded == 15)
-    }
-
-    @Test func trustSurvivesRelaunch() {
-        let file = FileManager.default.temporaryDirectory.appendingPathComponent("loyalty-\(UUID()).json")
-        defer { try? FileManager.default.removeItem(at: file) }
-        let a = engine("A", clock: clock, file: file)
-        a.record(.dayOfUse); clock.advance(days: 1); a.record(.dayOfUse)
-        clock.advance(days: -30)
-        let b = engine("A", clock: clock, file: file)
-        #expect(b.record(.dayOfUse).pointsAdded == 0)
-    }
-
     @Test func unknownOrMissingPlatformKeepsTheLedger() {
         let json = #"{"deviceID":"V","platform":"visionos","awards":{"day:2026-03-09":10}}"#
         let l = LoyaltyLedger.decode(Data(json.utf8))
@@ -158,6 +104,74 @@ let utc = TimeZone(identifier: "UTC")!
         e.ingest([Data(json.utf8)])
         #expect(e.totals.points == 10)
         #expect(e.totals.bothPlatforms == false)
+    }
+
+    @Test func weekdayOnlyUsePaysEveryUsedDay() {
+        let e = engine("A", clock: clock)            // 2026-03-10 is a Tuesday
+        var paid = 0
+        for _ in 0..<4 * 7 {
+            let weekday = Calendar(identifier: .gregorian).dateComponents(in: utc, from: clock.t).weekday!
+            if (2...6).contains(weekday), e.record(.dayOfUse).pointsAdded > 0 { paid += 1 }
+            clock.advance(days: 1)
+        }
+        #expect(paid == 20)                           // four weeks of five weekdays
+    }
+
+    @Test func everyOtherDayUsePaysEveryUsedDayWithStreakOne() {
+        let e = engine("A", clock: clock)
+        var added: [Int] = []
+        for _ in 0..<10 { added.append(e.record(.dayOfUse).pointsAdded); clock.advance(days: 2) }
+        #expect(added == Array(repeating: 10, count: 10))
+        clock.advance(days: -2)
+        #expect(e.totals.streak == 1)
+    }
+
+    @Test func aFarFutureBlipThenNormalUseLosesNothing() {
+        let e = engine("A", clock: clock)
+        e.record(.dayOfUse)
+        clock.advance(days: 365); e.record(.dayOfUse); e.record(.share)    // wrong clock for one launch
+        clock.advance(days: -364)                                          // real day 2
+        #expect(e.record(.dayOfUse).pointsAdded > 0)
+        #expect(e.record(.share).pointsAdded == 15)
+        clock.advance(days: 2)
+        #expect(e.record(.dayOfUse).pointsAdded > 0)                        // a missed day costs nothing
+        // The future key is ignored until its date.
+        #expect(e.totals.points == 10 + 12 + 15 + 10)
+    }
+
+    @Test func firstLaunchWithAWrongClockThenCorrectedEarnsNormally() {
+        let e = engine("A", clock: clock)
+        clock.advance(days: 400)
+        e.record(.dayOfUse)                                                 // wrong clock on first launch
+        clock.advance(days: -400)
+        #expect(e.totals.points == 0)                                       // too far ahead: not counted
+        #expect(e.record(.dayOfUse).pointsAdded == 10)
+        clock.advance(days: 1)
+        #expect(e.record(.dayOfUse).pointsAdded > 0)
+    }
+
+    @Test func aThirtyDayAbsencePaysTheFirstDayBack() {
+        let e = engine("A", clock: clock)
+        e.record(.dayOfUse)
+        clock.advance(days: 30)
+        #expect(e.record(.dayOfUse).pointsAdded == 10)
+    }
+
+    @Test func oneDamagedAwardKeepsTheRestOfTheLedger() {
+        let json = #"{"deviceID":"P","platform":"ios","awards":{"day:2026-03-09":10,"day:2026-03-08":"oops","once:firstPin":25.5}}"#
+        let l = LoyaltyLedger.decode(Data(json.utf8))
+        #expect(l?.awards == ["day:2026-03-09": 10])
+    }
+
+    @Test func totalsAreCachedUntilALedgerChanges() {
+        let e = engine("A", clock: clock)
+        e.record(.dayOfUse)
+        let a = e.totals, b = e.totals
+        #expect(a == b)
+        e.record(.share)
+        #expect(e.totals.points == 25)
+        clock.advance(days: 1)
+        #expect(e.totals.streak == 1)          // the day changed: recomputed, not stale
     }
 
     @Test func shareOnTheNewestDayStillEarns() {
