@@ -46,9 +46,12 @@ final class AppController: NSObject, NSApplicationDelegate {
     /// History entries already sent to the semantic index this run.
     var indexedHistory = Set<UUID>()
     var sync: SyncCoordinator?
+    private var appearanceObservation: NSKeyValueObservation?
     /// Loyalty points and levels (see Loyalty.swift).
     var loyalty: LoyaltyEngine!
     let loyaltyModel = LoyaltyModel()
+    /// During the first minute of the first run, level-ups are acknowledged without a card.
+    var silentUntil: Date?
     var otherDevices: [DeviceOpenPages] = []
     /// Ends the shelf's "Clear all" Undo window (see ShelfUndo.swift).
     var shelfUndoTask: Task<Void, Never>?
@@ -61,8 +64,14 @@ final class AppController: NSObject, NSApplicationDelegate {
     var checkForUpdates: (@MainActor () -> Void)?
     @objc func menuCheckForUpdates(_ sender: Any?) { checkForUpdates?() }
     /// The accent colour chosen in Settings (SwiftUI views read it, so they follow changes).
-    var accent: Color {
-        let c = settings.value.accent.rgb
+    var accent: Color { accent(dark: NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua) }
+
+    /// The accent for a light or dark surface. A brand colour that the current level has not unlocked
+    /// falls back to the default blue (it could only be chosen before points were reset or turned off).
+    func accent(dark: Bool) -> Color {
+        var choice = settings.value.accent
+        if let loyalty, choice.unlockLevel > loyalty.totals.level.number { choice = .blue }
+        let c = choice.rgb(dark: dark)
         return Color(red: c.r / 255, green: c.g / 255, blue: c.b / 255)
     }
 
@@ -169,7 +178,7 @@ final class AppController: NSObject, NSApplicationDelegate {
 
     func applicationDidBecomeActive(_ notification: Notification) {
         scheduleFade()
-        if loyalty != nil { earn(.dayOfUse) }
+        earnDayOfUse()
     }
 
     func applicationWillTerminate(_ notification: Notification) {

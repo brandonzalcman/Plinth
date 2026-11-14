@@ -213,8 +213,10 @@ extension BrowserWindowController {
 
     // MARK: Ask page / ask site
 
-    func openAsk() {
-        guard let selected = app.store.window(windowID)?.selectedPageID else { return }
+    /// Returns whether the Ask panel opened (it needs a selected page).
+    @discardableResult
+    func openAsk() -> Bool {
+        guard let selected = app.store.window(windowID)?.selectedPageID else { return false }
         closePeek()
         app.ai.refreshAvailability()
         let scopes = askScopes()
@@ -225,6 +227,7 @@ extension BrowserWindowController {
         chrome.askMessage = Self.message(for: app.ai.availability)
         chrome.panel = .ask
         syncPanel()
+        return true
     }
 
     func askScopes() -> [AskScopeOption] {

@@ -78,10 +78,12 @@ struct AppIconPicker: View {
     var body: some View {
         let _ = app.loyaltyModel.revision
         let level = app.loyalty.totals.level.number
+        // A saved icon the level no longer unlocks is not shown as selected: Sunrise is in use.
+        let chosen = LoyaltyColourway.named(app.settings.value.appIcon).flatMap { $0.unlockLevel <= level ? $0 : nil } ?? .sunrise
         HStack(spacing: 14) {
             ForEach(LoyaltyColourway.all) { way in
                 let locked = way.unlockLevel > level
-                let on = app.settings.value.appIcon == way.id
+                let on = chosen.id == way.id
                 Button {
                     if !locked { app.settings.update { $0.appIcon = way.id } }
                 } label: {

@@ -110,7 +110,7 @@ struct AppearanceSettingsView: View {
     }
 
     private func swatch(_ choice: AccentChoice) -> some View {
-        let c = choice.rgb
+        let c = choice.rgb(dark: t.isDark)
         let color = Color(red: c.r / 255, green: c.g / 255, blue: c.b / 255)
         let on = settings.value.accent == choice
         let _ = app.loyaltyModel.revision

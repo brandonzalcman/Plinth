@@ -27,45 +27,73 @@ extension AccentChoice {
 extension AppController {
     // MARK: Setup
 
+    /// A launch with `PLINTH_STORAGE` is a scratch profile: it never syncs loyalty and never uses the
+    /// real device ID, so a scripted run cannot write points to the real account.
+    var isScratchProfile: Bool { ProcessInfo.processInfo.environment["PLINTH_STORAGE"] != nil }
+
     func setUpLoyalty() {
-        let engine = LoyaltyEngine(deviceID: SyncSettings().deviceID, platform: .mac,
-                                   fileURL: storageDirectory.appendingPathComponent("loyalty.json"))
+        let file = storageDirectory.appendingPathComponent("loyalty.json")
+        let firstRun = !FileManager.default.fileExists(atPath: file.path)
+        let engine = LoyaltyEngine(deviceID: isScratchProfile ? "scratch-profile" : SyncSettings().deviceID, platform: .mac, fileURL: file)
         loyalty = engine
+        // The first run of the loyalty system credits what already exists (pins, bookmarks, a day of
+        // use) without a level-up card, even when sync turns on a moment later.
+        if firstRun { silentUntil = Date().addingTimeInterval(60) }
         engine.onChange = { [weak self] in
             guard let self else { return }
             self.loyaltyModel.bump()
             self.applyAppIcon()
-            if let level = self.loyalty.claimLevelUp() { LoyaltyToast.show(level: level) }
+            self.announceLevelUpIfPossible()
             self.pushLoyaltyToSync()
         }
+        earnDayOfUse()
+        loyaltyTick()
+    }
+
+    /// Records an event. A level-up shows the quiet level-up moment (see `announceLevelUpIfPossible`).
+    func earn(_ event: LoyaltyEvent) { loyalty.record(event) }
+
+    /// One use per day, not from a private window. Called at launch, on activation and every few seconds
+    /// while Plinth is active, so a day is not missed if Plinth stays frontmost across midnight.
+    func earnDayOfUse() {
+        guard loyalty != nil, !(keyWindowID.map { store.isPrivate(window: $0) } ?? false) else { return }
         earn(.dayOfUse)
     }
 
-    /// Records an event. A level-up shows the quiet level-up moment (see `onChange`).
-    func earn(_ event: LoyaltyEvent) { loyalty.record(event) }
-
-    /// Called every few seconds: credits one-off milestones for things the user has done.
+    /// Called every few seconds: credits one-off milestones for things the user has done. Private
+    /// windows do not count.
     func loyaltyTick() {
         guard loyalty.isEnabled else { return }
+        earnDayOfUse()
         if !store.pins.isEmpty { earn(.milestone(.firstPin)) }
         if !bookmarks.bookmarks.isEmpty { earn(.milestone(.firstBookmark)) }
-        if store.windows.contains(where: { $0.split != nil }) { earn(.milestone(.firstSplitView)) }
+        if store.windows.contains(where: { !$0.isPrivate && $0.split != nil }) { earn(.milestone(.firstSplitView)) }
         if sync != nil { earn(.milestone(.syncOn)) }
+    }
+
+    /// Shows the level-up card only when Plinth is the active app and the welcome guide is not up.
+    /// Otherwise the level stays unannounced and is shown at the next change that finds it possible.
+    /// Levels reached during the first minute of the first run are acknowledged silently.
+    private func announceLevelUpIfPossible() {
+        if let until = silentUntil, Date() < until { _ = loyalty.claimLevelUp(); return }
+        guard NSApp.isActive, welcome?.window?.isVisible != true else { return }
+        if let level = loyalty.claimLevelUp() { LoyaltyToast.show(level: level) }
     }
 
     // MARK: Sync
 
     func connectLoyalty(to coordinator: SyncCoordinator) {
+        guard !isScratchProfile else { return }
         coordinator.engine.ownLoyaltyLedger = loyalty.ownLedgerData
     }
 
     func ingestLoyaltyFromSync() {
-        guard let engine = sync?.engine else { return }
+        guard !isScratchProfile, let engine = sync?.engine else { return }
         loyalty.ingest(engine.loyaltyLedgers())
     }
 
     private func pushLoyaltyToSync() {
-        guard let coordinator = sync else { return }
+        guard !isScratchProfile, let coordinator = sync else { return }
         coordinator.engine.ownLoyaltyLedger = loyalty.ownLedgerData
         coordinator.scheduleSync(local: { self.store.syncPayload() }, openPages: { self.store.openPagesSummary() },
                                  apply: { self.store.applySynced($0) })
@@ -132,15 +160,14 @@ struct ArchShape: Shape {
         host.frame = NSRect(origin: .zero, size: host.fittingSize)
         let p = NSPanel(contentRect: host.frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         p.isOpaque = false; p.backgroundColor = .clear; p.hasShadow = false
-        p.level = .floating; p.ignoresMouseEvents = true
-        p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        p.level = .floating; p.ignoresMouseEvents = true; p.hidesOnDeactivate = true
         p.contentView = host
         if let screen = (NSApp.keyWindow?.screen ?? NSScreen.main) {
             let f = screen.visibleFrame
             p.setFrameOrigin(NSPoint(x: f.midX - host.frame.width / 2, y: f.minY + 110))
         }
         p.alphaValue = 0
-        p.orderFrontRegardless()
+        p.orderFront(nil)
         NSAnimationContext.runAnimationGroup { $0.duration = 0.35; p.animator().alphaValue = 1 }
         panel = p
         dismissTask = Task { @MainActor in
