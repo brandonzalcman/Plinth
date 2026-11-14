@@ -1,6 +1,6 @@
 # Apple Passwords and passkeys in Plinth
 
-Status: **not enabled.** The README says system Passwords autofill and passkeys need an Apple entitlement. This note is how to ask Apple for it. (An earlier version of this process lived in `RELEASING.md`; it is here now.)
+Status: **Apple approved the passkeys entitlement for `app.plinth.Plinth` (Mac only).** The release script signs it in when the provisioning profile carries it; until the profile is regenerated (steps in `RELEASING.md`, "Passkeys in releases") releases ship without passkeys. Passwords autofill into forms is a separate question and is still untested.
 
 ## What Apple offers on macOS
 
@@ -10,14 +10,19 @@ Status: **not enabled.** The README says system Passwords autofill and passkeys 
 
 ## Why the entitlement is not in `App/Plinth.entitlements`
 
-It is a restricted entitlement. Apple adds it to the team as a managed capability, and it has to be backed by a provisioning profile. If the key is added before approval, a signed build can refuse to launch, and the no-team local builds (`Scripts/bundle.sh`) would break. Add it only after Apple approves.
+It is a restricted entitlement. Apple adds it to the team as a managed capability, and it has to be backed by a provisioning profile. If the key is added before approval, a signed build can refuse to launch, and the no-team local builds (`Scripts/bundle.sh`) would break. `Scripts/release.sh` therefore adds it to a copy of `App/Plinth.release.entitlements` only when the profile it is given carries it.
 
-## Steps
+## Findings on how the app uses it
 
-1. The Account Holder signs in at developer.apple.com and submits the [macOS Browsers Passkeys](https://developer.apple.com/contact/request/macos-browsers-passkeys/) form for `app.plinth.Plinth`: macOS web browser, Developer ID distribution, open source (GPL v3), site getplinth.dev.
-2. When Apple approves, enable **Web Browser Public Key Credential** on the App ID `app.plinth.Plinth` (Certificates, Identifiers & Profiles › Identifiers) and regenerate the Developer ID provisioning profile (the one `RELEASING.md` describes for iCloud; one profile carries both).
-3. Add `com.apple.developer.web-browser.public-key-credential` (boolean `true`) to `App/Plinth.release.entitlements`, not to `App/Plinth.entitlements`, so no-team builds keep working. Update the `DEVELOPER_ID_PROFILE` secret with the new profile.
-4. Run `UNSIGNED=1 Scripts/release.sh 0.0.0` to check the packaging still builds, then do a normal signed release.
+- `WKWebView` performs WebAuthn itself. WebKit builds the `ASAuthorizationController` request inside its UI process (`WebAuthenticatorCoordinatorProxy`) and the system decides whether the host app may ask for any relying party; the host app needs only the entitlement. WebKit's own comment on bug 250912 says passkeys in a `WKWebView` are allowed only "in an entitled web browser or has matching associated domain". So Plinth has no native passkey code and does not call `ASAuthorizationWebBrowserPublicKeyCredentialManager` (that class is for apps that drive requests themselves) or request platform-credential authorization.
+- Apple's entitlement page does not say this; it is read from WebKit's source and bug tracker, plus developer forum reports that demo pages began to work once the entitlement arrived. Reasonably sure, not confirmed on a signed Plinth build yet.
+- Private windows use a non-persistent data store but offer passkeys like any window; the credentials live in iCloud Keychain, not in Plinth.
+
+## Steps (done by the account holder)
+
+1. Apple approved the [macOS Browsers Passkeys](https://developer.apple.com/contact/request/macos-browsers-passkeys/) request for `app.plinth.Plinth`.
+2. Enable the capability on the App ID, regenerate the Developer ID profile and update `DEVELOPER_ID_PROFILE`: exact steps in `RELEASING.md`, "Passkeys in releases".
+3. Release; the log says whether the profile carried the entitlement.
 
 ## What to test after
 

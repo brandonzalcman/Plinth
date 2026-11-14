@@ -156,3 +156,31 @@ One-time setup (the account steps are done by you, on developer.apple.com and in
 6. Run a release. The log's "Exporting with Developer ID (with iCloud)" line confirms the profile was used.
 
 To release from your Mac, add `PROVISIONING_PROFILE=/path/to/Plinth_Developer_ID.provisionprofile` to the command above.
+
+## Passkeys in releases (optional)
+
+Apple has approved the **Web Browser Public Key Credential** entitlement (`com.apple.developer.web-browser.public-key-credential`) for `app.plinth.Plinth`, the Mac app only (the approval does not cover iOS). It lets Plinth make passkey and security-key requests for websites. It is a restricted entitlement: the app may carry it only if the provisioning profile authorises it, otherwise a signed build refuses to launch.
+
+So `Scripts/release.sh` looks inside the profile it is given (`Scripts/profile-has-entitlement.sh`). If the profile carries the entitlement, the build is signed with it and the script fails the release if the exported app lacks it; the log says "carries the passkey entitlement". If the profile does not carry it, the release is built exactly as before, without passkeys, and the log says "does not carry the passkey entitlement". The same goes for no profile at all. Releasing before the steps below is therefore safe.
+
+Steps (the account holder does these on developer.apple.com):
+
+1. **Turn the capability on.** Certificates, Identifiers & Profiles › Identifiers › `app.plinth.Plinth` › the **Additional Capabilities** tab (managed capabilities that Apple approved appear there; if it is not listed, look under **Capability Requests**) › enable **Web Browser Public Key Credential** › Save. Apple's "issued" email can arrive before the capability shows up; if it is missing, follow up on the support case.
+2. **Regenerate the profile.** Profiles › open `Plinth Developer ID` › **Edit** › Save (or **+** › Distribution › **Developer ID**, App ID `app.plinth.Plinth`, your Developer ID Application certificate, name `Plinth Developer ID`) › Generate and download `Plinth_Developer_ID.provisionprofile`. It keeps the iCloud capability and now also carries passkeys.
+3. **Update the secret** from the folder with the file, then delete the local copy:
+
+   ```bash
+   gh secret set DEVELOPER_ID_PROFILE --body "$(base64 -i Plinth_Developer_ID.provisionprofile)"
+   ```
+
+4. Run a release. Check the log for "carries the passkey entitlement", then try passkeys on the installed build (below).
+
+To check a profile before uploading it:
+
+```bash
+Scripts/profile-has-entitlement.sh Plinth_Developer_ID.provisionprofile com.apple.developer.web-browser.public-key-credential && echo carries passkeys
+```
+
+**How the app uses it.** Plinth has no passkey code of its own. `WKWebView` runs WebAuthn (`navigator.credentials.create` and `get`) itself and hands the request to the system passkey sheet, which allows any relying party once the app carries the entitlement; without it, only a site whose associated domains match the app may use passkeys. Private windows offer passkeys like normal windows: the passkeys live in the user's iCloud Keychain or on a security key, and Plinth stores nothing.
+
+**Checking it on a real site** (signed build with the new profile): open https://webauthn.io, type a username, choose **Register** and approve in the system sheet, then **Authenticate** and confirm the passkey is offered and signs in. Try it in a private window too. A local `Scripts/bundle.sh` build is ad-hoc signed and cannot carry the entitlement; testing from a local build needs your own team's profile that includes the capability, signed with `PLINTH_ENTITLEMENTS` pointing at a plist with the key.

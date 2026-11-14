@@ -18,7 +18,9 @@
 #   PROVISIONING_PROFILE optional; path to a Developer ID provisioning profile for app.plinth.Plinth that
 #                        includes the iCloud container. With it the build carries the iCloud (CloudKit)
 #                        entitlement from App/Plinth.release.entitlements and iCloud sync works; without
-#                        it the build has no iCloud, exactly as before (see RELEASING.md)
+#                        it the build has no iCloud, exactly as before (see RELEASING.md). When the profile also
+#                        carries the Web Browser Public Key Credential entitlement (passkeys), the build is
+#                        signed with that too; a profile without it still builds, without passkeys
 #   BUILD_NUMBER         optional; defaults to the number of commits, which always increases
 #   RELEASE_NOTES        optional Markdown file shown in the update window
 set -euo pipefail
@@ -50,15 +52,25 @@ mkdir -p "$OUT"
 
 # Optional Developer ID provisioning profile (adds iCloud). Installed where xcodebuild looks for it.
 PROFILE_NAME=""
+WITH_PASSKEYS=0
+PASSKEY_KEY="com.apple.developer.web-browser.public-key-credential"
 if [[ "$UNSIGNED" != 1 && -n "${PROVISIONING_PROFILE:-}" ]]; then
     [[ -f "$PROVISIONING_PROFILE" ]] || fail "PROVISIONING_PROFILE is not a file: $PROVISIONING_PROFILE"
     security cms -D -i "$PROVISIONING_PROFILE" > "$OUT/profile.plist"
     PROFILE_NAME="$(/usr/libexec/PlistBuddy -c 'Print :Name' "$OUT/profile.plist")"
     PROFILE_UUID="$(/usr/libexec/PlistBuddy -c 'Print :UUID' "$OUT/profile.plist")"
     PROFILE_APP_ID="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:com.apple.application-identifier' "$OUT/profile.plist")"
+    # The passkey entitlement is restricted: signed in without the profile authorising it, the app would
+    # not launch. So it goes in only when this profile carries it.
+    Scripts/profile-has-entitlement.sh "$OUT/profile.plist" "$PASSKEY_KEY" && WITH_PASSKEYS=1
     rm "$OUT/profile.plist"
     [[ "$PROFILE_APP_ID" == "$TEAM_ID.app.plinth.Plinth" ]] \
         || fail "the provisioning profile is for '$PROFILE_APP_ID', not $TEAM_ID.app.plinth.Plinth"
+    if [[ "$WITH_PASSKEYS" == 1 ]]; then
+        print "Profile '$PROFILE_NAME' carries the passkey entitlement: signing with passkeys."
+    else
+        print "Profile '$PROFILE_NAME' does not carry the passkey entitlement: building without passkeys (see RELEASING.md)."
+    fi
     mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
     cp "$PROVISIONING_PROFILE" "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.provisionprofile"
 fi
@@ -73,7 +85,13 @@ if [[ "$UNSIGNED" != 1 ]]; then
         # These two are the app target's own settings (see the project file). Passing
         # PROVISIONING_PROFILE_SPECIFIER itself here would also reach the Swift package's resource
         # bundles, which cannot take a profile, and the archive fails.
-        SIGNING+=(PLINTH_ENTITLEMENTS=App/Plinth.release.entitlements "PLINTH_PROFILE=$PROFILE_NAME")
+        ENTITLEMENTS=App/Plinth.release.entitlements
+        if [[ "$WITH_PASSKEYS" == 1 ]]; then
+            ENTITLEMENTS="$OUT/Plinth.entitlements"
+            cp App/Plinth.release.entitlements "$ENTITLEMENTS"
+            /usr/libexec/PlistBuddy -c "Add :$PASSKEY_KEY bool true" "$ENTITLEMENTS"
+        fi
+        SIGNING+=("PLINTH_ENTITLEMENTS=$ENTITLEMENTS" "PLINTH_PROFILE=$PROFILE_NAME")
     fi
 fi
 xcodebuild archive -quiet \
@@ -114,6 +132,10 @@ PLIST
     if [[ -n "$PROFILE_NAME" ]]; then
         codesign -d --entitlements - "$APP" 2>&1 | grep -q "iCloud.dev.getplinth.Plinth" \
             || fail "the exported app has no iCloud container entitlement"
+        if [[ "$WITH_PASSKEYS" == 1 ]]; then
+            codesign -d --entitlements - "$APP" 2>&1 | grep -q "$PASSKEY_KEY" \
+                || fail "the exported app has no passkey entitlement"
+        fi
     fi
 fi
 
