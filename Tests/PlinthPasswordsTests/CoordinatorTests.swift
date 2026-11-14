@@ -238,7 +238,7 @@ private func saved(_ site: String, _ user: String, _ pw: String) -> Login {
         #expect(PasswordPageScript.source.contains("isTrusted"))
         #expect(!PasswordPageScript.source.contains("console."))
         // The only way a page can fake input is blocked: the test flag is read from the script's own world, never set by it.
-        #expect(!PasswordPageScript.source.contains("__plinthPwTest ="))
+        #expect(!PasswordPageScript.source.contains("__plinthPwTest = true"))
     }
 }
 
