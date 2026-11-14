@@ -413,7 +413,10 @@ final class BrowserWindowController: NSObject, NSWindowDelegate {
     }
 
     private func open(_ url: URL, newPage: Bool, replacing selected: PageID?) {
-        if !newPage, let selected {
+        // An address typed from a pin that leaves the pin's site opens as an ordinary page, like a link would.
+        let leavesPin = selected.flatMap { id in app.store.pins.first { $0.page.id == id } }
+            .map { app.identity.key(for: url) != $0.key } ?? false
+        if !newPage, !leavesPin, let selected {
             app.store.navigate(selected, to: url)
         } else {
             app.store.openPage(url: url, in: windowID, select: true, opener: nil)

@@ -70,7 +70,10 @@ if [[ "$UNSIGNED" != 1 ]]; then
     SIGNING=(CODE_SIGN_STYLE=Manual "CODE_SIGN_IDENTITY=Developer ID Application" DEVELOPMENT_TEAM="$TEAM_ID"
              "OTHER_CODE_SIGN_FLAGS=--timestamp")
     if [[ -n "$PROFILE_NAME" ]]; then
-        SIGNING+=(CODE_SIGN_ENTITLEMENTS=App/Plinth.release.entitlements "PROVISIONING_PROFILE_SPECIFIER=$PROFILE_NAME")
+        # These two are the app target's own settings (see the project file). Passing
+        # PROVISIONING_PROFILE_SPECIFIER itself here would also reach the Swift package's resource
+        # bundles, which cannot take a profile, and the archive fails.
+        SIGNING+=(PLINTH_ENTITLEMENTS=App/Plinth.release.entitlements "PLINTH_PROFILE=$PROFILE_NAME")
     fi
 fi
 xcodebuild archive -quiet \
