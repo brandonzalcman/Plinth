@@ -16,6 +16,8 @@ public final class ResumeCardService {
     public nonisolated static let maxCardCharacters = 280
     /// Longest focus excerpt sent to the model.
     nonisolated static let maxFocusCharacters = 1200
+    /// Longest opening of the page sent as background.
+    nonisolated static let maxContextCharacters = 1000
 
     private struct Cached { var hash: UInt64; var card: String }
     private var cache: [PageID: Cached] = [:]
@@ -49,6 +51,12 @@ public final class ResumeCardService {
             if let result { cache[page] = Cached(hash: hash, card: result) }
         }
         return task.isCancelled ? nil : result
+    }
+
+    /// Loads the model ahead of the first card, so that one is not the slow one. No-op for
+    /// generators that have nothing to load.
+    public func prewarm() {
+        generator.prewarm(instructions: Self.instructions)
     }
 
     /// The cached card for `page` if one exists for exactly this text. Never calls the model.
@@ -108,12 +116,17 @@ public final class ResumeCardService {
 
         var header = "Page title: \(TextUtil.truncate(text.title, to: 200))\n"
         if let position = positionPhrase(text.scrollFraction) { header += "Position: \(position)\n" }
-        let focusPart = focus.isEmpty ? "" : "Text where the reader stopped:\n\(TextUtil.truncate(focus, to: maxFocusCharacters))\n"
-        let overhead = header.count + focusPart.count + 40
-        let room = pipeline.sourceBudget(instructions: instructions, promptOverhead: overhead)
-        // The whole page is background only; keep it short so the focus excerpt dominates.
-        let contextLimit = min(room, 2000)
-        let context = body.isEmpty ? "" : try await pipeline.condense(body, maxCharacters: contextLimit)
+        // The focus excerpt is trimmed to fit a small model budget before the page opening gets any room.
+        let fixed = header.count + 120
+        let focusRoom = max(200, pipeline.sourceBudget(instructions: instructions, promptOverhead: fixed))
+        let focusLimit = min(maxFocusCharacters, focusRoom)
+        let focusPart = focus.isEmpty ? "" : "Text where the reader stopped:\n\(TextUtil.truncate(focus, to: focusLimit))\n"
+        let room = max(0, pipeline.sourceBudget(instructions: instructions, promptOverhead: fixed + focusPart.count) - 160)
+        // The page opening is background only: enough to say what it is about, while the focus
+        // excerpt carries where the reader stopped. Condensing a long page with more model calls
+        // first made the card take 10 s or more, so this stays a single request.
+        let contextLimit = min(room, maxContextCharacters)
+        let context = body.isEmpty || contextLimit < 80 ? "" : TextUtil.truncate(body, to: contextLimit)
 
         var prompt = header
         if !context.isEmpty { prompt += "What the page is about:\n\(context)\n" }

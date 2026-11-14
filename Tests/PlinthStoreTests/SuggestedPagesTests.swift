@@ -58,4 +58,39 @@ import PlinthModel
         load([visit("https://a.com/setup.dmg"), visit("https://a.com/")])
         #expect(store.suggestedPages().map(\.subtitle) == ["a.com"])
     }
+
+    @Test func plinthIsSuggestedWhenTypedEvenWithoutHistory() {
+        for typed in ["plinth", "Plin", "get", "getplinth", "pli"] {
+            #expect(store.suggestions(for: typed).contains { $0.target == .history(URL(string: "https://getplinth.dev/")!) }, "\(typed)")
+        }
+        #expect(store.suggestions(for: "").isEmpty)
+        #expect(store.suggestedPages().isEmpty)
+    }
+
+    @Test func plinthIsNotListedTwiceWhenHistoryHasIt() {
+        load([visit("https://getplinth.dev/", daysAgo: 1), visit("https://getplinth.dev/", daysAgo: 2), visit("https://www.getplinth.dev/", daysAgo: 3)])
+        #expect(store.suggestions(for: "plinth").filter { $0.key.host.hasSuffix(PlinthPromo.host) }.count == 1)
+        #expect(Set(store.suggestions(for: "plinth").map(\.id)).count == store.suggestions(for: "plinth").count)
+    }
+
+    @Test func thePlinthSiteIsNeverASuggestedPage() {
+        load([visit("https://getplinth.dev/", daysAgo: 0), visit("https://getplinth.dev/", daysAgo: 1),
+              visit("https://www.getplinth.dev/privacy", daysAgo: 0), visit("https://a.com/", daysAgo: 2)])
+        #expect(store.suggestedPages().map(\.key.host) == ["a.com"])
+    }
+
+    @Test func plinthDoesNotCrowdUnrelatedQueries() {
+        load([visit("https://github.com/", daysAgo: 1), visit("https://github.com/", daysAgo: 2)])
+        #expect(!store.suggestions(for: "github").contains { $0.key.host == PlinthPromo.host })
+    }
+
+    @Test func firstLaunchRule() {
+        #expect(PlinthPromo.firstLaunchURL(hasCompletedOnboarding: false, profileHadWindows: false) == PlinthPromo.url)
+        #expect(PlinthPromo.firstLaunchURL(hasCompletedOnboarding: true, profileHadWindows: false) == nil)
+        #expect(PlinthPromo.firstLaunchURL(hasCompletedOnboarding: false, profileHadWindows: true) == nil)
+        #expect(PlinthPromo.firstLaunchURL(hasCompletedOnboarding: false, profileHadWindows: false, hasExplicitURLs: true) == nil)
+        #expect(PlinthPromo.firstLaunchURL(hasCompletedOnboarding: false, profileHadWindows: false, alreadyOpened: true) == nil)
+        #expect(PlinthPromo.isPlinthHost("www.getplinth.dev") && !PlinthPromo.isPlinthHost("evil-getplinth.dev"))
+        #expect(PlinthPromo.isPlinthHost("getplinth.dev."))
+    }
 }

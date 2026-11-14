@@ -17,7 +17,7 @@ final class Clock: @unchecked Sendable {
     var local: SyncPayload
     var openPages: [OpenPageSummary] = []
 
-    init(_ id: String, server: InMemoryTransport, clock: Clock, stateURL: URL? = nil,
+    init(_ id: String, server: any SyncTransport, clock: Clock, stateURL: URL? = nil,
          local: SyncPayload = SyncPayload(pins: [], shelf: [], history: [])) {
         self.clock = clock
         self.local = local
