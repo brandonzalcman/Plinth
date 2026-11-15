@@ -209,7 +209,13 @@ public struct BarLayoutEngine: BarLayouting {
                 let labels = zip(site.pages, current).map { page, isCurrent -> CGFloat in
                     let width = natural(page.name, E.labelStyle(isCurrent: isCurrent, form: form,
                                                                 fade: form == .single && site.fade == .fading ? .fading : page.fade))
-                    return compact ? min(width, m.compactLabelWidth) : width
+                    guard compact else { return width }
+                    // Compact: reserve the wider of the two weights for every page, so the label is the same
+                    // whether or not the page is current and the semibold text never clips when selected.
+                    let fade: FadeStage = form == .single && site.fade == .fading ? .fading : page.fade
+                    let regular = natural(page.name, E.labelStyle(isCurrent: false, form: form, fade: fade))
+                    let semibold = natural(page.name, E.labelStyle(isCurrent: true, form: form, fade: fade))
+                    return min(max(regular, semibold), m.compactLabelWidth)
                 }
                 let folded = site.isFolded && site.pages.count > 1 && !site.pages.contains { splitPages.contains($0.id) }
                 var w = Work(collapsed: folded, folded: folded, pageLabels: labels, pageCurrent: current,

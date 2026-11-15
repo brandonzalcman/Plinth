@@ -159,9 +159,10 @@ private func collapsedIDs(_ layout: BarLayout) -> Set<SiteID> {
     @Test func exactFitDoesNotDegrade() {
         let i = input([site("A", pages: 3, used: 1), site("B", pages: 3, used: 2)])
         let natural = run(i, width: 5000).sitesWidth
-        let layout = run(i, width: barWidth(forAvailable: natural))
-        #expect(layout.sitesAvailable == natural)
-        #expect(collapsedIDs(layout).isEmpty && !layout.scrolls)
+        // Natural widths are used while they fit with the slack for a growing current page.
+        let layout = run(i, width: barWidth(forAvailable: natural + m.naturalSlack))
+        #expect(layout.sitesAvailable == natural + m.naturalSlack)
+        #expect(!layout.compact && collapsedIDs(layout).isEmpty && !layout.scrolls)
     }
 
     @Test func fadeAndKeptAreCopiedThrough() {
@@ -398,6 +399,19 @@ private func widths(_ layout: BarLayout) -> [SiteID: CGFloat] {
         check(s, width: wide, expectScroll: false, split: true)
     }
 
+    @Test func shortNamesAreStableToo() {
+        // 5-8 character names (35-56 pt, semibold 37.5-60): the weight must not change any width.
+        let s = (0..<40).map { k in
+            k % 4 == 1 ? site("C\(k)", [page("tab\(k % 10)a"), page("tab\(k % 10)bcd")]) : site("S\(k)", [page("page\(k % 100)")])
+        }
+        check(s, width: 900, expectScroll: true, split: false)
+        check(s, width: 900, expectScroll: true, split: true)
+        let few = Array(s.prefix(12))
+        let natural = run(input(pins: [pin("a")], few), width: 100_000).sitesWidth
+        let tight = barWidth(forAvailable: natural + m.naturalSlack - 1, pins: 1)
+        check(few, width: tight, expectScroll: false, split: true)
+    }
+
     @Test func scrollingMode() {
         let s = sites(40)
         check(s, width: 1300, expectScroll: true, split: false)
@@ -588,7 +602,7 @@ private func widths(_ layout: BarLayout) -> [SiteID: CGFloat] {
             #expect(!layout.scrolls || previous.scrolls, "width \(width)")
             for (now, before) in zip(layout.sites, previous.sites) {
                 #expect(now.form == before.form)
-                for (p, q) in zip(now.pages, before.pages) {
+                for (p, q) in zip(now.pages, before.pages) where layout.compact == previous.compact {
                     #expect(p.labelWidth >= q.labelWidth - 0.001, "width \(width)")
                 }
             }
