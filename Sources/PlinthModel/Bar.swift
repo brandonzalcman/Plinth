@@ -43,8 +43,19 @@ public struct BarMetrics: Sendable, Equatable {
     public var searchGap: CGFloat = 12
     /// Names are never shortened below this many points of text.
     public var minLabelWidth: CGFloat = 36
+    /// When the tabs do not fit at natural width, every page that is not on screen keeps at most this much name.
+    public var compactLabelWidth: CGFloat = 96
     /// Names are never drawn wider than this, however much room there is.
     public var maxLabelWidth: CGFloat = 180
+
+    /// Natural widths are used only while the bar has this much room to spare, so the selected page
+    /// growing (or a split pair appearing) can never tip a bar that was deciding on natural widths into overflow.
+    public var naturalSlack: CGFloat = 48
+    /// Once compact, the bar returns to natural widths only with this much more room than it takes to stay natural (a bit over one full-width tab),
+    /// so opening, closing or resizing near the threshold does not flip every tab back and forth.
+    public var compactHysteresis: CGFloat = 240
+    /// Room the overflow tile takes from the sites region while the strip scrolls: the tile and its gap.
+    public var overflowReserve: CGFloat { tile + itemGap }
 
     public init() {}
     public static let standard = BarMetrics()
@@ -56,9 +67,11 @@ public struct BarInput: Sendable, Equatable {
     /// The page with focus.
     public var selected: PageID?
     public var split: SplitPair?
+    /// Whether the previous layout of this bar was compact; lets the engine add hysteresis to the switch.
+    public var wasCompact: Bool
 
-    public init(pins: [PinnedSite], sites: [Site], selected: PageID?, split: SplitPair?) {
-        self.pins = pins; self.sites = sites; self.selected = selected; self.split = split
+    public init(pins: [PinnedSite], sites: [Site], selected: PageID?, split: SplitPair?, wasCompact: Bool = false) {
+        self.pins = pins; self.sites = sites; self.selected = selected; self.split = split; self.wasCompact = wasCompact
     }
 }
 
@@ -149,12 +162,15 @@ public struct BarSiteItem: Identifiable, Sendable, Equatable {
     public var width: CGFloat
     /// Collapsed because the user folded it, not because the bar ran out of room.
     public var isFolded: Bool
+    /// Compact layout: every page button has the same padding and a name capped at `compactLabelWidth`,
+    /// whether or not it is the current page, so selecting never changes a width.
+    public var compact: Bool
 
     public init(id: SiteID, key: SiteKey, name: String, form: BarSiteForm, fade: FadeStage, isKept: Bool,
-                pages: [BarPageItem], pageCount: Int, labelWidth: CGFloat, width: CGFloat, isFolded: Bool = false) {
+                pages: [BarPageItem], pageCount: Int, labelWidth: CGFloat, width: CGFloat, isFolded: Bool = false, compact: Bool = false) {
         self.id = id; self.key = key; self.name = name; self.form = form; self.fade = fade; self.isKept = isKept
         self.pages = pages; self.pageCount = pageCount; self.labelWidth = labelWidth; self.width = width
-        self.isFolded = isFolded
+        self.isFolded = isFolded; self.compact = compact
     }
 }
 
@@ -166,12 +182,16 @@ public struct BarLayout: Sendable, Equatable {
     public var sites: [BarSiteItem]
     /// Width of the sites region as laid out.
     public var sitesWidth: CGFloat
-    /// Width the sites region may occupy before it has to scroll.
+    /// Width the sites region may occupy before it has to scroll (less the overflow tile while scrolling).
     public var sitesAvailable: CGFloat
-    /// True only when collapsing and shortening were not enough.
+    /// True only when the compact widths do not fit either. The strip then scrolls and an overflow tile
+    /// follows it; `sitesAvailable` already has the tile's room taken off.
     public var scrolls: Bool
+    /// The tabs did not fit at natural widths, so every page button is at its fixed compact width.
+    public var compact: Bool
 
-    public init(pins: [BarPinItem], pinSlots: [BarPinSlot]? = nil, sites: [BarSiteItem], sitesWidth: CGFloat, sitesAvailable: CGFloat, scrolls: Bool) {
+    public init(pins: [BarPinItem], pinSlots: [BarPinSlot]? = nil, sites: [BarSiteItem], sitesWidth: CGFloat, sitesAvailable: CGFloat, scrolls: Bool, compact: Bool = false) {
+        self.compact = compact
         self.pins = pins; self.pinSlots = pinSlots ?? pins.map { .pin($0) }; self.sites = sites; self.sitesWidth = sitesWidth; self.sitesAvailable = sitesAvailable; self.scrolls = scrolls
     }
 }

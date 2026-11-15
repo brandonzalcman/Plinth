@@ -109,6 +109,18 @@ enum DebugScript {
         case "open": if let wid, let url = URL(string: arg) { app.store.openPage(url: url, in: wid) }
         case "select":
             if let wid, let n = Int(arg) { app.store.selectByShortcut(n, in: wid) }
+        case "selectn":
+            // selectn <n>: selects the nth page in bar order (1-based, beyond ⌘9).
+            if let wid, let n = Int(arg) {
+                let order = BarOrder.pageOrder(pins: app.store.pins(in: wid), sites: app.store.visibleSites(in: wid))
+                if order.indices.contains(n - 1) { app.store.select(order[n - 1], in: wid) }
+            }
+        case "closen":
+            // closen <n>: closes the nth page in bar order.
+            if let wid, let n = Int(arg) {
+                let order = BarOrder.pageOrder(pins: app.store.pins(in: wid), sites: app.store.visibleSites(in: wid))
+                if order.indices.contains(n - 1) { app.handle(.closePage(order[n - 1]), in: wid) }
+            }
         case "peek": if let url = URL(string: arg) { controller?.showPeek(url) }
         case "promote": controller?.promotePeek()
         case "closepeek": controller?.closePeek()
@@ -411,9 +423,16 @@ enum DebugScript {
             guard let window, let dir = ProcessInfo.processInfo.environment["PLINTH_SHOTS"] else { return }
             let task = Process()
             task.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
-            task.arguments = ["-l", "\(window.windowNumber)", "-o", "\(dir)/\(parts.first ?? "shot").png"]
+            let path = "\(dir)/\(parts.first ?? "shot").png"
+            task.arguments = ["-l", "\(window.windowNumber)", "-o", path]
             try? task.run()
             task.waitUntilExit()
+            // Without screen-recording permission screencapture writes nothing; draw the window's own views instead.
+            if !FileManager.default.fileExists(atPath: path), let view = window.contentView?.superview ?? window.contentView,
+               let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
+                view.cacheDisplay(in: view.bounds, to: rep)
+                try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
+            }
         case "folder":
             // folder <n,n,...> [name]: puts the pins at these 1-based positions into one new folder.
             let parts = arg.split(separator: " ", maxSplits: 1).map(String.init)

@@ -21,7 +21,7 @@ struct BarHost: View {
         let split = state?.split.flatMap { pair in selected.map(pair.contains) == true ? pair : nil }
         // A focused group hides the window's other sites from the bar (nothing is closed).
         let isPrivate = state?.isPrivate ?? false
-        let input = BarInput(pins: app.store.pins(in: windowID), sites: app.store.visibleSites(in: windowID), selected: selected, split: split)
+        let input = BarInput(pins: app.store.pins(in: windowID), sites: app.store.visibleSites(in: windowID), selected: selected, split: split, wasCompact: chrome.barWasCompact)
         let engine = app.layoutEngine
 
         let items = app.pool.downloads.items
@@ -40,7 +40,9 @@ struct BarHost: View {
 
         BottomBarView(
             layoutForWidth: { width in
-                engine.layout(input, barWidth: width, metrics: .standard, measure: BarTextMeasurer.width)
+                let layout = engine.layout(input, barWidth: width, metrics: .standard, measure: BarTextMeasurer.width)
+                chrome.barWasCompact = layout.compact
+                return layout
             },
             accent: accent,
             icon: { app.pool.favicons.image(for: $0) },

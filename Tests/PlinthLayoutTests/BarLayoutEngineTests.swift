@@ -159,9 +159,10 @@ private func collapsedIDs(_ layout: BarLayout) -> Set<SiteID> {
     @Test func exactFitDoesNotDegrade() {
         let i = input([site("A", pages: 3, used: 1), site("B", pages: 3, used: 2)])
         let natural = run(i, width: 5000).sitesWidth
-        let layout = run(i, width: barWidth(forAvailable: natural))
-        #expect(layout.sitesAvailable == natural)
-        #expect(collapsedIDs(layout).isEmpty && !layout.scrolls)
+        // Natural widths are used while they fit with the slack for a growing current page.
+        let layout = run(i, width: barWidth(forAvailable: natural + m.naturalSlack))
+        #expect(layout.sitesAvailable == natural + m.naturalSlack)
+        #expect(!layout.compact && collapsedIDs(layout).isEmpty && !layout.scrolls)
     }
 
     @Test func fadeAndKeptAreCopiedThrough() {
@@ -249,39 +250,27 @@ private func collapsedIDs(_ layout: BarLayout) -> Set<SiteID> {
         #expect(layout.sites[0].pages[0].shortcut == nil)
     }
 
-    @Test func shortcutsDoNotChangeWhenSitesCollapse() {
+    @Test func shortcutsDoNotChangeWhenSitesFold() {
         let sel = page("selected", used: 100)
-        let i = input([site("Old", pages: 3, prefix: "a long page name ", used: 1), site("Now", [sel, page("other", used: 100)])],
+        let i = input([folded(site("Old", pages: 3, prefix: "a long page name ", used: 1)), site("Now", [sel, page("other", used: 100)])],
                       selected: sel.id)
         let wide = run(i, width: 5000), narrow = run(i, width: barWidth(forAvailable: 300))
-        #expect(narrow.sites[0].form == .collapsed)
+        #expect(narrow.sites[0].form == .collapsed && wide.sites[0].form == .collapsed)
         #expect(wide.sites[1].pages.map(\.shortcut) == [4, 5])
         #expect(narrow.sites[1].pages.map(\.shortcut) == [4, 5])
     }
 }
 
-// MARK: - Stage 2: collapsing
+// MARK: - Collapsed width arithmetic
 
 @Suite struct Collapsing {
-    /// Three three-page capsules of 10-character names: each 10+16+4 + 3·(2+70+20) + 2 = 308.
-    private func three(selected: Int? = nil) -> (BarInput, [Site]) {
-        let sites = [site("Alpha", pages: 3, prefix: "alphapage", used: 30),
-                     site("Beta", pages: 3, prefix: "betaapage", used: 10),
-                     site("Gamma", pages: 3, prefix: "gammapage", used: 20)]
-        return (input(sites, selected: selected.map { sites[$0].pages[0].id }), sites)
-    }
-
     @Test func collapsedWidthArithmetic() {
-        let (i, sites) = three()
-        #expect(run(i, width: 5000).sitesWidth == CGFloat(3 * 308 + 16))
-        let layout = run(i, width: barWidth(forAvailable: 939))
-        let beta = layout.sites[1]
-        #expect(beta.form == .collapsed && beta.id == sites[1].id)
-        #expect(beta.pages.isEmpty && beta.pageCount == 3)
-        #expect(beta.labelWidth == 28)
+        let a = folded(site("Beta", pages: 3, prefix: "betaapage"))
+        let layout = run(input([a]), width: 5000)
+        let beta = layout.sites[0]
+        #expect(beta.form == .collapsed && beta.pages.isEmpty && beta.pageCount == 3)
+        #expect(beta.width == CGFloat(60))
         #expect(E.badgeWidth(pageCount: 3, metrics: m, measure: measure) == 16)
-        #expect(beta.width == 96) // 12 + 16 + 8 + 28 + 4 + 16 + 12
-        checkConsistent(layout, i)
     }
 
     @Test func wideBadgeForLargeCounts() {
@@ -290,293 +279,68 @@ private func collapsedIDs(_ layout: BarLayout) -> Set<SiteID> {
         #expect(E.countText(12) == "12")
     }
 
-    @Test func leastRecentlyUsedCollapsesFirst() {
-        let (i, sites) = three()
-        // One point short: only Beta (used at 10) goes.
-        let one = run(i, width: barWidth(forAvailable: 939))
-        #expect(collapsedIDs(one) == [sites[1].id])
-        #expect(!one.scrolls)
-        // 96 + 308 + 308 + 16 = 728; one point short of that: Gamma (20) goes next.
-        let two = run(i, width: barWidth(forAvailable: 727))
-        #expect(collapsedIDs(two) == [sites[1].id, sites[2].id])
-        let three = run(i, width: barWidth(forAvailable: 515))
-        #expect(collapsedIDs(three) == Set(sites.map(\.id)))
-        // Labels are untouched while collapsing alone is enough.
-        #expect(two.sites[0].pages.allSatisfy { $0.labelWidth == 70 })
-        #expect(three.sites.allSatisfy { $0.labelWidth == CGFloat($0.name.count) * 7 })
-    }
-
-    @Test func collapsingStopsAsSoonAsItFits() {
-        let (i, _) = three()
-        #expect(collapsedIDs(run(i, width: barWidth(forAvailable: 728))).count == 1)
-        #expect(collapsedIDs(run(i, width: barWidth(forAvailable: 940))).isEmpty)
-    }
-
-    @Test func lastUsedIsTheMostRecentPageOfTheSite() {
-        // A has one very old page but one fresh page; B is uniformly middling. B goes first.
-        let a = site("Aaaa", [page("old page name", used: 1), page("new page name", used: 500)])
-        let b = site("Bbbb", [page("mid page name", used: 100), page("mid page two.", used: 100)])
-        let i = input([a, b])
-        let natural = run(i, width: 5000).sitesWidth
-        #expect(collapsedIDs(run(i, width: barWidth(forAvailable: natural - 1))) == [b.id])
-    }
-
-    @Test func tiesCollapseLeftmostFirst() {
-        let a = site("Aaaa", pages: 3, used: 5), b = site("Bbbb", pages: 3, used: 5)
-        let i = input([a, b])
-        let natural = run(i, width: 5000).sitesWidth
-        #expect(collapsedIDs(run(i, width: barWidth(forAvailable: natural - 1))) == [a.id])
-    }
-
-    @Test func siteWithSelectedPageNeverCollapses() {
-        // Beta is the least recently used but holds the selected page.
-        let (i, sites) = three(selected: 1)
-        for available in stride(from: CGFloat(0), through: 1000, by: 13) {
-            let layout = run(i, width: barWidth(forAvailable: available))
-            #expect(layout.sites[1].form == .capsule)
-            #expect(layout.sites[1].pages[0].isCurrent)
-            checkConsistent(layout, i)
+    @Test func nothingCollapsesOnItsOwn() {
+        let sites = (0..<12).map { site("Site\($0)", pages: 3, prefix: "a long page name ", used: TimeInterval($0)) }
+        for width in stride(from: CGFloat(0), through: 3000, by: 37) {
+            #expect(collapsedIDs(run(input(sites), width: width)).isEmpty)
         }
-        let layout = run(i, width: barWidth(forAvailable: 900))
-        #expect(collapsedIDs(layout) == [sites[2].id])
+    }
+}
+
+// MARK: - Compact and scrolling
+
+@Suite struct Overflow {
+    /// A 20-character page is 140 pt of text; compact keeps 96.
+    private func longTabs(_ n: Int) -> [Site] {
+        (0..<n).map { site("S\($0)", [page(String(format: "page number %08d", $0), used: TimeInterval($0))]) }
     }
 
-    @Test func splitPartnerSiteNeverCollapses() {
-        let (base, sites) = three()
-        let split = SplitPair(leading: sites[0].pages[0].id, trailing: sites[1].pages[2].id)
-        let i = input(base.sites, selected: sites[0].pages[0].id, split: split)
-        for available in stride(from: CGFloat(0), through: 1000, by: 17) {
-            let layout = run(i, width: barWidth(forAvailable: available))
-            #expect(layout.sites[0].form == .capsule && layout.sites[1].form == .capsule)
-            #expect(layout.sites[1].pages[2].isCurrent && layout.sites[1].pages[2].splitRole == .trailing)
-        }
-        #expect(run(i, width: barWidth(forAvailable: 0)).sites[2].form == .collapsed)
-    }
-
-    @Test func singleCollapsesOnlyWhenItSavesWidth() {
-        // "Docs" is shorter than its page name: collapsing saves. "Encyclopedia" is longer than "Home": it does not.
-        let saves = site("Docs", [page("Quarterly planning notes", used: 1)])
-        let noSave = site("Encyclopedia", [page("Home", used: 2)])
-        let i = input([saves, noSave])
-        let layout = run(i, width: barWidth(forAvailable: 200))
-        #expect(layout.sites[0].form == .collapsed)
-        #expect(layout.sites[0].pageCount == 1 && layout.sites[0].labelWidth == 28)
-        #expect(layout.sites[0].width == 76) // 12 + 16 + 8 + 28 + 12, no count
-        #expect(layout.sites[1].form == .single)
+    @Test func compactCapsNonVisibleNamesAtOneFixedWidth() {
+        let sites = longTabs(4)
+        let i = input(sites, selected: sites[1].pages[0].id)
+        let natural = run(i, width: 5000)
+        #expect(natural.sites[0].pages[0].labelWidth == 140)
+        let layout = run(i, width: barWidth(forAvailable: natural.sitesWidth - 1))
+        #expect(layout.compact)
+        #expect(layout.sites.map { $0.pages[0].labelWidth } == [96, 96, 96, 96])   // the current page is capped like the rest
         #expect(!layout.scrolls)
-        // However narrow the bar gets, the single that cannot save width stays a single.
-        #expect(run(i, width: 0).sites[1].form == .single)
         checkConsistent(layout, i)
     }
 
-    @Test func unhelpfulCollapseIsSkippedAndTheNextSiteIsTried() {
-        // The least recently used site would not get narrower; the next one must still collapse.
-        let stubborn = site("Encyclopedia", [page("Home", used: 1)])
-        let capsule = site("Wiki", pages: 3, prefix: "long article ", used: 2)
-        let i = input([stubborn, capsule])
-        let natural = run(i, width: 5000).sitesWidth
-        let layout = run(i, width: barWidth(forAvailable: natural - 1))
-        #expect(layout.sites.map(\.form) == [.single, .collapsed])
-        #expect(!layout.scrolls)
-    }
-
-    @Test func capsuleWithShortPagesAndLongNameIsLeftAlone() {
-        // Capsule: 32 + 2·(2 + 7 + 20) = 90. Collapsed would be 12+16+8+180+4+16+12 = 248.
-        let i = input([site(String(repeating: "N", count: 40), [page("a"), page("b")])])
-        let layout = run(i, width: barWidth(forAvailable: 60))
-        #expect(layout.sites[0].form == .capsule)
+    @Test func scrollsWhenCompactDoesNotFit() {
+        let sites = longTabs(30)
+        let i = input(sites, selected: sites[0].pages[0].id)
+        let layout = run(i, width: 1200)
         #expect(layout.scrolls)
-    }
-
-    @Test func returnsToFullerFormWhenThereIsRoomAgain() {
-        let (i, _) = three()
-        let wide = run(i, width: 5000)
-        let narrow = run(i, width: barWidth(forAvailable: 300))
-        #expect(narrow != wide)
-        #expect(run(i, width: 5000) == wide)
-        #expect(collapsedIDs(run(i, width: barWidth(forAvailable: 940))).isEmpty)
-    }
-}
-
-// MARK: - Stage 3: shortening
-
-@Suite struct Shortening {
-    @Test func levelCutsLongestFirst() {
-        // Cutting 30 from [100, 80, 40]: the 100 comes down to 80, then both to 75.
-        #expect(E.level(for: [100, 80, 40], reduceBy: 30, floor: 36) == 75)
-        #expect(E.level(for: [100, 80, 40], reduceBy: 10, floor: 36) == 90)
-        #expect(E.level(for: [100, 80, 40], reduceBy: 0, floor: 36) == .infinity)
-        #expect(E.level(for: [100, 80, 40], reduceBy: 1000, floor: 36) == 36)
-        #expect(E.level(for: [100, 80, 40], reduceBy: 112, floor: 36) == 36)
-        #expect(E.level(for: [], reduceBy: 5, floor: 36) == 36)
-    }
-
-    @Test func nonCurrentLabelsShrinkBeforeTheCurrentOne() {
-        let cur = page("current page name") // 17 chars: 127.5 semibold
-        let other = page("another page name") // 17 chars: 119
-        let i = input([site("S", [cur, other])], selected: cur.id)
-        // natural: 32 + (2 + 28 + 127.5) + (2 + 20 + 119) = 330.5
-        #expect(run(i, width: 5000).sitesWidth == 330.5)
-        let layout = run(i, width: barWidth(forAvailable: 300.5))
-        #expect(layout.sites[0].pages[0].labelWidth == 127.5)
-        #expect(layout.sites[0].pages[1].labelWidth == 89)
-        #expect(layout.sitesWidth == 300.5 && !layout.scrolls)
+        #expect(layout.sitesAvailable == E.sitesAvailable(barWidth: 1200, pinCount: 0, metrics: m, measure: measure) - m.overflowReserve)
+        // Nothing but the compact cap is applied: no collapsing, no icon-only.
+        #expect(layout.sites.allSatisfy { $0.form == .single && $0.pages[0].labelWidth >= 96 })
         checkConsistent(layout, i)
     }
 
-    @Test func currentLabelShrinksOnceOthersAreAtMinimum() {
-        let cur = page("current page name"), other = page("another page name")
-        let i = input([site("S", [cur, other])], selected: cur.id)
-        // other at 36 → 247.5; ask for 20 less.
-        let layout = run(i, width: barWidth(forAvailable: 227.5))
-        #expect(layout.sites[0].pages[1].labelWidth == 36)
-        #expect(layout.sites[0].pages[0].labelWidth == 107.5)
-        #expect(!layout.scrolls)
-    }
-
-    @Test func shortLabelsAreNotStretchedOrCut() {
-        // "ab" is 14 pt, already under the minimum: it stays 14 while the long one shrinks.
-        let i = input([site("S", [page("ab"), page("a very long page name here")])], selected: nil)
-        let wide = run(i, width: 5000)
-        let layout = run(i, width: barWidth(forAvailable: wide.sitesWidth - 50))
-        // The only candidate is protected by nothing, so it collapses first; pin it open with a selection instead.
-        _ = layout
-        let sel = input(i.sites, selected: i.sites[0].pages[0].id)
-        let natural = run(sel, width: 5000)
-        let cut = run(sel, width: barWidth(forAvailable: natural.sitesWidth - 50))
-        #expect(cut.sites[0].pages[0].labelWidth == natural.sites[0].pages[0].labelWidth)
-        #expect(cut.sites[0].pages[1].labelWidth == natural.sites[0].pages[1].labelWidth - 50)
-        let tiny = run(sel, width: 0)
-        #expect(tiny.sites[0].pages[0].labelWidth == 15) // "ab" semibold, never raised to the minimum
-        #expect(tiny.sites[0].pages[1].labelWidth == 36)
-    }
-
-    @Test func labelsShrinkFairlyLongestFirst() {
-        let sel = page("x")
-        let i = input([site("S", [sel, page(String(repeating: "a", count: 20)), page(String(repeating: "b", count: 10))])],
-                      selected: sel.id)
-        let natural = run(i, width: 5000).sitesWidth
-        // 140 and 70: removing 40 only touches the long one.
-        var layout = run(i, width: barWidth(forAvailable: natural - 40))
-        #expect(layout.sites[0].pages.map(\.labelWidth) == [7.5, 100, 70])
-        // Removing 100: both end level at 55.
-        layout = run(i, width: barWidth(forAvailable: natural - 100))
-        #expect(layout.sites[0].pages.map(\.labelWidth) == [7.5, 55, 55])
-    }
-
-    @Test func collapsedNamesShrinkAlongsidePageNames() {
-        let sel = page("selected page name here", used: 50)
-        let other = site("A very long site name", pages: 2, prefix: "some long page name ", used: 1)
-        let i = input([other, site("Now", [sel])], selected: sel.id)
-        // Collapsed: 12+16+8+147+4+16+12 = 215. Single: 48 + 172.5 = 220.5. Total 443.5.
-        let collapsed = run(i, width: barWidth(forAvailable: 443.5))
-        #expect(collapsed.sites[0].form == .collapsed && collapsed.sites[0].labelWidth == 147)
-        let layout = run(i, width: barWidth(forAvailable: 400))
-        #expect(layout.sites[0].labelWidth == 103.5)
-        #expect(layout.sites[1].pages[0].labelWidth == 172.5) // current: untouched so far
-        #expect(!layout.scrolls)
-        checkConsistent(layout, i)
-    }
-
-    @Test func iconOnlyIsTheLastResort() {
-        let sel = page("selected page name here", used: 50)
-        let other = site("A very long site name", pages: 2, prefix: "some long page name ", used: 1)
-        let i = input([other, site("Now", [sel])], selected: sel.id)
-        // Everything at minimum: collapsed 12+16+8+36+4+16+12 = 104, single 48 + 36 = 84, gap 8 → 196.
-        let atMinimum = run(i, width: barWidth(forAvailable: 196))
-        #expect(atMinimum.sites[0].labelWidth == 36)
-        #expect(atMinimum.sites[1].pages[0].labelWidth == 36)
-        #expect(!atMinimum.scrolls)
-        // One point less: the collapsed site drops its name. 12 + 16 + 4 + 16 + 12 = 60.
-        let iconOnly = run(i, width: barWidth(forAvailable: 195))
-        #expect(iconOnly.sites[0].form == .collapsed && iconOnly.sites[0].labelWidth == 0)
-        #expect(iconOnly.sites[0].width == 60)
-        #expect(iconOnly.sites[0].pageCount == 2)
-        #expect(!iconOnly.scrolls)
-        checkConsistent(iconOnly, i)
-    }
-
-    @Test func iconOnlyGoesLeastRecentlyUsedFirst() {
-        let sel = page("x", used: 99)
-        let a = site("Alphabet", pages: 2, prefix: "long page name ", used: 2)
-        let b = site("Betamaxx", pages: 2, prefix: "long page name ", used: 1)
-        let i = input([a, b, site("Now", [sel])], selected: sel.id)
-        // Minimum with names: 104 + 104 + (48 + 7.5) + 16 = 279.5
-        let layout = run(i, width: barWidth(forAvailable: 279))
-        #expect(layout.sites[0].labelWidth == 36)
-        #expect(layout.sites[1].labelWidth == 0)
-        #expect(!layout.scrolls)
-    }
-
-    @Test func collapsedSingleCanGoIconOnlyWithoutACount() {
-        let sel = page("x", used: 99)
-        let i = input([site("Docs", [page("Quarterly planning notes", used: 1)]), site("Now", [sel])], selected: sel.id)
-        let layout = run(i, width: 0)
-        #expect(layout.sites[0].form == .collapsed && layout.sites[0].labelWidth == 0)
-        #expect(layout.sites[0].width == 40) // 12 + 16 + 12
-    }
-}
-
-// MARK: - Stage 4: scrolling
-
-@Suite struct Scrolling {
-    @Test func scrollsOnlyWhenEverythingIsAtMinimum() {
-        let sel = page("selected page name here", used: 50)
-        let other = site("A very long site name", pages: 2, prefix: "some long page name ", used: 1)
-        let i = input([other, site("Now", [sel])], selected: sel.id)
-        // Minimum: 60 + 8 + 84 = 152.
-        let fits = run(i, width: barWidth(forAvailable: 152))
-        #expect(!fits.scrolls && fits.sitesWidth == 152)
-        let scrolls = run(i, width: barWidth(forAvailable: 151))
-        #expect(scrolls.scrolls && scrolls.sitesWidth == 152)
-        #expect(scrolls.sites[0].labelWidth == 0)
-        #expect(scrolls.sites[1].pages[0].labelWidth == 36)
-        checkConsistent(scrolls, i)
-    }
-
-    @Test func stagesHappenInOrderAsTheBarNarrows() {
-        let sel = page("the selected page", used: 99)
-        let sites = [site("Reference", pages: 3, prefix: "reference page ", used: 1),
-                     site("Journal", pages: 2, prefix: "journal entry ", used: 2),
-                     site("Now", [sel, page("a sibling page", used: 99)])]
-        let i = input(sites, selected: sel.id)
-        /// 0 natural, 1 collapsing, 2 shortening, 3 icon-only, 4 scrolling.
-        func stage(_ l: BarLayout) -> Int {
-            let natural = run(i, width: 9000)
-            if l.scrolls { return 4 }
-            if l.sites.contains(where: { $0.form == .collapsed && $0.labelWidth == 0 }) { return 3 }
-            let shortened = zip(l.sites, natural.sites).contains { a, b in
-                a.form == .collapsed ? a.labelWidth < CGFloat(a.name.count) * 7 : zip(a.pages, b.pages).contains { $0.labelWidth < $1.labelWidth }
-            }
-            if shortened { return 2 }
-            return collapsedIDs(l).isEmpty ? 0 : 1
-        }
-        var seen: [Int] = []
-        for width in stride(from: CGFloat(1500), through: 100, by: -1) {
-            let s = stage(run(i, width: width))
-            if seen.last != s { seen.append(s) }
-        }
-        #expect(seen == [0, 1, 2, 3, 4])
+    @Test func exactCompactFitDoesNotScroll() {
+        let sites = longTabs(5)
+        let i = input(sites, selected: sites[0].pages[0].id)
+        let compactWidth = run(i, width: barWidth(forAvailable: 0)).sitesWidth
+        #expect(abs(compactWidth - 752) < 0.001)
+        #expect(!run(i, width: barWidth(forAvailable: compactWidth)).scrolls)
+        #expect(run(i, width: barWidth(forAvailable: compactWidth - 1)).scrolls)
     }
 
     @Test func twoHundredSitesTerminateQuicklyAndScroll() {
-        let sel = page("selected", used: 10_000)
         var sites = (0..<200).map { n in
             site("Site number \(n)", pages: 1 + n % 4, prefix: "a page with a long name ", used: TimeInterval(n * 37 % 199))
         }
+        let sel = page("selected", used: 10_000)
         sites.append(site("Now", [sel]))
         let i = input(pins: [pin("a"), pin("b")], sites, selected: sel.id)
         let clock = ContinuousClock()
         var layout = run(i, width: 1200)
         let elapsed = clock.measure { for _ in 0..<20 { layout = run(i, width: 1200) } }
         #expect(elapsed < .seconds(2))
-        #expect(layout.scrolls)
-        #expect(layout.sites.count == 201)
-        #expect(layout.sites.dropLast().allSatisfy { $0.form == .collapsed && $0.labelWidth == 0 })
-        #expect(layout.sites.last?.form == .single)
-        #expect(layout.sites.last?.pages[0].labelWidth == 36)
+        #expect(layout.scrolls && layout.sites.count == 201)
+        #expect(layout.sites.allSatisfy { $0.form != .collapsed })
         checkConsistent(layout, i)
-        // And with unlimited room it is all back.
         let roomy = run(i, width: 1_000_000)
         #expect(!roomy.scrolls && collapsedIDs(roomy).isEmpty)
     }
@@ -586,6 +350,218 @@ private func collapsedIDs(_ layout: BarLayout) -> Set<SiteID> {
         for width in [CGFloat(-100), 0, 300, 5000] {
             checkConsistent(run(i, width: width), i)
         }
+    }
+}
+
+// MARK: - Stable positions
+
+/// Left edge of every site, keyed by id, in the sites row.
+private func xs(_ layout: BarLayout) -> [SiteID: CGFloat] {
+    var x: CGFloat = 0
+    var out: [SiteID: CGFloat] = [:]
+    for item in layout.sites { out[item.id] = x; x += item.width + m.itemGap }
+    return out
+}
+private func widths(_ layout: BarLayout) -> [SiteID: CGFloat] {
+    Dictionary(uniqueKeysWithValues: layout.sites.map { ($0.id, $0.width) })
+}
+
+
+@Suite struct SelectionNeverMovesAnything {
+    private func sites(_ n: Int) -> [Site] {
+        (0..<n).map { k in
+            k % 5 == 2 ? site("C\(k)", [page(String(format: "capsule page one %03d", k)), page(String(format: "capsule page two %03d", k))])
+                       : site("S\(k)", [page(String(format: "a fairly long page title %03d", k))])
+        }
+    }
+
+    private func check(_ sites: [Site], width: CGFloat, expectScroll: Bool, split: Bool) {
+        let all = sites.flatMap(\.pages)
+        var reference: [(SiteID, CGFloat, CGFloat)]?
+        for pick in [0, 1, 7, 12, 20, all.count - 1].map({ $0 % all.count }) {
+            let sp: SplitPair? = split ? SplitPair(leading: all[pick].id, trailing: all[(pick + 9) % all.count].id) : nil
+            let l = run(input(pins: [pin("a")], sites, selected: all[pick].id, split: sp), width: width)
+            #expect(l.compact && l.scrolls == expectScroll)
+            let measured = xs(l).sorted { $0.value < $1.value }.map { ($0.key, $0.value, widths(l)[$0.key]!) }
+            if let reference {
+                for (a, b) in zip(reference, measured) { #expect(a.0 == b.0 && a.1 == b.1 && a.2 == b.2, "selection \(pick) moved a site") }
+            } else { reference = measured }
+        }
+    }
+
+    @Test func compactModeWithoutScrolling() {
+        let s = sites(8)
+        let wide = barWidth(forAvailable: run(input(pins: [pin("a")], s), width: 0).sitesWidth + 10, pins: 1)
+        // Natural does not fit (names are 140 pt), compact does.
+        #expect(run(input(pins: [pin("a")], s), width: wide).compact)
+        #expect(!run(input(pins: [pin("a")], s), width: wide).scrolls)
+        check(s, width: wide, expectScroll: false, split: false)
+        check(s, width: wide, expectScroll: false, split: true)
+    }
+
+    @Test func shortNamesAreStableToo() {
+        // 5-8 character names (35-56 pt, semibold 37.5-60): the weight must not change any width.
+        let s = (0..<40).map { k in
+            k % 4 == 1 ? site("C\(k)", [page("tab\(k % 10)a"), page("tab\(k % 10)bcd")]) : site("S\(k)", [page("page\(k % 100)")])
+        }
+        check(s, width: 900, expectScroll: true, split: false)
+        check(s, width: 900, expectScroll: true, split: true)
+        let few = Array(s.prefix(12))
+        let natural = run(input(pins: [pin("a")], few), width: 100_000).sitesWidth
+        let tight = barWidth(forAvailable: natural + m.naturalSlack - 1, pins: 1)
+        check(few, width: tight, expectScroll: false, split: true)
+    }
+
+    @Test func scrollingMode() {
+        let s = sites(40)
+        check(s, width: 1300, expectScroll: true, split: false)
+        check(s, width: 1300, expectScroll: true, split: true)
+    }
+}
+
+@Suite struct Hysteresis {
+    private func tabs(_ n: Int) -> [Site] {
+        (0..<n).map { site("S\($0)", [page(String(format: "a fairly long page title %03d", $0))]) }
+    }
+
+    @Test func compactReturnsToNaturalOnlyWithRoomToSpare() {
+        let s = tabs(6)
+        let sel = s[0].pages[0].id
+        let natural = run(input(s, selected: nil), width: 100_000).sitesWidth
+        let edge = natural + m.naturalSlack   // fits natural from a fresh start
+        func layout(_ available: CGFloat, was: Bool) -> BarLayout {
+            run(BarInput(pins: [], sites: s, selected: sel, split: nil, wasCompact: was), width: barWidth(forAvailable: available))
+        }
+        #expect(!layout(edge, was: false).compact)
+        #expect(layout(edge - 1, was: false).compact)
+        // Already compact: stays compact until natural fits with the extra margin.
+        #expect(layout(edge, was: true).compact)
+        #expect(layout(edge + m.compactHysteresis - 1, was: true).compact)
+        #expect(!layout(edge + m.compactHysteresis, was: true).compact)
+    }
+
+    @Test func closingOneTabNearTheThresholdDoesNotFlipTheBar() {
+        var s = tabs(6)
+        let sel = s[0].pages[0].id
+        let natural6 = run(input(s, selected: nil), width: 100_000).sitesWidth
+        let available = natural6 + m.naturalSlack - 1       // 6 tabs: just compact
+        var mode = run(BarInput(pins: [], sites: s, selected: sel, split: nil), width: barWidth(forAvailable: available)).compact
+        #expect(mode)
+        s.removeLast()                                       // 5 tabs would fit natural from scratch...
+        let after = run(BarInput(pins: [], sites: s, selected: sel, split: nil, wasCompact: mode), width: barWidth(forAvailable: available))
+        #expect(after.compact == mode)                       // ...but the bar stays compact: no flip for one close
+        mode = after.compact
+        s.append(site("New", [page("another fairly long page")]))
+        #expect(run(BarInput(pins: [], sites: s, selected: sel, split: nil, wasCompact: mode), width: barWidth(forAvailable: available)).compact)
+    }
+}
+
+@Suite struct StablePositions {
+    private func many(_ n: Int, used: (Int) -> TimeInterval = { _ in 0 }) -> [Site] {
+        (0..<n).map { site("S\($0)", [page(String(format: "a fairly long page title %03d", $0), used: used($0))]) }
+    }
+    private let barW: CGFloat = 1300
+
+    @Test func selectingATabNeverChangesAnyOtherTabsWidth() {
+        let sites = many(40, used: { TimeInterval($0 * 13 % 41) })
+        let base = run(input(sites, selected: sites[0].pages[0].id), width: barW)
+        #expect(base.scrolls)
+        for pick in [5, 17, 22, 39] {
+            let picked = run(input(sites, selected: sites[pick].pages[0].id), width: barW)
+            let a = widths(base), b = widths(picked)
+            for s in sites where s.id != sites[0].id && s.id != sites[pick].id {
+                #expect(a[s.id] == b[s.id], "selecting \(pick) changed \(s.name)")
+            }
+        }
+    }
+
+    @Test func recencyHasNoEffectOnTheLayout() {
+        let sites = many(40)
+        var touched = sites
+        touched[20].pages[0].usage = Usage(at: t0.addingTimeInterval(99_999))
+        let sel = sites[3].pages[0].id
+        #expect(run(input(sites, selected: sel), width: barW).sites.map(\.width)
+                == run(input(touched, selected: sel), width: barW).sites.map(\.width))
+    }
+
+    @Test func selectionOnlyShiftsTabsAfterTheChange() {
+        let sites = many(40)
+        let a = run(input(sites, selected: sites[10].pages[0].id), width: barW)
+        let b = run(input(sites, selected: sites[25].pages[0].id), width: barW)
+        let xa = xs(a), xb = xs(b)
+        // Left of both selections nothing moves; right of both, everything moves by the same amount.
+        for s in sites[0...10] { #expect(xa[s.id] == xb[s.id]) }
+        let shift = xb[sites[39].id]! - xa[sites[39].id]!
+        for s in sites[26...] { #expect(abs((xb[s.id]! - xa[s.id]!) - shift) < 0.001) }
+    }
+
+    @Test func addingATabInTheMiddleOnlyMakesRoomAfterIt() {
+        let sites = many(40)
+        let sel = sites[0].pages[0].id
+        let before = run(input(sites, selected: sel), width: barW)
+        var more = sites
+        let extra = site("New", [page("brand new tab title")])
+        more.insert(extra, at: 20)
+        let after = run(input(more, selected: sel), width: barW)
+        let xb = xs(before), xa = xs(after)
+        let wb = widths(before), wa = widths(after)
+        let added = wa[extra.id]! + m.itemGap
+        for s in sites {
+            #expect(wb[s.id] == wa[s.id])
+            let idx = sites.firstIndex { $0.id == s.id }!
+            #expect(abs(xa[s.id]! - xb[s.id]! - (idx >= 20 ? added : 0)) < 0.001)
+        }
+    }
+
+    @Test func closingATabInTheMiddleOnlyClosesTheGap() {
+        let sites = many(40)
+        let sel = sites[0].pages[0].id
+        let before = run(input(sites, selected: sel), width: barW)
+        var fewer = sites
+        let gone = fewer.remove(at: 20)
+        let after = run(input(fewer, selected: sel), width: barW)
+        let xb = xs(before), xa = xs(after)
+        let gap = widths(before)[gone.id]! + m.itemGap
+        for s in fewer {
+            let idx = sites.firstIndex { $0.id == s.id }!
+            #expect(widths(before)[s.id] == widths(after)[s.id])
+            #expect(abs(xb[s.id]! - xa[s.id]! - (idx > 20 ? gap : 0)) < 0.001)
+        }
+    }
+
+    @Test func resizeKeepsEveryOrderAndWidthOnceCompact() {
+        let sites = many(40)
+        let i = input(sites, selected: sites[7].pages[0].id)
+        let a = run(i, width: 1000), b = run(i, width: 1700)
+        #expect(a.scrolls && b.scrolls)
+        #expect(a.sites == b.sites)   // the strip is the same, only the window onto it changed
+        #expect(b.sitesAvailable > a.sitesAvailable)
+    }
+
+    @Test func currentAndSplitPagesAndPinsAreNeverHidden() {
+        let sites = many(40)
+        let split = SplitPair(leading: sites[30].pages[0].id, trailing: sites[2].pages[0].id)
+        let pins = [pin("a"), pin("b"), pin("c")]
+        let i = input(pins: pins, sites, selected: sites[30].pages[0].id, split: split)
+        for width in stride(from: CGFloat(400), through: 2400, by: 50) {
+            let l = run(i, width: width)
+            #expect(l.pins.count == 3 && l.pinSlots.count == 3)
+            #expect(l.sites[30].pages[0].isCurrent && l.sites[2].pages[0].isCurrent)
+            #expect(l.sites.count == 40)
+            if l.scrolls { #expect(l.sitesAvailable >= 0) }
+        }
+    }
+
+    @Test func pinFoldersDoNotChangeTheStripWidths() {
+        let sites = many(40)
+        let f = PinFolder(name: "Work")
+        var p1 = pin("a"), p2 = pin("b")
+        p1.folder = f; p2.folder = f
+        let sel = sites[0].pages[0].id
+        let plain = run(input(pins: [pin("a"), pin("b")], sites, selected: sel), width: barW)
+        let grouped = run(input(pins: [p1, p2], sites, selected: sel), width: barW)
+        #expect(plain.sites.map(\.width) == grouped.sites.map(\.width))
+        #expect(grouped.sitesAvailable > plain.sitesAvailable)   // a folder is one tile
     }
 }
 
@@ -612,7 +588,8 @@ private func collapsedIDs(_ layout: BarLayout) -> Set<SiteID> {
         for width in stride(from: CGFloat(0), through: 2600, by: 3) {
             let layout = run(i, width: width)
             checkConsistent(layout, i)
-            #expect(layout.sitesAvailable == E.sitesAvailable(barWidth: width, pinCount: 2, metrics: m, measure: measure))
+            let full = E.sitesAvailable(barWidth: width, pinCount: 2, metrics: m, measure: measure)
+            #expect(layout.sitesAvailable == (layout.scrolls ? max(0, full - m.overflowReserve) : full))
             if !layout.scrolls { #expect(layout.sitesWidth <= layout.sitesAvailable + 0.001) }
         }
     }
@@ -622,15 +599,11 @@ private func collapsedIDs(_ layout: BarLayout) -> Set<SiteID> {
         var previous = run(i, width: 0)
         for width in stride(from: CGFloat(1), through: 2600, by: 1) {
             let layout = run(i, width: width)
-            #expect(collapsedIDs(layout).isSubset(of: collapsedIDs(previous)), "width \(width)")
             #expect(!layout.scrolls || previous.scrolls, "width \(width)")
             for (now, before) in zip(layout.sites, previous.sites) {
-                if now.form == .collapsed {
-                    #expect(now.labelWidth >= before.labelWidth - 0.001, "width \(width)")
-                } else if before.form != .collapsed {
-                    for (p, q) in zip(now.pages, before.pages) {
-                        #expect(p.labelWidth >= q.labelWidth - 0.001, "width \(width)")
-                    }
+                #expect(now.form == before.form)
+                for (p, q) in zip(now.pages, before.pages) where layout.compact == previous.compact {
+                    #expect(p.labelWidth >= q.labelWidth - 0.001, "width \(width)")
                 }
             }
             previous = layout
@@ -714,18 +687,15 @@ private func folded(_ s: Site) -> Site { var s = s; s.isFolded = true; return s 
         #expect(layout.sites[0].form == .single && layout.sites[1].form == .capsule)
     }
 
-    @Test func overflowCollapseLeavesFoldedSitesAloneAndStillCollapsesOthers() {
+    @Test func foldedSitesStayFoldedAndOthersNeverCollapseAtAnyWidth() {
         let a = folded(site("a", pages: 3)), b = site("b", pages: 4, used: 10), c = site("c", pages: 4, used: 20)
         let i = input([a, b, c], selected: c.pages[0].id)
         for width in stride(from: CGFloat(0), through: 1400, by: 13) {
             let layout = run(i, width: width)
             checkConsistent(layout, i)
-            #expect(layout.sites[0].form == .collapsed && layout.sites[0].isFolded && layout.sites[0].labelWidth == 0)
-            #expect(!layout.sites[1].isFolded && !layout.sites[2].isFolded)
+            #expect(layout.sites[0].form == .collapsed && layout.sites[0].isFolded)
+            #expect(layout.sites[1].form == .capsule && layout.sites[2].form == .capsule)
         }
-        // Tight enough for b to collapse for room: that one is not "folded".
-        let tight = run(i, width: barWidth(forAvailable: 330))
-        #expect(tight.sites[1].form == .collapsed && !tight.sites[1].isFolded)
     }
 }
 

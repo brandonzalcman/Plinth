@@ -11,6 +11,8 @@ import PlinthPanels
 /// What is floating over the page in one window.
 @Observable
 final class WindowChrome {
+    /// Whether the bar was last laid out compact; read back for the layout engine's hysteresis. Not observed.
+    @ObservationIgnored var barWasCompact = false
     enum Panel: Equatable {
         case none
         case command(text: String, newPage: Bool)

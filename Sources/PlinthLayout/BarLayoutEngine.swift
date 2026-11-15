@@ -35,20 +35,23 @@ import PlinthModel
 ///                + singlePadding
 ///     badge      max(iconSize, measure("\(pageCount)", .regular) + 2·iconTrailing)
 ///
-/// ## Overflow order
+/// ## Overflow: stable positions
 ///
-/// 0. A site the user folded (`Site.isFolded`, two or more pages, no page of the split) starts out
-///    collapsed to icon and count, with no name, and is not touched by the steps below.
-/// 1. Everything at natural width: each label is its measured width capped at `maxLabelWidth`.
-/// 2. Collapse sites one at a time, least recently used first, until the region fits. A site
-///    holding a visible page or either page of the split never collapses, and a site whose
-///    collapsed form would not be strictly narrower is left alone.
-/// 3. Shorten names, longest first (every label over a common level is cut to that level, never
-///    below `minLabelWidth`; labels naturally shorter than that are left alone):
-///    a. page names that are not current, and collapsed site names;
-///    b. current page names;
-///    c. collapsed sites drop their name altogether (icon, plus count), least recently used first.
-/// 4. `scrolls = true`, with everything at its minimum.
+/// Where a tab sits must not depend on which other tab was used last, so there is no
+/// least-recently-used collapsing and no shared "level" that every name is cut to. Each tab's
+/// width depends only on its own contents and on one bar-wide mode:
+///
+/// 1. **Natural**: each label is its measured width capped at `maxLabelWidth`. Chosen while the
+///    selection-free natural width plus `naturalSlack` fits.
+/// 2. **Compact**, otherwise: every page, the current ones included, has its name capped at
+///    `compactLabelWidth` and the same padding, so selecting a tab never changes a width. It is left
+///    again only with `compactHysteresis` more room than it takes to stay natural (`BarInput.wasCompact`).
+/// 3. **Scrolling**, when compact does not fit either: the strip keeps its compact widths and scrolls,
+///    and an overflow tile (`BarMetrics.overflowReserve`) is carved out of the region's room to list every tab.
+///
+/// A site the user folded (`Site.isFolded`, two or more pages, no page of the split) is always
+/// collapsed to icon and count; nothing else ever collapses on its own.
+///
 public struct BarLayoutEngine: BarLayouting {
     public init() {}
 
@@ -87,8 +90,8 @@ public struct BarLayoutEngine: BarLayouting {
     }
 
     /// Full width of one page button inside a capsule: text plus padding on both sides.
-    public static func pageButtonWidth(_ page: BarPageItem, metrics: BarMetrics) -> CGFloat {
-        page.labelWidth + 2 * (page.isCurrent ? metrics.currentPagePadding : metrics.pagePadding)
+    public static func pageButtonWidth(_ page: BarPageItem, metrics: BarMetrics, compact: Bool = false) -> CGFloat {
+        page.labelWidth + 2 * (page.isCurrent && !compact ? metrics.currentPagePadding : metrics.pagePadding)
     }
 
     /// Full outer width of a site item, from its contents alone. `BarSiteItem.width` always equals this.
@@ -98,7 +101,7 @@ public struct BarLayoutEngine: BarLayouting {
             return singleWidth(label: item.pages.first?.labelWidth ?? 0, metrics)
         case .capsule:
             return metrics.capsuleLeading + metrics.iconSize + metrics.iconTrailing
-                + item.pages.reduce(0) { $0 + metrics.capsuleGap + pageButtonWidth($1, metrics: metrics) }
+                + item.pages.reduce(0) { $0 + metrics.capsuleGap + pageButtonWidth($1, metrics: metrics, compact: item.compact) }
                 + metrics.capsuleTrailing
         case .collapsed:
             let badge = item.pageCount > 1 ? badgeWidth(pageCount: item.pageCount, metrics: metrics, measure: measure) : 0
@@ -134,17 +137,18 @@ public struct BarLayoutEngine: BarLayouting {
         var folded = false
         var pageLabels: [CGFloat]
         var pageCurrent: [Bool]
+        /// Compact: current pages pad like any other.
+        var compact = false
         /// Natural site-name width; used only once collapsed.
         var siteLabel: CGFloat
         var badge: CGFloat
-        var canCollapse: Bool
 
         func width(_ m: BarMetrics) -> CGFloat {
             if collapsed { return BarLayoutEngine.collapsedWidth(label: siteLabel, badge: badge, m) }
             if pageLabels.count == 1 { return BarLayoutEngine.singleWidth(label: pageLabels[0], m) }
             var w = m.capsuleLeading + m.iconSize + m.iconTrailing + m.capsuleTrailing
             for i in pageLabels.indices {
-                w += m.capsuleGap + pageLabels[i] + 2 * (pageCurrent[i] ? m.currentPagePadding : m.pagePadding)
+                w += m.capsuleGap + pageLabels[i] + 2 * (pageCurrent[i] && !compact ? m.currentPagePadding : m.pagePadding)
             }
             return w
         }
@@ -164,10 +168,8 @@ public struct BarLayoutEngine: BarLayouting {
                 visible.insert(split.leading); visible.insert(split.trailing)
             }
         }
-        var protected = visible
         var splitPages = Set<PageID>()
         if let split = input.split {
-            protected.insert(split.leading); protected.insert(split.trailing)
             splitPages = [split.leading, split.trailing]
         }
 
@@ -198,83 +200,49 @@ public struct BarLayoutEngine: BarLayouting {
             min(max(0, measure(text, style)), m.maxLabelWidth)
         }
 
-        // Stage 1: natural widths.
-        var work: [Work] = input.sites.map { site in
-            let form: BarSiteForm = site.pages.count == 1 ? .single : .capsule
-            let current = site.pages.map { visible.contains($0.id) }
-            let labels = zip(site.pages, current).map { page, isCurrent in
-                natural(page.name, E.labelStyle(isCurrent: isCurrent, form: form,
-                                                fade: form == .single && site.fade == .fading ? .fading : page.fade))
-            }
-            let folded = site.isFolded && site.pages.count > 1 && !site.pages.contains { splitPages.contains($0.id) }
-            return Work(collapsed: folded, folded: folded, pageLabels: labels, pageCurrent: current,
-                        siteLabel: folded ? 0 : natural(site.name, E.labelStyle(isCurrent: false, form: .collapsed, fade: site.fade)),
-                        badge: site.pages.count > 1 ? E.badgeWidth(pageCount: site.pages.count, metrics: m, measure: measure) : 0,
-                        canCollapse: !folded && !site.pages.contains { protected.contains($0.id) })
-        }
-        var total = work.reduce(0) { $0 + $1.width(m) } + CGFloat(max(0, work.count - 1)) * m.itemGap
-        func fits() -> Bool { total <= available + E.epsilon }
-
-        // Least recently used first; ties go to the leftmost site.
-        let lruOrder: [Int] = work.indices.filter { work[$0].canCollapse }.sorted {
-            let a = input.sites[$0].lastUsed, b = input.sites[$1].lastUsed
-            return a != b ? a < b : $0 < $1
-        }
-
-        // Stage 2: collapse.
-        if !fits() {
-            for i in lruOrder {
-                let before = work[i].width(m)
-                work[i].collapsed = true
-                let after = work[i].width(m)
-                if after < before - E.epsilon {
-                    total -= before - after
-                    if fits() { break }
-                } else {
-                    work[i].collapsed = false
+        // Stage 1: natural widths. `current` says which pages are drawn as current; the mode decision
+        // below passes none, so it never depends on the selection.
+        func build(current isCurrentPage: (PageID) -> Bool, compact: Bool) -> [Work] {
+            input.sites.map { site in
+                let form: BarSiteForm = site.pages.count == 1 ? .single : .capsule
+                let current = site.pages.map { isCurrentPage($0.id) }
+                let labels = zip(site.pages, current).map { page, isCurrent -> CGFloat in
+                    let width = natural(page.name, E.labelStyle(isCurrent: isCurrent, form: form,
+                                                                fade: form == .single && site.fade == .fading ? .fading : page.fade))
+                    guard compact else { return width }
+                    // Compact: reserve the wider of the two weights for every page, so the label is the same
+                    // whether or not the page is current and the semibold text never clips when selected.
+                    let fade: FadeStage = form == .single && site.fade == .fading ? .fading : page.fade
+                    let regular = natural(page.name, E.labelStyle(isCurrent: false, form: form, fade: fade))
+                    let semibold = natural(page.name, E.labelStyle(isCurrent: true, form: form, fade: fade))
+                    return min(max(regular, semibold), m.compactLabelWidth)
                 }
+                let folded = site.isFolded && site.pages.count > 1 && !site.pages.contains { splitPages.contains($0.id) }
+                var w = Work(collapsed: folded, folded: folded, pageLabels: labels, pageCurrent: current,
+                             siteLabel: folded ? 0 : natural(site.name, E.labelStyle(isCurrent: false, form: .collapsed, fade: site.fade)),
+                             badge: site.pages.count > 1 ? E.badgeWidth(pageCount: site.pages.count, metrics: m, measure: measure) : 0)
+                w.compact = compact
+                return w
             }
         }
+        func total(_ w: [Work]) -> CGFloat { w.reduce(0) { $0 + $1.width(m) } + CGFloat(max(0, w.count - 1)) * m.itemGap }
 
-        // Stage 3: shorten names.
-        if !fits() {
-            // a. Non-current page names and collapsed site names.
-            var widths: [CGFloat] = []
-            for w in work {
-                if w.collapsed { widths.append(w.siteLabel) }
-                else { for i in w.pageLabels.indices where !w.pageCurrent[i] { widths.append(w.pageLabels[i]) } }
-            }
-            var level = E.level(for: widths, reduceBy: total - available, floor: m.minLabelWidth)
-            for s in work.indices {
-                if work[s].collapsed {
-                    let cut = min(work[s].siteLabel, level)
-                    total -= work[s].siteLabel - cut; work[s].siteLabel = cut
-                } else {
-                    for i in work[s].pageLabels.indices where !work[s].pageCurrent[i] {
-                        let cut = min(work[s].pageLabels[i], level)
-                        total -= work[s].pageLabels[i] - cut; work[s].pageLabels[i] = cut
-                    }
-                }
-            }
-            // b. Current page names.
-            if !fits() {
-                widths = work.flatMap { w in w.collapsed ? [] : w.pageLabels.indices.filter { w.pageCurrent[$0] }.map { w.pageLabels[$0] } }
-                level = E.level(for: widths, reduceBy: total - available, floor: m.minLabelWidth)
-                for s in work.indices where !work[s].collapsed {
-                    for i in work[s].pageLabels.indices where work[s].pageCurrent[i] {
-                        let cut = min(work[s].pageLabels[i], level)
-                        total -= work[s].pageLabels[i] - cut; work[s].pageLabels[i] = cut
-                    }
-                }
-            }
-            // c. Collapsed sites lose their name.
-            if !fits() {
-                for i in lruOrder where work[i].collapsed && work[i].siteLabel > 0 {
-                    let before = work[i].width(m)
-                    work[i].siteLabel = 0
-                    total -= before - work[i].width(m)
-                    if fits() { break }
-                }
+        // Stage 2: pick the mode from the selection-free natural width. Compact is entered as soon as natural
+        // plus the slack for a growing current page does not fit, and left only with `compactHysteresis` more room.
+        let naturalNeed = total(build(current: { _ in false }, compact: false)) + m.naturalSlack
+        let stayNatural = naturalNeed <= available - (input.wasCompact ? m.compactHysteresis : 0) + E.epsilon
+        var work = build(current: { visible.contains($0) }, compact: false)
+        var compact = false
+        var scrolls = false
+        var room = available
+        if !stayNatural || total(work) > available + E.epsilon {
+            // Compact: one fixed cap for every page, the current one included, and the same padding,
+            // so selecting a tab changes nothing but its highlight.
+            compact = true
+            work = build(current: { visible.contains($0) }, compact: true)
+            if total(work) > available + E.epsilon {
+                scrolls = true
+                room = max(0, available - m.overflowReserve)
             }
         }
 
@@ -293,27 +261,12 @@ public struct BarLayoutEngine: BarLayouting {
             }
             var item = BarSiteItem(id: site.id, key: site.key, name: site.name, form: form, fade: site.fade, isKept: site.isKept,
                                    pages: pages, pageCount: site.pages.count, labelWidth: w.collapsed ? w.siteLabel : 0, width: 0,
-                                   isFolded: w.folded)
+                                   isFolded: w.folded, compact: w.compact)
             item.width = E.width(of: item, metrics: m, measure: measure)
             items.append(item)
         }
         let sitesWidth = E.sitesWidth(of: items, metrics: m)
-        return BarLayout(pins: pins, pinSlots: pinSlots, sites: items, sitesWidth: sitesWidth, sitesAvailable: available,
-                         scrolls: sitesWidth > available + E.epsilon)
-    }
-
-    /// The level L (never below `floor`) at which cutting every width down to L removes `reduceBy`
-    /// points in total. Returns `floor` when even that is not enough, and `.infinity` when nothing needs cutting.
-    static func level(for widths: [CGFloat], reduceBy: CGFloat, floor: CGFloat) -> CGFloat {
-        guard reduceBy > 0 else { return .infinity }
-        let sorted = widths.filter { $0 > floor }.sorted(by: >)
-        var sum: CGFloat = 0
-        for (i, w) in sorted.enumerated() {
-            sum += w
-            let next = i + 1 < sorted.count ? sorted[i + 1] : floor
-            let level = (sum - reduceBy) / CGFloat(i + 1)
-            if level >= next { return max(level, floor) }
-        }
-        return floor
+        return BarLayout(pins: pins, pinSlots: pinSlots, sites: items, sitesWidth: sitesWidth, sitesAvailable: room,
+                         scrolls: scrolls, compact: compact)
     }
 }
