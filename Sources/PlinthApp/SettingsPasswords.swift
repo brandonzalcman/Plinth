@@ -367,7 +367,6 @@ private struct PasswordImportCards: View {
             let parsed = try CSVImport.parse(text)
             let merged = app.passwords.vault.merge(parsed.logins)
             app.passwords.model.reload()
-
             report(added: merged.added, duplicates: merged.duplicates, failed: merged.failed, skipped: parsed.skipped)
         } catch {
             csvError = "That file doesn't look like a password export. It needs a header row with URL, user name and password columns."
