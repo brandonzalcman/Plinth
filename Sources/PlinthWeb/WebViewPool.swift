@@ -94,6 +94,10 @@ public final class WebViewPool: NSObject {
         /// The next main-frame navigation was asked for through the pool, so `shouldNavigate` is not consulted.
         var poolInitiatedLoad = false
         var reloadedAfterCrash = false
+        /// The process ended while the page was hidden; it reloads when next shown.
+        var needsReloadWhenShown = false
+        /// Covers the blank view while a page reloads after its process ended.
+        var cover: NSView?
         var suspendedKey: SiteKey?
         var isDemoting = false
         var lastFullscreen = false
@@ -254,6 +258,7 @@ public final class WebViewPool: NSObject {
     public func webView(for page: Page) -> WKWebView {
         if let entry = entries[page.id] {
             if entry.suspendedKey != nil { resume([page.id]) }
+            if entry.needsReloadWhenShown { reloadAfterEnd(of: entry) }
             return entry.webView
         }
         let entry = makeEntry(for: page.id)

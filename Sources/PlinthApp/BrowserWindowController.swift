@@ -73,6 +73,10 @@ final class BrowserWindowController: NSObject, NSWindowDelegate {
     private var stripColoured = false
     var accessoryHosts: [NSView] = []
     var resumeTask: Task<Void, Never>?
+    private var frameSave: Task<Void, Never>?
+    /// What the page area was last laid out for; an unchanged store tick (a dwell count, a frame) skips the work.
+    private var laidOut: ContentLayoutKey?
+    private var stripView: WKWebView?
     var askTask: Task<Void, Never>?
     var peekView: WKWebView?
     var peekHost: NSView?
@@ -178,6 +182,11 @@ final class BrowserWindowController: NSObject, NSWindowDelegate {
         }
         let pages = ordered.compactMap { app.store.page($0) }
         let views = pages.map { app.pool.webView(for: $0) }
+        let key = ContentLayoutKey(views: views.map(ObjectIdentifier.init), fraction: state.split?.fraction ?? 0.5,
+                                   flipped: splitFlipped, titlebar: titlebarHeight, size: root.bounds.size,
+                                   barHeight: metrics.barHeight + metrics.bottomInset, attached: views.allSatisfy { $0.superview === content })
+        let relayout = key != laidOut
+        laidOut = key
         for view in views {
             // Let pages scroll clear of the floating bar.
             // The page starts below the traffic lights; WebKit fills the strip with the page's own colour.
@@ -190,10 +199,12 @@ final class BrowserWindowController: NSObject, NSWindowDelegate {
             }
         }
         let fraction = state.split?.fraction ?? 0.5
-        content.show(leading: views.first, trailing: views.count > 1 ? views[1] : nil,
-                     fraction: splitFlipped ? 1 - fraction : fraction)
-        showEmptyState(pages.isEmpty)
-        layoutTopStrip(following: views.first)
+        if relayout {
+            content.show(leading: views.first, trailing: views.count > 1 ? views[1] : nil,
+                         fraction: splitFlipped ? 1 - fraction : fraction)
+            showEmptyState(pages.isEmpty)
+            layoutTopStrip(following: views.first)
+        }
 
         dropResumeCardIfStale()
         let changed = shownPages != pages.map(\.id)
@@ -216,6 +227,8 @@ final class BrowserWindowController: NSObject, NSWindowDelegate {
         topStrip.isHidden = height == 0
         if view == nil { topStrip.layer?.backgroundColor = NSColor.clear.cgColor }
         if view == nil { applyChromeAppearance() }
+        if view === stripView, view != nil { return }
+        stripView = view
         stripObservation = view?.observe(\.underPageBackgroundColor, options: [.initial, .new]) { [weak self] view, _ in
             MainActor.assumeIsolated { self?.applyPageColour(of: view) }
         }
@@ -435,17 +448,39 @@ final class BrowserWindowController: NSObject, NSWindowDelegate {
     // MARK: Window delegate
 
     func saveFrame() {
+        frameSave?.cancel()
+        frameSave = nil
         let frame = window.frame
         app.store.setFrame([frame.origin.x, frame.origin.y, frame.width, frame.height], for: windowID)
     }
 
     func windowDidEndLiveResize(_ notification: Notification) { saveFrame() }
     func windowDidBecomeKey(_ notification: Notification) { app.mainWindowBecameKey(windowID) }
-    func windowDidMove(_ notification: Notification) { saveFrame() }
+    /// Dragging posts a move for every mouse event. Each saved frame is a store change, which re-runs
+    /// `refreshContent` and re-renders the bar, so the frame is saved once the window has settled.
+    func windowDidMove(_ notification: Notification) {
+        frameSave?.cancel()
+        frameSave = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(400))
+            if !Task.isCancelled { self?.saveFrame() }
+        }
+    }
 
     func windowWillClose(_ notification: Notification) {
         saveFrame()
         content.show(leading: nil, trailing: nil, fraction: 0.5)
         app.windowDidClose(windowID)
     }
+}
+
+/// Everything the page area's layout depends on. `refreshContent` runs on every store change
+/// (a dwell tick every few seconds, a saved frame), and only a change in this key needs a re-layout.
+private struct ContentLayoutKey: Equatable {
+    var views: [ObjectIdentifier]
+    var fraction: Double
+    var flipped: Bool
+    var titlebar: CGFloat
+    var size: CGSize
+    var barHeight: CGFloat
+    var attached: Bool
 }
