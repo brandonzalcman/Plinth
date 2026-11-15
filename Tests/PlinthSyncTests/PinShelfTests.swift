@@ -230,10 +230,13 @@ struct KeyKeepingTransport: SyncTransport {
     func fetchChanges(since token: Data?) async throws -> SyncChangeSet { try await base.fetchChanges(since: token) }
     func modify(saving: [SyncRecord], deleting: [SyncRecordID]) async throws -> SyncModifyResult {
         var merged = saving
-        for i in merged.indices where !merged[i].isTombstone {
-            if let current = await base.record(named: merged[i].recordName), !current.isTombstone {
+        for i in merged.indices {
+            if let current = await base.record(named: merged[i].recordName) {
                 var kept = current.fields
-                for key in (RecordMapper.fieldKeys[merged[i].recordType] ?? []) + (merged[i].clearKeys ?? []) where merged[i].fields[key] == nil { kept[key] = nil }
+                // A deleted record is cleared of every field its type or an earlier build defines.
+                let leftovers = merged[i].isTombstone ? (RecordMapper.legacyKeys[merged[i].recordType] ?? []) : []
+                for key in (RecordMapper.fieldKeys[merged[i].recordType] ?? []) + (merged[i].clearKeys ?? []) + leftovers
+                where merged[i].fields[key] == nil || merged[i].isTombstone { kept[key] = nil }
                 merged[i].fields = kept.merging(merged[i].fields) { _, new in new }
             }
         }

@@ -48,15 +48,15 @@ public enum RecordMapper {
     public static let legacyKeys: [String: [String]] = [pinType: ["folderID", "folderName"]]
 
     /// The record carries a field only an earlier build wrote (see `legacyKeys`).
+    /// A tombstone keeps them too (the CloudKit transport reads them back off a deleted pin).
     static func legacyKeysPresent(in r: SyncRecord) -> [String] {
-        guard !r.isTombstone else { return [] }
         return (legacyKeys[r.recordType] ?? []).filter { r.fields[$0] != nil }
     }
 
     /// The record without fields its type does not define: leftovers from other versions are not
     /// part of the content, so they never make a record look edited.
     static func known(_ r: SyncRecord) -> SyncRecord {
-        guard let keys = fieldKeys[r.recordType], !r.isTombstone else { return r }
+        guard let keys = fieldKeys[r.recordType] else { return r }
         var r = r
         r.fields = r.fields.filter { keys.contains($0.key) }
         return r

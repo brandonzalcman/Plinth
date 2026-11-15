@@ -95,6 +95,9 @@ public struct SyncOutcome: Sendable, Equatable {
         /// Records the server holds with fields only an earlier build wrote (`RecordMapper.legacyKeys`);
         /// each is saved once so the server copy loses them (they make a 0.2.0 Mac re-upload).
         var dirty: Set<String>?
+        /// Pin records this Mac created and removed again before they were ever saved. A folder that
+        /// lists such a site has nothing to wait for.
+        var droppedPins: Set<String>?
     }
 
     private struct LastInput {
@@ -129,7 +132,7 @@ public struct SyncOutcome: Sendable, Equatable {
         guard !isSyncing else { return }
         var s = state
         let t = now()
-        stamp(&s, localRecordSet(for: local, s, at: t), at: t)
+        _ = stampLocal(&s, local, at: t)
         if s != state { state = s; persist() }
     }
 
@@ -185,8 +188,7 @@ public struct SyncOutcome: Sendable, Equatable {
         var s = state
 
         // 1. Local edits since the base.
-        let localRecords = localRecordSet(for: local, s, at: t)
-        stamp(&s, localRecords, at: t)
+        let localRecords = stampLocal(&s, local, at: t)
 
         // 2. Remote changes.
         var fetched = try await fetch(&s, localRecords: localRecords, at: t)
@@ -199,7 +201,7 @@ public struct SyncOutcome: Sendable, Equatable {
         for r in hist.uploads { extra[r.recordName] = r }
         if let r = ownDeviceRecord(s, openPages: openPages, at: t) { extra[r.recordName] = r }
         if let r = ownLoyaltyRecord(s, at: t) { extra[r.recordName] = r }
-        s.dirty = s.dirty?.filter { name in s.server[name].map { !$0.isTombstone } ?? false }
+        s.dirty = s.dirty?.filter { s.server[$0] != nil }
         for name in s.dirty ?? [] { extra[name] = s.server[name].map(RecordMapper.known) }
         if let p = s.pendingClear {
             let current = s.server[RecordMapper.clearName]
@@ -221,7 +223,7 @@ public struct SyncOutcome: Sendable, Equatable {
         // 5. Renumbered pin order, regrouped shelf times and hidden duplicates are written back
         //    now, so the next sync with no changes uploads nothing.
         let before = s.stamps
-        stamp(&s, localRecordSet(for: built, s, at: t), at: t)
+        _ = stampLocal(&s, built, at: t)
         let changed = Set(s.stamps.keys).union(before.keys).filter { s.stamps[$0] != before[$0] && s.stamps[$0] != nil }
         if !changed.isEmpty {
             try await push(&s, names: changed, extra: [:], deletes: [])
@@ -251,7 +253,7 @@ public struct SyncOutcome: Sendable, Equatable {
         func notArrived(_ key: String) -> Bool {
             let pin = RecordMapper.pinName(SiteKey(key))
             return !pinKeys.contains(key) && s.localRef[pin] == nil && s.server[pin]?.isTombstone != true
-                && s.stamps[pin]?.isTombstone != true
+                && s.stamps[pin]?.isTombstone != true && s.droppedPins?.contains(pin) != true
         }
         func liveMembers(_ r: SyncRecord?) -> [String] {
             r.flatMap { $0.isTombstone ? nil : $0["members"]?.stringsValue } ?? []
@@ -266,12 +268,16 @@ public struct SyncOutcome: Sendable, Equatable {
             r.fields["members"] = .strings(members.sorted())
             recs[name] = r
         }
-        // A folder none of whose pins has arrived yet is not a folder this Mac deleted.
+        // A folder this Mac no longer shows keeps the members whose pins have not arrived yet: it is
+        // not a folder this Mac deleted (or, with only some members gone, one it emptied).
         for name in Set(s.server.keys).union(s.localRef.keys) where recs[name] == nil {
-            guard let base = [s.server[name], s.localRef[name]].compactMap({ $0 }).first(where: { $0.recordType == RecordMapper.folderType && !$0.isTombstone }),
+            guard var base = [s.server[name], s.localRef[name]].compactMap({ $0 }).first(where: { $0.recordType == RecordMapper.folderType && !$0.isTombstone }),
                   s.stamps[name]?.isTombstone != true || s.localRef[name] == nil else { continue }
-            let members = liveMembers(base)
-            if !members.isEmpty, members.allSatisfy(notArrived) { recs[name] = RecordMapper.known(base) }
+            let waiting = liveMembers(base).filter(notArrived)
+            guard !waiting.isEmpty else { continue }
+            base = RecordMapper.known(base)
+            base.fields["members"] = .strings(waiting.sorted())
+            recs[name] = base
         }
         return recs
     }
@@ -284,12 +290,37 @@ public struct SyncOutcome: Sendable, Equatable {
         return out
     }
 
+    /// Stamps the payload's records. A pin dropped before it was saved changes what its folder waits
+    /// for, so the records are worked out again once that is known.
+    private func stampLocal(_ s: inout State, _ payload: SyncPayload, at t: Date) -> [String: SyncRecord] {
+        var recs = localRecordSet(for: payload, s, at: t)
+        let before = s.droppedPins
+        stamp(&s, recs, at: t)
+        if s.droppedPins != before {
+            recs = localRecordSet(for: payload, s, at: t)
+            stamp(&s, recs, at: t)
+        }
+        return recs
+    }
+
     /// Compares local records with the base and keeps one stamped record per changed name.
     /// A stamp keeps its time while its content stays the same.
     private func stamp(_ s: inout State, _ local: [String: SyncRecord], at t: Date) {
+        // A site that is pinned again (or known to the server) is no longer a dropped one.
+        if let dropped = s.droppedPins {
+            let kept = dropped.filter { local[$0] == nil && s.localRef[$0] == nil && s.server[$0] == nil }
+            s.droppedPins = kept.isEmpty ? nil : kept
+        }
         for name in Set(local.keys).union(s.localRef.keys).union(s.stamps.keys) {
             let l = local[name], ref = s.localRef[name]
-            if Self.sameState(l, ref) { s.stamps[name] = nil; continue }
+            if Self.sameState(l, ref) {
+                // A pin created and removed again before it was ever saved.
+                if l == nil, let st = s.stamps[name], st.recordType == RecordMapper.pinType, !st.isTombstone,
+                   s.server[name] == nil {
+                    s.droppedPins = (s.droppedPins ?? []).union([name])
+                }
+                s.stamps[name] = nil; continue
+            }
             let candidate: SyncRecord
             if let l { candidate = l } else if let ref { candidate = ref.tombstone(at: t, by: deviceID) } else {
                 s.stamps[name] = nil; continue
