@@ -254,7 +254,7 @@ struct PageButton: View {
     var body: some View {
         let m = ctx.metrics
         let shape = RoundedRectangle(cornerRadius: m.tileCornerRadius, style: .continuous)
-        let padding = isSingle ? m.singlePadding : (page.isCurrent ? m.currentPagePadding : m.pagePadding)
+        let padding = isSingle ? m.singlePadding : (page.isCurrent && !site.compact ? m.currentPagePadding : m.pagePadding)
         let dragging = ctx.drag.isDragging
         let isTarget = ctx.drag.splitTarget == page.id
         Button {

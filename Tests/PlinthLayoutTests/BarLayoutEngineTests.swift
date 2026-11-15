@@ -300,7 +300,8 @@ private func collapsedIDs(_ layout: BarLayout) -> Set<SiteID> {
         let natural = run(i, width: 5000)
         #expect(natural.sites[0].pages[0].labelWidth == 140)
         let layout = run(i, width: barWidth(forAvailable: natural.sitesWidth - 1))
-        #expect(layout.sites.map { $0.pages[0].labelWidth } == [96, 150, 96, 96])   // current keeps its natural, semibold name
+        #expect(layout.compact)
+        #expect(layout.sites.map { $0.pages[0].labelWidth } == [96, 96, 96, 96])   // the current page is capped like the rest
         #expect(!layout.scrolls)
         checkConsistent(layout, i)
     }
@@ -320,6 +321,7 @@ private func collapsedIDs(_ layout: BarLayout) -> Set<SiteID> {
         let sites = longTabs(5)
         let i = input(sites, selected: sites[0].pages[0].id)
         let compactWidth = run(i, width: barWidth(forAvailable: 0)).sitesWidth
+        #expect(abs(compactWidth - 752) < 0.001)
         #expect(!run(i, width: barWidth(forAvailable: compactWidth)).scrolls)
         #expect(run(i, width: barWidth(forAvailable: compactWidth - 1)).scrolls)
     }
@@ -361,6 +363,83 @@ private func xs(_ layout: BarLayout) -> [SiteID: CGFloat] {
 }
 private func widths(_ layout: BarLayout) -> [SiteID: CGFloat] {
     Dictionary(uniqueKeysWithValues: layout.sites.map { ($0.id, $0.width) })
+}
+
+
+@Suite struct SelectionNeverMovesAnything {
+    private func sites(_ n: Int) -> [Site] {
+        (0..<n).map { k in
+            k % 5 == 2 ? site("C\(k)", [page(String(format: "capsule page one %03d", k)), page(String(format: "capsule page two %03d", k))])
+                       : site("S\(k)", [page(String(format: "a fairly long page title %03d", k))])
+        }
+    }
+
+    private func check(_ sites: [Site], width: CGFloat, expectScroll: Bool, split: Bool) {
+        let all = sites.flatMap(\.pages)
+        var reference: [(SiteID, CGFloat, CGFloat)]?
+        for pick in [0, 1, 7, 12, 20, all.count - 1].map({ $0 % all.count }) {
+            let sp: SplitPair? = split ? SplitPair(leading: all[pick].id, trailing: all[(pick + 9) % all.count].id) : nil
+            let l = run(input(pins: [pin("a")], sites, selected: all[pick].id, split: sp), width: width)
+            #expect(l.compact && l.scrolls == expectScroll)
+            let measured = xs(l).sorted { $0.value < $1.value }.map { ($0.key, $0.value, widths(l)[$0.key]!) }
+            if let reference {
+                for (a, b) in zip(reference, measured) { #expect(a.0 == b.0 && a.1 == b.1 && a.2 == b.2, "selection \(pick) moved a site") }
+            } else { reference = measured }
+        }
+    }
+
+    @Test func compactModeWithoutScrolling() {
+        let s = sites(8)
+        let wide = barWidth(forAvailable: run(input(pins: [pin("a")], s), width: 0).sitesWidth + 10, pins: 1)
+        // Natural does not fit (names are 140 pt), compact does.
+        #expect(run(input(pins: [pin("a")], s), width: wide).compact)
+        #expect(!run(input(pins: [pin("a")], s), width: wide).scrolls)
+        check(s, width: wide, expectScroll: false, split: false)
+        check(s, width: wide, expectScroll: false, split: true)
+    }
+
+    @Test func scrollingMode() {
+        let s = sites(40)
+        check(s, width: 1300, expectScroll: true, split: false)
+        check(s, width: 1300, expectScroll: true, split: true)
+    }
+}
+
+@Suite struct Hysteresis {
+    private func tabs(_ n: Int) -> [Site] {
+        (0..<n).map { site("S\($0)", [page(String(format: "a fairly long page title %03d", $0))]) }
+    }
+
+    @Test func compactReturnsToNaturalOnlyWithRoomToSpare() {
+        let s = tabs(6)
+        let sel = s[0].pages[0].id
+        let natural = run(input(s, selected: nil), width: 100_000).sitesWidth
+        let edge = natural + m.naturalSlack   // fits natural from a fresh start
+        func layout(_ available: CGFloat, was: Bool) -> BarLayout {
+            run(BarInput(pins: [], sites: s, selected: sel, split: nil, wasCompact: was), width: barWidth(forAvailable: available))
+        }
+        #expect(!layout(edge, was: false).compact)
+        #expect(layout(edge - 1, was: false).compact)
+        // Already compact: stays compact until natural fits with the extra margin.
+        #expect(layout(edge, was: true).compact)
+        #expect(layout(edge + m.compactHysteresis - 1, was: true).compact)
+        #expect(!layout(edge + m.compactHysteresis, was: true).compact)
+    }
+
+    @Test func closingOneTabNearTheThresholdDoesNotFlipTheBar() {
+        var s = tabs(6)
+        let sel = s[0].pages[0].id
+        let natural6 = run(input(s, selected: nil), width: 100_000).sitesWidth
+        let available = natural6 + m.naturalSlack - 1       // 6 tabs: just compact
+        var mode = run(BarInput(pins: [], sites: s, selected: sel, split: nil), width: barWidth(forAvailable: available)).compact
+        #expect(mode)
+        s.removeLast()                                       // 5 tabs would fit natural from scratch...
+        let after = run(BarInput(pins: [], sites: s, selected: sel, split: nil, wasCompact: mode), width: barWidth(forAvailable: available))
+        #expect(after.compact == mode)                       // ...but the bar stays compact: no flip for one close
+        mode = after.compact
+        s.append(site("New", [page("another fairly long page")]))
+        #expect(run(BarInput(pins: [], sites: s, selected: sel, split: nil, wasCompact: mode), width: barWidth(forAvailable: available)).compact)
+    }
 }
 
 @Suite struct StablePositions {
