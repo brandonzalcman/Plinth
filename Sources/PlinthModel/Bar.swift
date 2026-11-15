@@ -229,6 +229,9 @@ public enum BarAction: Sendable, Equatable {
     case unpin(SiteID)
     /// Put a pin in a folder (a new one when the id is nil, named `PinFolder.defaultName`).
     case movePinToFolder(SiteID, folder: UUID?)
+    /// A pin was dropped on another pin: the two become a new folder (or, if the other is in a
+    /// folder, the pin joins it).
+    case groupPins(SiteID, onto: SiteID)
     case removePinFromFolder(SiteID)
     case renamePinFolder(UUID, String)
     /// Dissolve a folder: its pins go back among the others.

@@ -17,7 +17,10 @@ struct FolderTileView: View {
     var body: some View {
         let m = ctx.metrics
         let shape = RoundedRectangle(cornerRadius: m.tileCornerRadius, style: .continuous)
-        Button { open.toggle() } label: {
+        Button {
+            guard !ctx.pinDrag.isDragging else { return }
+            open.toggle()
+        } label: {
             ZStack {
                 shape.fill(ctx.palette.pinIconTile)
                 shape.strokeBorder(ctx.palette.pinIconBorder, lineWidth: 1)
@@ -28,6 +31,8 @@ struct FolderTileView: View {
             .contentShape(shape)
         }
         .buttonStyle(BarPressStyle())
+        .overlay { PinDropHighlight(lit: ctx.pinDrag.target == .folder(folder.id), ctx: ctx) }
+        .reportsPinFrame(.folder(folder.id), into: ctx.pinDrag)
         .overlay {
             if folder.isCurrent {
                 RoundedRectangle(cornerRadius: m.tileCornerRadius + 3, style: .continuous)

@@ -226,6 +226,54 @@ enum DebugScript {
                     window.sendEvent(e)
                 }
             }
+        case "enter":
+            // enter: a real Return key-down to the key window (submits a focused text field).
+            guard let window = NSApp.keyWindow else { log("enter: no key window"); return }
+            for type in [NSEvent.EventType.keyDown, .keyUp] {
+                if let e = NSEvent.keyEvent(with: type, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                            windowNumber: window.windowNumber, context: nil, characters: "\r", charactersIgnoringModifiers: "\r",
+                                            isARepeat: false, keyCode: 36) { window.sendEvent(e) }
+            }
+        case "rightclick":
+            // rightclick <x> <y-from-top> [menu item title]: a right-click in window points; logs the context
+            // menu that opens and invokes the named item (a menu blocks the click, so a timer acts on it).
+            var p = arg.split(separator: " ", maxSplits: 3).map(String.init)
+            // "pop <x> <y> [item]": relative to the open popover (a folder's tray) instead of the main window.
+            var target = controller?.window
+            if p.first == "pop" {
+                p.removeFirst()
+                target = NSApp.windows.first { String(describing: type(of: $0)).contains("Popover") }
+            }
+            guard let window = target, p.count >= 2, let x = Double(p[0]), let y = Double(p[1]) else { return }
+            let want = p.count > 2 ? p[2] : nil
+            nonisolated(unsafe) var token: NSObjectProtocol?
+            token = NotificationCenter.default.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: .main) { note in
+                guard let opened = note.object as? NSMenu else { return }
+                nonisolated(unsafe) let menu = opened
+                MainActor.assumeIsolated {
+                    log("context menu: " + menu.items.map { $0.isSeparatorItem ? "--" : $0.title }.joined(separator: " | "))
+                    token.map(NotificationCenter.default.removeObserver)
+                }
+                let timer = Timer(timeInterval: 0.7, repeats: false) { _ in
+                    MainActor.assumeIsolated {
+                        if let want, let index = menu.items.firstIndex(where: { $0.title == want }) {
+                            log("invoking '\(want)'")
+                            menu.performActionForItem(at: index)
+                        }
+                        menu.cancelTracking()
+                    }
+                }
+                RunLoop.main.add(timer, forMode: .common)
+            }
+            let point = NSPoint(x: x, y: window.contentView!.bounds.height - y)
+            // A control-click, which is what a context menu is on a one-button mouse.
+            for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+                if let e = NSEvent.mouseEvent(with: type, location: point, modifierFlags: [.control], timestamp: ProcessInfo.processInfo.systemUptime,
+                                              windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) {
+                    window.sendEvent(e)
+                }
+            }
+            try? await Task.sleep(for: .milliseconds(300))
         case "key":
             // key <cmd+shift+return|cmd+j|…>: a real key-down through the main menu's key-equivalent path.
             sendKey(arg)

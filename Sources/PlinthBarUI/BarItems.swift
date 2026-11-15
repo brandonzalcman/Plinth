@@ -13,7 +13,10 @@ struct PinTileView: View {
     var body: some View {
         let m = ctx.metrics
         let shape = RoundedRectangle(cornerRadius: m.tileCornerRadius, style: .continuous)
-        Button { ctx.onAction(.selectPin(pin.id)) } label: {
+        Button {
+            guard !ctx.pinDrag.suppressesClick else { return }
+            ctx.onAction(.selectPin(pin.id))
+        } label: {
             ZStack {
                 if let image = ctx.icon(pin.key) {
                     shape.fill(ctx.palette.pinIconTile)
@@ -30,12 +33,13 @@ struct PinTileView: View {
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(ctx.palette.pinLetter)
                 }
-                if hovering { shape.fill(ctx.palette.hover) }
+                if hovering && !ctx.pinDrag.isDragging { shape.fill(ctx.palette.hover) }
             }
             .frame(width: m.tile, height: m.tile)
             .contentShape(shape)
         }
         .buttonStyle(BarPressStyle())
+        .overlay { PinDropHighlight(lit: ctx.pinDrag.target == .pin(pin.id), ctx: ctx) }
         .overlay {
             // The ring sits just outside the tile, in the bar's own padding.
             if pin.isCurrent {
@@ -47,6 +51,10 @@ struct PinTileView: View {
             }
         }
         .onHover { over in withAnimation(ctx.hoverAnimation) { hovering = over } }
+        .simultaneousGesture(ctx.pinDrag.gesture(for: pin.id))
+        .reportsPinFrame(.pin(pin.id), into: ctx.pinDrag)
+        .barDragLift(ctx.pinDrag.isDragging(pin: pin.id), splitting: ctx.pinDrag.target != nil, translation: ctx.pinDrag.translation,
+                     backing: ctx.palette.bar, cornerRadius: m.tileCornerRadius, reduceMotion: ctx.reduceMotion)
         .help(pin.name + shortcutSuffix(pin.shortcut))
         .contextMenu {
             moveToFolderMenu(pin, folders: folders, ctx: ctx)
@@ -55,6 +63,26 @@ struct PinTileView: View {
         }
         .accessibilityLabel("\(pin.name), pinned")
         .accessibilityAddTraits(pin.isCurrent ? .isSelected : [])
+    }
+}
+
+/// A pin or folder tile that a dragged pin would be grouped with, if dropped now.
+struct PinDropHighlight: View {
+    let lit: Bool
+    let ctx: BarContext
+
+    var body: some View {
+        let r = ctx.metrics.tileCornerRadius + 3
+        RoundedRectangle(cornerRadius: r, style: .continuous)
+            .fill(ctx.accent.opacity(lit ? 0.18 : 0))
+            .overlay {
+                RoundedRectangle(cornerRadius: r, style: .continuous)
+                    .strokeBorder(ctx.palette.accentLine(ctx.accent), lineWidth: lit ? 2 : 0)
+            }
+            .padding(-3)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+            .animation(ctx.reduceMotion ? nil : .easeOut(duration: 0.12), value: lit)
     }
 }
 

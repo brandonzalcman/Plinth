@@ -134,7 +134,9 @@ public actor CloudKitTransport: SyncTransport {
             record = CKRecord(recordType: r.recordType, recordID: CKRecord.ID(recordName: r.recordName, zoneID: zoneID))
         }
         // A save only sends the keys it sets, so clear every key this version leaves out.
-        for key in (RecordMapper.fieldKeys[r.recordType] ?? []) + (r.clearKeys ?? []) where r.fields[key] == nil || r.isTombstone {
+        // A deleted record is cleared of leftovers an earlier build wrote as well.
+        let leftovers = r.isTombstone ? (RecordMapper.legacyKeys[r.recordType] ?? []) : []
+        for key in (RecordMapper.fieldKeys[r.recordType] ?? []) + (r.clearKeys ?? []) + leftovers where r.fields[key] == nil || r.isTombstone {
             record[key] = nil as (any __CKRecordObjCValue)?
         }
         if !r.isTombstone {
@@ -153,10 +155,13 @@ public actor CloudKitTransport: SyncTransport {
             if let v = syncValue(rec[key]) { fields[key] = v }
         }
         let tombstone = (rec[tombstoneKey] as? NSNumber)?.boolValue ?? false
+        // A deleted record carries no content, but leftover fields of an earlier build stay visible
+        // so the engine can clear them.
+        let legacy = RecordMapper.legacyKeys[rec.recordType] ?? []
         return SyncRecord(
             recordType: rec.recordType,
             recordName: rec.recordID.recordName,
-            fields: tombstone ? [:] : fields,
+            fields: tombstone ? fields.filter { legacy.contains($0.key) } : fields,
             modifiedAt: (rec[editedAtKey] as? Date) ?? rec.modificationDate ?? .distantPast,
             modifiedBy: (rec[editedByKey] as? String) ?? "",
             isTombstone: tombstone,

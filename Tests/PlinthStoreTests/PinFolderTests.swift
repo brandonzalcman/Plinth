@@ -102,3 +102,40 @@ import PlinthModel
         r.ok()
     }
 }
+
+@MainActor @Suite struct PinGroupDropTests {
+    func rig() -> Rig {
+        let r = Rig(dir: nil)
+        let w = r.store.createWindow()
+        for h in ["a.com", "b.com", "c.com", "d.com"] {
+            r.open("https://\(h)/", in: w)
+            r.store.pin(site: r.store.window(w)!.sites.first { $0.key.host == h }!.id)
+        }
+        return r
+    }
+    func id(_ r: Rig, _ host: String) -> SiteID { r.store.pins.first { $0.key.host == host }!.id }
+    func order(_ r: Rig) -> String { r.store.pins.map { $0.key.host + ($0.folder.map { "@" + $0.name } ?? "") }.joined(separator: " ") }
+
+    @Test func droppingOnAPinMakesAFolderOfTheTwo() {
+        let r = rig()
+        r.store.groupPins(id(r, "d.com"), onto: id(r, "b.com"))
+        #expect(order(r) == "a.com b.com@Folder d.com@Folder c.com")
+        r.ok()
+    }
+
+    @Test func droppingOnAPinInAFolderJoinsIt() {
+        let r = rig()
+        r.store.groupPins(id(r, "b.com"), onto: id(r, "a.com"))
+        r.store.groupPins(id(r, "d.com"), onto: id(r, "a.com"))
+        #expect(order(r) == "a.com@Folder b.com@Folder d.com@Folder c.com")
+        r.ok()
+    }
+
+    @Test func droppingOnItselfOrAnUnknownPinDoesNothing() {
+        let r = rig()
+        let before = order(r)
+        r.store.groupPins(id(r, "a.com"), onto: id(r, "a.com"))
+        r.store.groupPins(id(r, "a.com"), onto: SiteID())
+        #expect(order(r) == before)
+    }
+}
