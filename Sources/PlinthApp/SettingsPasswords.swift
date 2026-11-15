@@ -459,11 +459,10 @@ private struct ApplePasswordsCard: View {
         guard let data = try? Data(contentsOf: url), let text = String(data: data, encoding: .utf8), let parsed = try? CSVImport.parse(text) else {
             message = "That doesn't look like an export from the Passwords app."; isError = true; return
         }
-        let merged = controller.vault.merge(parsed.logins)
+        let (merged, inStep) = controller.vault.mergeFromApple(parsed.logins)
         controller.model.reload()
-        // Everything in the file is in Apple Passwords already, new to Plinth or not.
-        let keys = Set(parsed.logins.map(\.key))
-        controller.preferences.markInApplePasswords(controller.model.logins.filter { keys.contains($0.key) })
+        // Only logins that now match Apple Passwords count as in step; a differing password stays waiting.
+        controller.preferences.markInApplePasswords(inStep)
         var note = "Imported \(merged.added) password\(merged.added == 1 ? "" : "s")."
         if merged.duplicates > 0 { note += " \(merged.duplicates) already saved." }
         if parsed.skipped > 0 { note += " \(parsed.skipped) skipped." }

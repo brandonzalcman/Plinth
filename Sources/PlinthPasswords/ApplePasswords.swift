@@ -50,3 +50,19 @@ public struct ApplePasswordsLedger: Codable, Equatable, Sendable {
         }
     }
 }
+
+public extension PasswordVault {
+    /// Merges logins read from Apple Passwords. Returns the merge result and the saved logins that now match Apple
+    /// Passwords: the ones added, and existing ones whose stored password equals the file's. An existing login with a
+    /// different password keeps Plinth's value, so it is left out and stays waiting.
+    func mergeFromApple(_ logins: [Login]) -> (result: MergeResult, inStep: [LoginSummary]) {
+        let result = merge(logins)
+        let saved = Dictionary((try? list())?.map { ($0.key, $0) } ?? [], uniquingKeysWith: { first, _ in first })
+        var matching: [LoginSummary] = []
+        for login in logins {
+            guard let summary = saved[login.key], (try? password(for: login.key)) == login.password else { continue }
+            matching.append(summary)
+        }
+        return (result, matching)
+    }
+}

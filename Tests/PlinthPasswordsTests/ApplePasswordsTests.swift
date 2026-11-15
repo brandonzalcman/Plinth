@@ -60,4 +60,19 @@ struct ApplePasswordsTests {
         prefs.markInApplePasswords([a])
         #expect(PasswordPreferences(storageDirectory: dir).applePasswords.waiting(in: [a]).isEmpty)
     }
+
+    @Test func importKeepsDifferingPasswordsWaiting() throws {
+        let same = Login(origin: WebOrigin(string: "https://same.com")!, username: "u", password: "pw")
+        let differs = Login(origin: WebOrigin(string: "https://differs.com")!, username: "u", password: "plinth")
+        let vault = InMemoryVault([same, differs])
+        let fromApple = [same,
+                         Login(origin: differs.origin, username: "u", password: "apple"),
+                         Login(origin: WebOrigin(string: "https://new.com")!, username: "u", password: "n")]
+        let (merged, inStep) = vault.mergeFromApple(fromApple)
+        #expect(merged.added == 1)
+        #expect(merged.duplicates == 2)
+        let hosts = Set(inStep.map { $0.origin.description })
+        #expect(hosts == ["https://same.com", "https://new.com"])
+        #expect(try vault.password(for: differs.key) == "plinth")
+    }
 }
