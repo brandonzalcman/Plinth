@@ -43,8 +43,13 @@ public struct BarMetrics: Sendable, Equatable {
     public var searchGap: CGFloat = 12
     /// Names are never shortened below this many points of text.
     public var minLabelWidth: CGFloat = 36
+    /// When the tabs do not fit at natural width, every page that is not on screen keeps at most this much name.
+    public var compactLabelWidth: CGFloat = 96
     /// Names are never drawn wider than this, however much room there is.
     public var maxLabelWidth: CGFloat = 180
+
+    /// Room the overflow tile takes from the sites region while the strip scrolls: the tile and its gap.
+    public var overflowReserve: CGFloat { tile + itemGap }
 
     public init() {}
     public static let standard = BarMetrics()
@@ -166,9 +171,10 @@ public struct BarLayout: Sendable, Equatable {
     public var sites: [BarSiteItem]
     /// Width of the sites region as laid out.
     public var sitesWidth: CGFloat
-    /// Width the sites region may occupy before it has to scroll.
+    /// Width the sites region may occupy before it has to scroll (less the overflow tile while scrolling).
     public var sitesAvailable: CGFloat
-    /// True only when collapsing and shortening were not enough.
+    /// True only when the compact widths do not fit either. The strip then scrolls and an overflow tile
+    /// follows it; `sitesAvailable` already has the tile's room taken off.
     public var scrolls: Bool
 
     public init(pins: [BarPinItem], pinSlots: [BarPinSlot]? = nil, sites: [BarSiteItem], sitesWidth: CGFloat, sitesAvailable: CGFloat, scrolls: Bool) {

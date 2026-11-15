@@ -108,6 +108,8 @@ private struct BarContent: View {
 
     @State private var moreBefore = false
     @State private var moreAfter = false
+    @State private var scrollPosition = ScrollPosition(edge: .leading)
+    @State private var scrollX: CGFloat = 0
 
     private var searchWidth: CGFloat {
         ctx.metrics.searchPadding * 2 + BarTextMeasurer.width("Search", style: .regular)
@@ -134,13 +136,24 @@ private struct BarContent: View {
         return nil
     }
 
+    /// Where the site holding the current page sits inside the sites row, in the row's own coordinates.
+    private var currentSiteRange: ClosedRange<CGFloat>? {
+        var x: CGFloat = 0
+        for site in layout.sites {
+            if site.pages.contains(where: \.isCurrent) { return x...(x + site.width) }
+            x += site.width + ctx.metrics.itemGap
+        }
+        return nil
+    }
+
     var body: some View {
         let m = ctx.metrics
         let room = sitesRoom
         // The layout says whether to scroll; if its idea of the room and ours ever differ,
         // scrolling is also the fallback, so nothing can push the search button off the bar.
         let scrolls = layout.scrolls || layout.sitesWidth > room + 0.5
-        let viewport = min(layout.sitesWidth, room)
+        // While the strip scrolls, the overflow tile sits right after it and takes its room from the strip.
+        let viewport = scrolls ? max(0, room - m.overflowReserve) : min(layout.sitesWidth, room)
         let _ = { ctx.drag.layout = layout }()
         HStack(spacing: m.itemGap) {
             NavButtons(state: nav, ctx: ctx)
@@ -160,9 +173,10 @@ private struct BarContent: View {
                     .accessibilityHidden(true)
             }
             if !layout.sites.isEmpty {
-                sitesRegion(scrolls: scrolls)
+                sitesRegion(scrolls: scrolls, viewport: viewport)
                     .frame(width: viewport, height: m.barHeight, alignment: .leading)
                     .zIndex(ctx.drag.isDragging ? 1 : 0)   // a dragged item passes over the new-page button
+                if scrolls { OverflowTile(layout: layout, ctx: ctx) }
             }
             NewPageButton(ctx: ctx)
             Spacer(minLength: 0)
@@ -223,35 +237,45 @@ private struct BarContent: View {
     }
 
     @ViewBuilder
-    private func sitesRegion(scrolls: Bool) -> some View {
+    private func sitesRegion(scrolls: Bool, viewport: CGFloat) -> some View {
         if scrolls {
-            ScrollViewReader { reader in
-                ScrollView(.horizontal) {
-                    sitesRow   // page buttons carry `.id(page.id)` for `scrollTo`
-                }
-                .scrollIndicators(.hidden)
-                .onScrollGeometryChange(for: [Bool].self) { geo in
-                    [geo.contentOffset.x > 1,
-                     geo.contentOffset.x + geo.containerSize.width < geo.contentSize.width - 1]
-                } action: { _, edges in
-                    moreBefore = edges[0]
-                    moreAfter = edges[1]
-                }
-                .mask(edgeMask)
-                .onChange(of: currentPage) { _, page in reveal(page, in: reader, animated: true) }
-                .onAppear { reveal(currentPage, in: reader, animated: false) }
+            ScrollView(.horizontal) {
+                sitesRow
             }
+            .scrollPosition($scrollPosition)
+            .scrollIndicators(.hidden)
+            .onScrollGeometryChange(for: ScrollEdges3.self) { geo in
+                ScrollEdges3(before: geo.contentOffset.x > 1,
+                             after: geo.contentOffset.x + geo.containerSize.width < geo.contentSize.width - 1,
+                             x: geo.contentOffset.x)
+            } action: { _, edges in
+                moreBefore = edges.before
+                moreAfter = edges.after
+                scrollX = edges.x
+            }
+            .mask(edgeMask)
+            .onChange(of: RevealKey(page: currentPage, range: currentSiteRange, viewport: viewport)) { _, key in
+                reveal(key.range, viewport: viewport, animated: true)
+            }
+            .onAppear { reveal(currentSiteRange, viewport: viewport, animated: false) }
         } else {
             sitesRow
         }
     }
 
-    private func reveal(_ page: PageID?, in reader: ScrollViewProxy, animated: Bool) {
-        guard let page else { return }
+    /// Scrolls only as far as it takes to bring the current page's site fully into view; a site
+    /// that is already visible never moves the strip, so selecting a tab never shifts the others.
+    private func reveal(_ range: ClosedRange<CGFloat>?, viewport: CGFloat, animated: Bool) {
+        guard let range, viewport > 0 else { return }
+        let pad: CGFloat = 24   // clear of the edge fades
+        var target: CGFloat?
+        if range.lowerBound < scrollX + pad { target = max(0, range.lowerBound - pad) }
+        else if range.upperBound > scrollX + viewport - pad { target = min(range.lowerBound, range.upperBound - viewport + pad) }
+        guard let target, abs(target - scrollX) > 0.5 else { return }
         if animated && !ctx.reduceMotion {
-            withAnimation(.spring(response: 0.35, dampingFraction: 0.9)) { reader.scrollTo(page, anchor: .center) }
+            withAnimation(.easeOut(duration: 0.22)) { scrollPosition.scrollTo(x: target) }
         } else {
-            reader.scrollTo(page, anchor: .center)
+            scrollPosition.scrollTo(x: target)
         }
     }
 
@@ -264,6 +288,60 @@ private struct BarContent: View {
             LinearGradient(colors: [.black, .black.opacity(moreAfter ? 0 : 1)], startPoint: .leading, endPoint: .trailing)
                 .frame(width: 20)
         }
+    }
+}
+
+private struct ScrollEdges3: Equatable { var before: Bool; var after: Bool; var x: CGFloat }
+
+private struct RevealKey: Equatable {
+    var page: PageID?
+    var range: ClosedRange<CGFloat>?
+    var viewport: CGFloat
+}
+
+// MARK: - Overflow tile
+
+/// Shown after the strip while it scrolls: the number of open pages, and a menu listing every one.
+/// It is how a page that is scrolled out of sight is always one click away.
+private struct OverflowTile: View {
+    let layout: BarLayout
+    let ctx: BarContext
+    @State private var hovering = false
+
+    private var total: Int { layout.sites.reduce(0) { $0 + $1.pageCount } }
+
+    var body: some View {
+        let m = ctx.metrics
+        let shape = RoundedRectangle(cornerRadius: m.tileCornerRadius, style: .continuous)
+        Menu {
+            ForEach(layout.sites) { site in
+                if site.pages.isEmpty {
+                    Button("\(site.name) (\(site.pageCount))") { ctx.onAction(.selectSite(site.id)) }
+                } else {
+                    ForEach(site.pages) { page in
+                        Toggle(page.name.isEmpty ? site.name : page.name,
+                               isOn: Binding(get: { page.isCurrent }, set: { _ in ctx.onAction(.selectPage(page.id)) }))
+                    }
+                }
+                if site.id != layout.sites.last?.id { Divider() }
+            }
+        } label: {
+            HStack(spacing: 3) {
+                Text("\(total)").font(.system(size: 12, weight: .semibold).monospacedDigit())
+                Image(systemName: "chevron.down").font(.system(size: 9, weight: .bold))
+            }
+            .foregroundStyle(ctx.palette.text)
+            .frame(width: m.tile, height: m.tile)
+            .background { shape.fill(hovering ? ctx.palette.hover : ctx.palette.searchFill) }
+            .overlay { shape.strokeBorder(ctx.palette.searchBorder, lineWidth: 1) }
+            .contentShape(shape)
+        }
+        .menuStyle(.button)
+        .buttonStyle(BarPressStyle())
+        .menuIndicator(.hidden)
+        .onHover { over in withAnimation(ctx.hoverAnimation) { hovering = over } }
+        .help("All open pages")
+        .accessibilityLabel("All \(total) open pages")
     }
 }
 
