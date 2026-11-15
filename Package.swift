@@ -15,7 +15,7 @@ let package = Package(
         // The iOS app (a separate repository) depends on this product.
         .library(name: "PlinthCore", targets: [
             "PlinthModel", "PlinthRules", "PlinthFade", "PlinthLayout", "PlinthStore", "PlinthSettings",
-            "PlinthAI", "PlinthSync", "PlinthReader", "PlinthWebCore", "PlinthLoyalty",
+            "PlinthAI", "PlinthSync", "PlinthReader", "PlinthWebCore", "PlinthLoyalty", "PlinthPasswords",
         ]),
     ],
     targets: [

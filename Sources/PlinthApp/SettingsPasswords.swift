@@ -16,6 +16,7 @@ struct PasswordsSettingsView: View {
     var body: some View {
         SettingsPage(title: "Passwords", subtitle: "Plinth keeps logins in your Mac's Keychain and fills them only on the exact site they were saved for.") {
             savingCard
+            ApplePasswordsCard(app: app)
             loginsCard
             if let draft { PasswordEditor(controller: controller, draft: draft, done: { finishEditing($0) }) }
             PasswordImportCards(app: app)
@@ -370,5 +371,105 @@ private struct PasswordImportCards: View {
         } catch {
             csvError = "That file doesn't look like a password export. It needs a header row with URL, user name and password columns."
         }
+    }
+}
+
+// MARK: - Apple Passwords
+
+/// Apple gives other browsers no way to read or write Apple Passwords, so this card says so and offers the routes
+/// that do work: import its export, and export Plinth's logins as a file for the Passwords app.
+private struct ApplePasswordsCard: View {
+    let app: AppController
+    @Environment(\.settingsTheme) private var t
+    @State private var message: String?
+    @State private var isError = false
+    @State private var busy = false
+    @State private var trashAfterImport = true
+
+    private var controller: PasswordsController { app.passwords }
+    private var waiting: [LoginSummary] { controller.waitingForApple }
+
+    var body: some View {
+        SettingsCard(heading: "Apple Passwords") {
+            SettingsNote(text: "macOS doesn't let other browsers read Apple Passwords or save into it directly, so Plinth keeps its own logins and moves them across when you ask. Nothing is shared in the background.")
+            SettingsDivider()
+            SettingsRow(title: "Bring them into Plinth", caption: "In the Passwords app choose File ▸ Export All Passwords, then pick that file here.") {
+                HStack(spacing: 8) {
+                    SettingsButton(title: "Open Passwords") { controller.openApplePasswords() }
+                    SettingsButton(title: "Import…") { chooseImport() }.disabled(busy)
+                }
+            }
+            SettingsToggleRow(title: "Move the file to the Trash afterwards", caption: "The export holds your passwords as plain text.", isOn: $trashAfterImport)
+            SettingsDivider()
+            SettingsRow(title: "Add Plinth's logins to Apple Passwords", caption: waitingCaption) {
+                SettingsButton(title: "Export…") { exportFile() }.disabled(busy || waiting.isEmpty)
+            }
+            SettingsDivider()
+            SettingsNote(text: "Export saves a file for the Passwords app (File ▸ Import Passwords from File) and opens it. The file holds your passwords as plain text: delete it after importing.")
+            if let message { SettingsDivider(); SettingsNote(text: message, tone: isError ? .error : .good) }
+        }
+    }
+
+    private var waitingCaption: String {
+        controller.model.logins.isEmpty ? "Nothing saved in Plinth yet."
+            : waiting.isEmpty ? "Everything Plinth has saved is already in Apple Passwords, as far as Plinth knows."
+            : "\(waiting.count) login\(waiting.count == 1 ? "" : "s") saved in Plinth \(waiting.count == 1 ? "isn't" : "aren't") in Apple Passwords yet."
+    }
+
+    private func show(_ outcome: PasswordsController.AppleSend, verb: String) {
+        switch outcome {
+        case .sent(let n): message = "\(verb) \(n) login\(n == 1 ? "" : "s")."; isError = false
+        case .cancelled: message = nil
+        case .failed(let why): message = "That didn't work: \(why)"; isError = true
+        }
+        controller.model.reload()
+    }
+
+    private func exportFile() {
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = "Plinth passwords.csv"
+        panel.allowedContentTypes = [.commaSeparatedText]
+        panel.message = "This file holds your passwords as plain text. Import it in the Passwords app, then delete it."
+        let apply: (NSApplication.ModalResponse) -> Void = { response in
+            guard response == .OK, let url = panel.url else { return }
+            busy = true
+            Task { @MainActor in
+                defer { busy = false }
+                show(await controller.exportCSVForApple(waiting, to: url), verb: "Wrote")
+            }
+        }
+        if let window = app.settingsWindow?.window { panel.beginSheetModal(for: window, completionHandler: apply) } else { panel.begin(completionHandler: apply) }
+    }
+
+    private func chooseImport() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.commaSeparatedText, .plainText]
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Import"
+        panel.message = "Choose the file from Passwords ▸ File ▸ Export All Passwords."
+        let apply: (NSApplication.ModalResponse) -> Void = { response in
+            guard response == .OK, let url = panel.url else { return }
+            importFile(url)
+        }
+        if let window = app.settingsWindow?.window { panel.beginSheetModal(for: window, completionHandler: apply) } else { panel.begin(completionHandler: apply) }
+    }
+
+    private func importFile(_ url: URL) {
+        guard let data = try? Data(contentsOf: url), let text = String(data: data, encoding: .utf8), let parsed = try? CSVImport.parse(text) else {
+            message = "That doesn't look like an export from the Passwords app."; isError = true; return
+        }
+        let (merged, inStep) = controller.vault.mergeFromApple(parsed.logins)
+        controller.model.reload()
+        // Only logins that now match Apple Passwords count as in step; a differing password stays waiting.
+        controller.preferences.markInApplePasswords(inStep)
+        var note = "Imported \(merged.added) password\(merged.added == 1 ? "" : "s")."
+        if merged.duplicates > 0 { note += " \(merged.duplicates) already saved." }
+        if parsed.skipped > 0 { note += " \(parsed.skipped) skipped." }
+        if merged.failed > 0 { note += " \(merged.failed) couldn't be saved to the Keychain." }
+        if trashAfterImport {
+            do { try FileManager.default.trashItem(at: url, resultingItemURL: nil); note += " The file is in the Trash." }
+            catch { note += " Delete the file yourself: it holds your passwords as plain text." }
+        }
+        message = note; isError = false
     }
 }
