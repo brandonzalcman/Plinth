@@ -11,6 +11,7 @@ struct BarContext {
     var onAction: (BarAction) -> Void
     var reduceMotion: Bool
     var drag: BarDragModel
+    var pinDrag: PinDragModel
 
     var hoverAnimation: Animation? { reduceMotion ? nil : .easeOut(duration: 0.12) }
 

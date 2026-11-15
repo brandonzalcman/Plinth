@@ -19,6 +19,7 @@ public struct BottomBarView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var drag: BarDragModel
+    @State private var pinDrag = PinDragModel()
 
     /// - Parameters:
     ///   - layoutForWidth: returns the layout for a bar of the given outer width. It is called with the
@@ -64,6 +65,8 @@ public struct BottomBarView: View {
     private func configureDrag() {
         let onAction = onAction
         drag.dropAnimation = reduceMotion ? nil : .spring(response: 0.32, dampingFraction: 0.86)
+        pinDrag.dropAnimation = drag.dropAnimation
+        pinDrag.onDrop = onAction
         drag.onDrop = { outcome in
             switch outcome {
             case .none: break
@@ -77,7 +80,7 @@ public struct BottomBarView: View {
     public var body: some View {
         let palette = BarPalette.resolve(colorScheme)
         let ctx = BarContext(metrics: metrics, palette: palette, accent: accent, icon: icon,
-                             onAction: onAction, reduceMotion: reduceMotion, drag: drag)
+                             onAction: onAction, reduceMotion: reduceMotion, drag: drag, pinDrag: pinDrag)
         let _ = configureDrag()
         let shape = RoundedRectangle(cornerRadius: metrics.barCornerRadius, style: .continuous)
         GeometryReader { geo in
@@ -155,6 +158,12 @@ private struct BarContent: View {
         // While the strip scrolls, the overflow tile sits right after it and takes its room from the strip.
         let viewport = scrolls ? max(0, room - m.overflowReserve) : min(layout.sitesWidth, room)
         let _ = { ctx.drag.layout = layout }()
+        let _ = { ctx.pinDrag.order = layout.pinSlots.map { slot in
+            switch slot {
+            case .pin(let pin): PinDropTarget.pin(pin.id)
+            case .folder(let f): PinDropTarget.folder(f.id)
+            }
+        } }()
         HStack(spacing: m.itemGap) {
             NavButtons(state: nav, ctx: ctx)
             let folders = layout.pinSlots.compactMap { slot -> BarFolderItem? in
@@ -163,6 +172,7 @@ private struct BarContent: View {
             ForEach(layout.pinSlots) { slot in
                 switch slot {
                 case .pin(let pin): PinTileView(pin: pin, folders: folders, ctx: ctx).transition(itemTransition)
+                    .zIndex(ctx.pinDrag.isDragging(pin: pin.id) ? 1 : 0)
                 case .folder(let f): FolderTileView(folder: f, folders: folders, ctx: ctx).transition(itemTransition)
                 }
             }
@@ -188,6 +198,7 @@ private struct BarContent: View {
         }
         .padding(.horizontal, m.barPadding)
         .frame(width: width, height: m.barHeight, alignment: .leading)
+        .coordinateSpace(.named(PinDragModel.space))
         .animation(ctx.reduceMotion ? nil : .spring(response: 0.32, dampingFraction: 0.86),
                    value: BarLayoutSignature(layout))
     }

@@ -35,6 +35,20 @@ extension BrowserStore {
         commit()
     }
 
+    /// A pin dropped on another pin: a new folder holding the other pin, with this one after it. When
+    /// the other pin is already in a folder, this one joins that folder instead.
+    public func groupPins(_ pin: SiteID, onto other: SiteID) {
+        guard pin != other, pins.contains(where: { $0.id == pin }), let oi = pins.firstIndex(where: { $0.id == other }) else { return }
+        if let f = pins[oi].folder { movePin(pin, toFolder: f.id); return }
+        let folder = PinFolder(name: uniqueFolderName(PinFolder.defaultName))
+        pins[oi].folder = folder
+        var moved = pins.remove(at: pins.firstIndex { $0.id == pin }!)
+        moved.folder = folder
+        pins.insert(moved, at: pins.firstIndex { $0.id == other }! + 1)
+        pruneAndTidyPinFolders()
+        commit()
+    }
+
     /// Takes the pin out of its folder; it sits just after the folder on the bar.
     public func removePinFromFolder(_ pin: SiteID) {
         guard let pi = pins.firstIndex(where: { $0.id == pin }), let fid = pins[pi].folder?.id else { return }
