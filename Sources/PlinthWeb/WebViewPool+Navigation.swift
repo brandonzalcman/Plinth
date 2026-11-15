@@ -146,6 +146,7 @@ extension WebViewPool: WKNavigationDelegate {
 
     public func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         guard let entry = entry(for: webView) else { return }
+        removeCover(of: entry)
         if entry.siteNameHint != nil {
             entry.siteNameHint = nil
         }
@@ -199,13 +200,48 @@ extension WebViewPool: WKNavigationDelegate {
 
     public func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
         guard let entry = entry(for: webView) else { return }
-        guard !entry.reloadedAfterCrash else {
-            log.error("Web content process ended again right after a reload; leaving the page as it is.")
+        let shown = webView.window != nil && webView.superview != nil
+        let action = CrashRecovery.action(isShown: shown, alreadyReloaded: entry.reloadedAfterCrash)
+        log.error("Web content process ended (shown: \(shown, privacy: .public), loading: \(webView.isLoading, privacy: .public)); \(String(describing: action), privacy: .public)")
+        switch action {
+        case .leaveAsIs:
             return
+        case .reloadWhenShown:
+            entry.needsReloadWhenShown = true
+        case .reloadNow:
+            reloadAfterEnd(of: entry)
         }
+    }
+
+    /// Reloads a page whose process ended, covering the blank view with the page's own colour (or its
+    /// last snapshot) until the new content commits, so the window background never shows.
+    func reloadAfterEnd(of entry: Entry) {
+        let webView = entry.webView
         entry.reloadedAfterCrash = true
         entry.poolInitiatedLoad = true
+        entry.needsReloadWhenShown = false
+        removeCover(of: entry)
+        if webView.window != nil {
+            let cover = NSImageView(frame: webView.bounds)
+            cover.autoresizingMask = [.width, .height]
+            cover.imageScaling = .scaleAxesIndependently
+            cover.wantsLayer = true
+            cover.layer?.backgroundColor = (webView.underPageBackgroundColor ?? .windowBackgroundColor).cgColor
+            cover.image = snapshot(for: entry.id)
+            webView.addSubview(cover)
+            entry.cover = cover
+            // A page that never commits must not stay covered.
+            Task { @MainActor [weak self, weak entry] in
+                try? await Task.sleep(for: .seconds(10))
+                if let entry { self?.removeCover(of: entry) }
+            }
+        }
         webView.reload()
+    }
+
+    func removeCover(of entry: Entry) {
+        entry.cover?.removeFromSuperview()
+        entry.cover = nil
     }
 
     static func errorPage(for url: URL, message: String) -> String {
