@@ -8,11 +8,14 @@ import Observation
 public final class PasswordPreferences {
     public private(set) var offerToSave = true
     public private(set) var neverSave: [WebOrigin] = []
+    /// Which logins are already in Apple Passwords (see `ApplePasswordsLedger`).
+    public private(set) var applePasswords = ApplePasswordsLedger()
     @ObservationIgnored private let file: URL?
 
     private struct Stored: Codable {
         var offerToSave: Bool
         var neverSave: [String]
+        var applePasswords: ApplePasswordsLedger?
     }
 
     /// `storageDirectory` nil keeps everything in memory (tests).
@@ -21,6 +24,7 @@ public final class PasswordPreferences {
         guard let file, let data = try? Data(contentsOf: file), let stored = try? JSONDecoder().decode(Stored.self, from: data) else { return }
         offerToSave = stored.offerToSave
         neverSave = stored.neverSave.compactMap { WebOrigin(string: $0) }
+        applePasswords = stored.applePasswords ?? ApplePasswordsLedger()
     }
 
     public func setOfferToSave(_ on: Bool) { offerToSave = on; persist() }
@@ -36,9 +40,11 @@ public final class PasswordPreferences {
 
     public func removeNever(_ origin: WebOrigin) { neverSave.removeAll { $0 == origin }; persist() }
 
+    public func markInApplePasswords(_ logins: [LoginSummary]) { applePasswords.markInStep(logins); persist() }
+
     private func persist() {
         guard let file else { return }
-        let stored = Stored(offerToSave: offerToSave, neverSave: neverSave.map(\.description))
+        let stored = Stored(offerToSave: offerToSave, neverSave: neverSave.map(\.description), applePasswords: applePasswords)
         if let data = try? JSONEncoder().encode(stored) { try? data.write(to: file, options: .atomic) }
     }
 }

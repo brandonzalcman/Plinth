@@ -128,6 +128,41 @@ final class PasswordsController: PasswordPrompting {
         return logins.first { $0.id == picker.chosen }
     }
 
+    // MARK: Apple Passwords
+
+    /// Logins not yet known to be in Apple Passwords (new, or edited since they were last sent or imported).
+    var waitingForApple: [LoginSummary] { preferences.applePasswords.waiting(in: model.logins) }
+
+    /// Opens the Passwords app, where the person exports from or imports into it.
+    func openApplePasswords() {
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Passwords") else { return }
+        NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration())
+    }
+
+    /// Passwords for the chosen logins, after the person proves it is them. Nil when they decline.
+    private func unlockedLogins(_ summaries: [LoginSummary], reason: String) async -> [Login]? {
+        guard await authenticator.authenticate(reason: reason) else { return nil }
+        return summaries.compactMap { summary in
+            guard let secret = try? vault.password(for: summary.key) else { return nil }
+            return Login(origin: summary.origin, username: summary.username, password: secret, created: summary.created, modified: summary.modified)
+        }
+    }
+
+    enum AppleSend { case sent(Int), cancelled, failed(String) }
+
+    /// Writes a CSV the Passwords app can import (File > Import Passwords from File) and opens the Passwords app.
+    func exportCSVForApple(_ summaries: [LoginSummary], to url: URL) async -> AppleSend {
+        guard !summaries.isEmpty else { return .sent(0) }
+        guard let logins = await unlockedLogins(summaries, reason: "export your passwords as a file") else { return .cancelled }
+        do {
+            try Data(ApplePasswordsCSV.export(logins).utf8).write(to: url, options: .atomic)
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+        } catch { return .failed("Plinth couldn't write the file.") }
+        preferences.markInApplePasswords(summaries)
+        openApplePasswords()
+        return .sent(logins.count)
+    }
+
     // MARK: Clipboard
 
     /// Copies a password marked as concealed (clipboard managers skip it) and clears it after a minute if nothing else was copied.
