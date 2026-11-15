@@ -73,6 +73,7 @@ final class BrowserWindowController: NSObject, NSWindowDelegate {
     private var stripColoured = false
     var accessoryHosts: [NSView] = []
     var resumeTask: Task<Void, Never>?
+    private var frameSave: Task<Void, Never>?
     var askTask: Task<Void, Never>?
     var peekView: WKWebView?
     var peekHost: NSView?
@@ -435,13 +436,23 @@ final class BrowserWindowController: NSObject, NSWindowDelegate {
     // MARK: Window delegate
 
     func saveFrame() {
+        frameSave?.cancel()
+        frameSave = nil
         let frame = window.frame
         app.store.setFrame([frame.origin.x, frame.origin.y, frame.width, frame.height], for: windowID)
     }
 
     func windowDidEndLiveResize(_ notification: Notification) { saveFrame() }
     func windowDidBecomeKey(_ notification: Notification) { app.mainWindowBecameKey(windowID) }
-    func windowDidMove(_ notification: Notification) { saveFrame() }
+    /// Dragging posts a move for every mouse event. Each saved frame is a store change, which re-runs
+    /// `refreshContent` and re-renders the bar, so the frame is saved once the window has settled.
+    func windowDidMove(_ notification: Notification) {
+        frameSave?.cancel()
+        frameSave = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(400))
+            if !Task.isCancelled { self?.saveFrame() }
+        }
+    }
 
     func windowWillClose(_ notification: Notification) {
         saveFrame()
@@ -449,3 +460,4 @@ final class BrowserWindowController: NSObject, NSWindowDelegate {
         app.windowDidClose(windowID)
     }
 }
+
