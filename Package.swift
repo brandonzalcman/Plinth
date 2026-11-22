@@ -17,6 +17,9 @@ let package = Package(
             "PlinthModel", "PlinthRules", "PlinthFade", "PlinthLayout", "PlinthStore", "PlinthSettings",
             "PlinthAI", "PlinthSync", "PlinthReader", "PlinthWebCore", "PlinthLoyalty", "PlinthPasswords",
         ]),
+        // The engine-neutral macOS chrome: the bottom bar and the panels (command bar, shelf, history,
+        // find, peek). Neither imports WebKit. The Chromium build of Plinth depends on this product.
+        .library(name: "PlinthMacUI", targets: ["PlinthBarUI", "PlinthPanels"]),
     ],
     targets: [
         // Frozen shared contracts: value types and protocols. No logic beyond trivial helpers.
