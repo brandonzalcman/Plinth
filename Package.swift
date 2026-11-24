@@ -3,6 +3,15 @@ import PackageDescription
 
 let ui: [SwiftSetting] = [.swiftLanguageMode(.v5)]
 
+// SQLite for the browser import: the system library on Apple platforms, the toolchain's package elsewhere.
+#if canImport(Darwin)
+let sqlitePackage: [Package.Dependency] = []
+let sqlite: [Target.Dependency] = []
+#else
+let sqlitePackage: [Package.Dependency] = [.package(url: "https://github.com/swiftlang/swift-toolchain-sqlite", from: "1.0.0")]
+let sqlite: [Target.Dependency] = [.product(name: "SwiftToolchainCSQLite", package: "swift-toolchain-sqlite")]
+#endif
+
 let package = Package(
     name: "Plinth",
     platforms: [.macOS(.v26), .iOS(.v26)],
@@ -21,6 +30,7 @@ let package = Package(
         // find, peek). Neither imports WebKit. The Chromium build of Plinth depends on this product.
         .library(name: "PlinthMacUI", targets: ["PlinthBarUI", "PlinthPanels"]),
     ],
+    dependencies: sqlitePackage,
     targets: [
         // Frozen shared contracts: value types and protocols. No logic beyond trivial helpers.
         .target(name: "PlinthModel"),
@@ -39,6 +49,12 @@ let package = Package(
         .target(name: "PlinthSettings", dependencies: ["PlinthModel", "PlinthRules"]),
         // Bookmark and history import from Safari and Chrome.
         .target(name: "PlinthImport", dependencies: ["PlinthModel", "PlinthRules", "PlinthStore"]),
+        // The shell logic of the Chromium-based apps (Mac and Windows): the sidebar model, the action
+        // router both layouts share, the shell preferences (dock or sidebar) and what earns loyalty points.
+        // No UI framework.
+        .target(name: "PlinthShell", dependencies: ["PlinthModel", "PlinthStore", "PlinthLoyalty", "PlinthSettings"]),
+        // Bookmarks and history from other browsers (Chromium family, Firefox family, Safari on the Mac).
+        .target(name: "PlinthBrowserImport", dependencies: ["PlinthModel", "PlinthRules", "PlinthStore"] + sqlite),
         // The readable-text script used by Ask and semantic history, shared by both apps.
         .target(name: "PlinthReader", dependencies: ["PlinthModel"]),
         // Password manager: Keychain vault, page capture/fill policy and the page script, CSV import.
@@ -70,6 +86,21 @@ let package = Package(
         .testTarget(name: "PlinthWebCoreTests", dependencies: ["PlinthWebCore", "PlinthSettings"]),
         .testTarget(name: "PlinthPasswordsTests", dependencies: ["PlinthPasswords"]),
         .testTarget(name: "PlinthLoyaltyTests", dependencies: ["PlinthLoyalty", "PlinthSync", "PlinthModel"]),
+        .testTarget(name: "PlinthShellTests", dependencies: ["PlinthShell", "PlinthLoyalty", "PlinthSettings", "PlinthModel", "PlinthRules", "PlinthFade", "PlinthLayout", "PlinthStore"]),
+        .testTarget(name: "PlinthBrowserImportTests", dependencies: ["PlinthBrowserImport", "PlinthStore", "PlinthModel", "PlinthRules", "PlinthFade"] + sqlite),
         .testTarget(name: "PlinthImportTests", dependencies: ["PlinthImport", "PlinthStore", "PlinthModel", "PlinthRules"]),
     ]
 )
+
+// The portable core: the parts with no Apple frameworks (sync builds without CloudKit). Plinth for
+// Windows depends on this product. On Windows and Linux the manifest declares only these targets and
+// their tests, so `swift build` and `swift test` work there as they are.
+let portableCore = ["PlinthModel", "PlinthRules", "PlinthFade", "PlinthLayout", "PlinthStore", "PlinthSettings",
+                    "PlinthLoyalty", "PlinthReader", "PlinthSync", "PlinthShell", "PlinthBrowserImport"]
+#if canImport(Darwin)
+package.products.append(.library(name: "PlinthPortableCore", targets: portableCore))
+#else
+let portableTests = portableCore.map { $0 + "Tests" }
+package.targets.removeAll { !portableCore.contains($0.name) && !portableTests.contains($0.name) }
+package.products = [.library(name: "PlinthPortableCore", targets: portableCore)]
+#endif

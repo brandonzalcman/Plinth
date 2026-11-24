@@ -1,5 +1,7 @@
 import Foundation
+#if canImport(CoreGraphics)
 import CoreGraphics
+#endif
 import PlinthModel
 
 /// Turns a window's pins and sites into the bar's layout. Pure: the same inputs always give

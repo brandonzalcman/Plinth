@@ -1,5 +1,7 @@
 import Foundation
+#if canImport(Security)
 import Security
+#endif
 
 /// The user-facing switch for iCloud sync, and whether this build can sync at all.
 ///
@@ -73,8 +75,12 @@ public struct SyncSettings {
     /// object until the engine first syncs.
     @MainActor
     public func makeCloudKitEngine(stateURL: URL?) -> SyncEngine? {
+        #if canImport(CloudKit)
         guard case .ready(let container) = availability else { return nil }
         return SyncEngine(transport: CloudKitTransport(containerIdentifier: container), deviceID: deviceID,
                           deviceName: Self.deviceName, stateURL: stateURL)
+        #else
+        return nil  // no iCloud on this platform
+        #endif
     }
 }
