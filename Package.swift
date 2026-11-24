@@ -39,6 +39,9 @@ let package = Package(
         .target(name: "PlinthSettings", dependencies: ["PlinthModel", "PlinthRules"]),
         // Bookmark and history import from Safari and Chrome.
         .target(name: "PlinthImport", dependencies: ["PlinthModel", "PlinthRules", "PlinthStore"]),
+        // The shell logic of the Chromium-based apps (Mac and Windows): the sidebar model, the action
+        // router both layouts share, and the shell preferences (dock or sidebar). No UI framework.
+        .target(name: "PlinthShell", dependencies: ["PlinthModel", "PlinthStore"]),
         // The readable-text script used by Ask and semantic history, shared by both apps.
         .target(name: "PlinthReader", dependencies: ["PlinthModel"]),
         // Password manager: Keychain vault, page capture/fill policy and the page script, CSV import.
@@ -70,6 +73,7 @@ let package = Package(
         .testTarget(name: "PlinthWebCoreTests", dependencies: ["PlinthWebCore", "PlinthSettings"]),
         .testTarget(name: "PlinthPasswordsTests", dependencies: ["PlinthPasswords"]),
         .testTarget(name: "PlinthLoyaltyTests", dependencies: ["PlinthLoyalty", "PlinthSync", "PlinthModel"]),
+        .testTarget(name: "PlinthShellTests", dependencies: ["PlinthShell", "PlinthModel", "PlinthRules", "PlinthFade", "PlinthLayout", "PlinthStore"]),
         .testTarget(name: "PlinthImportTests", dependencies: ["PlinthImport", "PlinthStore", "PlinthModel", "PlinthRules"]),
     ]
 )
@@ -78,7 +82,7 @@ let package = Package(
 // Windows depends on this product. On Windows and Linux the manifest declares only these targets and
 // their tests, so `swift build` and `swift test` work there as they are.
 let portableCore = ["PlinthModel", "PlinthRules", "PlinthFade", "PlinthLayout", "PlinthStore", "PlinthSettings",
-                    "PlinthLoyalty", "PlinthReader", "PlinthSync"]
+                    "PlinthLoyalty", "PlinthReader", "PlinthSync", "PlinthShell"]
 #if canImport(Darwin)
 package.products.append(.library(name: "PlinthPortableCore", targets: portableCore))
 #else
