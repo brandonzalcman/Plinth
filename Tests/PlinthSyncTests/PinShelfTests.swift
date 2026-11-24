@@ -626,6 +626,7 @@ struct OldClientTransport: SyncTransport {
         #expect(await server.record(named: "folder-" + f.id.uuidString)?.fields["fromAFutureRelease"] != nil)
     }
 
+    #if canImport(CloudKit)
     @Test func ordinarySavesNeverMentionLegacyKeys() {
         let plain = RecordMapper.pinRecords(pins(["a.com"]))[0]
         #expect(CloudKitTransport.ckRecord(from: plain, zoneID: .default).changedKeys().filter { $0 == "folderID" || $0 == "folderName" }.isEmpty)
@@ -633,6 +634,7 @@ struct OldClientTransport: SyncTransport {
         cleaning.clearKeys = ["folderID", "folderName"]
         #expect(CloudKitTransport.ckRecord(from: cleaning, zoneID: .default).changedKeys().filter { $0 == "folderID" || $0 == "folderName" }.count == 2)
     }
+    #endif
 
     @Test func folderArrivingBeforeAnyOfItsPinsIsNotDeleted() async throws {
         let f = PinFolder(name: "Work")
