@@ -40,8 +40,9 @@ let package = Package(
         // Bookmark and history import from Safari and Chrome.
         .target(name: "PlinthImport", dependencies: ["PlinthModel", "PlinthRules", "PlinthStore"]),
         // The shell logic of the Chromium-based apps (Mac and Windows): the sidebar model, the action
-        // router both layouts share, and the shell preferences (dock or sidebar). No UI framework.
-        .target(name: "PlinthShell", dependencies: ["PlinthModel", "PlinthStore"]),
+        // router both layouts share, the shell preferences (dock or sidebar) and what earns loyalty points.
+        // No UI framework.
+        .target(name: "PlinthShell", dependencies: ["PlinthModel", "PlinthStore", "PlinthLoyalty", "PlinthSettings"]),
         // The readable-text script used by Ask and semantic history, shared by both apps.
         .target(name: "PlinthReader", dependencies: ["PlinthModel"]),
         // Password manager: Keychain vault, page capture/fill policy and the page script, CSV import.
@@ -73,7 +74,7 @@ let package = Package(
         .testTarget(name: "PlinthWebCoreTests", dependencies: ["PlinthWebCore", "PlinthSettings"]),
         .testTarget(name: "PlinthPasswordsTests", dependencies: ["PlinthPasswords"]),
         .testTarget(name: "PlinthLoyaltyTests", dependencies: ["PlinthLoyalty", "PlinthSync", "PlinthModel"]),
-        .testTarget(name: "PlinthShellTests", dependencies: ["PlinthShell", "PlinthModel", "PlinthRules", "PlinthFade", "PlinthLayout", "PlinthStore"]),
+        .testTarget(name: "PlinthShellTests", dependencies: ["PlinthShell", "PlinthLoyalty", "PlinthSettings", "PlinthModel", "PlinthRules", "PlinthFade", "PlinthLayout", "PlinthStore"]),
         .testTarget(name: "PlinthImportTests", dependencies: ["PlinthImport", "PlinthStore", "PlinthModel", "PlinthRules"]),
     ]
 )
