@@ -54,5 +54,3 @@ import PlinthModel
         #expect(page.width >= 0 && page.height >= 0)
     }
 }
-
-@MainActor
