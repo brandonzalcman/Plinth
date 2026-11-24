@@ -1,3 +1,4 @@
+#if canImport(CloudKit)
 import CloudKit
 import Foundation
 
@@ -208,3 +209,4 @@ public actor CloudKitTransport: SyncTransport {
         return CKRecord(coder: coder)
     }
 }
+#endif

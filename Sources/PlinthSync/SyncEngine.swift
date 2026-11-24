@@ -1,7 +1,9 @@
 import Foundation
 import PlinthModel
 import PlinthLoyalty
+#if canImport(os)
 import os
+#endif
 
 public struct SyncOutcome: Sendable, Equatable {
     /// The new local state to apply. nil = nothing to change locally.
@@ -61,7 +63,9 @@ public struct SyncOutcome: Sendable, Equatable {
     /// Records the server refused for a reason other than a conflict, as of the last sync (for example
     /// a record type that is missing from the CloudKit production schema). Also logged.
     public private(set) var lastFailures: [SyncRecordID: String] = [:]
+    #if canImport(os)
     private static let log = Logger(subsystem: "dev.getplinth.Plinth", category: "sync")
+    #endif
     /// When the last sync finished successfully.
     public var lastSyncedAt: Date? { state.lastSyncedAt }
 
@@ -607,7 +611,9 @@ public struct SyncOutcome: Sendable, Equatable {
             if !result.failed.isEmpty {
                 lastFailures.merge(result.failed) { _, new in new }
                 for (id, reason) in result.failed {
+                    #if canImport(os)
                     Self.log.error("Sync could not save \(id.recordType, privacy: .public): \(reason, privacy: .public)")
+                    #endif
                 }
             }
             for id in result.deleted where id.recordType == RecordMapper.historyType {

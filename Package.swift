@@ -73,3 +73,16 @@ let package = Package(
         .testTarget(name: "PlinthImportTests", dependencies: ["PlinthImport", "PlinthStore", "PlinthModel", "PlinthRules"]),
     ]
 )
+
+// The portable core: the parts with no Apple frameworks (sync builds without CloudKit). Plinth for
+// Windows depends on this product. On Windows and Linux the manifest declares only these targets and
+// their tests, so `swift build` and `swift test` work there as they are.
+let portableCore = ["PlinthModel", "PlinthRules", "PlinthFade", "PlinthLayout", "PlinthStore", "PlinthSettings",
+                    "PlinthLoyalty", "PlinthReader", "PlinthSync"]
+#if canImport(Darwin)
+package.products.append(.library(name: "PlinthPortableCore", targets: portableCore))
+#else
+let portableTests = portableCore.map { $0 + "Tests" }
+package.targets.removeAll { !portableCore.contains($0.name) && !portableTests.contains($0.name) }
+package.products = [.library(name: "PlinthPortableCore", targets: portableCore)]
+#endif

@@ -1,5 +1,7 @@
 import Foundation
+#if canImport(Darwin)
 import Darwin
+#endif
 import PlinthModel
 
 /// A searchable copy of the history for the history view. It is a plain value (`Sendable`), so it
