@@ -105,11 +105,34 @@ public struct HistoryIndex: Sendable {
             for word in words {
                 let found = word.withUnsafeBufferPointer { needle -> Bool in
                     guard let n = needle.baseAddress else { return true }
-                    return memmem(base, haystack.count, n, needle.count) != nil
+                    return contains(UnsafeRawBufferPointer(start: base, count: haystack.count),
+                                    UnsafeRawBufferPointer(start: n, count: needle.count))
                 }
                 if !found { return false }
             }
             return true
         }
+    }
+
+    /// Whether `needle` occurs in `hay`, byte for byte. memmem where the C library has it.
+    private static func contains(_ hay: UnsafeRawBufferPointer, _ needle: UnsafeRawBufferPointer) -> Bool {
+        #if canImport(Darwin)
+        return memmem(hay.baseAddress, hay.count, needle.baseAddress, needle.count) != nil
+        #else
+        guard needle.count > 0 else { return true }
+        guard hay.count >= needle.count else { return false }
+        let first = needle[0]
+        var i = 0
+        let last = hay.count - needle.count
+        while i <= last {
+            if hay[i] == first {
+                var j = 1
+                while j < needle.count && hay[i + j] == needle[j] { j += 1 }
+                if j == needle.count { return true }
+            }
+            i += 1
+        }
+        return false
+        #endif
     }
 }
