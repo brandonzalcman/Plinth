@@ -49,7 +49,7 @@ public enum InstalledExtensions {
             guard let entry = value as? [String: Any] else { continue }
             if let location = entry["location"] as? Int, builtInLocations.contains(location) { continue }
             guard let rawPath = entry["path"] as? String, !rawPath.isEmpty else { continue }
-            let directory = rawPath.hasPrefix("/")
+            let directory = isAbsolutePath(rawPath)
                 ? URL(fileURLWithPath: rawPath, isDirectory: true)
                 : profile.appendingPathComponent("Extensions", isDirectory: true).appendingPathComponent(rawPath, isDirectory: true)
             guard let manifest = Manifest.load(from: directory) else { continue }
@@ -139,4 +139,15 @@ struct Manifest: Equatable {
         }
         return [:]
     }
+}
+
+/// An absolute path on this platform: "/…" on the Mac, "C:\\…", "C:/…" or "\\\\server\\…" on Windows.
+func isAbsolutePath(_ path: String) -> Bool {
+    if path.hasPrefix("/") { return true }
+    #if os(Windows)
+    let chars = Array(path)
+    if chars.count >= 3, chars[0].isLetter, chars[1] == ":", chars[2] == "\\" || chars[2] == "/" { return true }
+    if path.hasPrefix("\\\\") { return true }
+    #endif
+    return false
 }

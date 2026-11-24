@@ -19,11 +19,19 @@ import Testing
         #expect(ImportSource.firefox.family == .firefox)
         #expect(ImportSource.zen.family == .firefox)
         #expect(ImportSource.safari.family == .safari)
+        #if os(macOS)
         let home = URL(fileURLWithPath: "/Users/someone")
         #expect(ImportSource.brave.dataFolder(home: home).path == "/Users/someone/Library/Application Support/BraveSoftware/Brave-Browser")
         #expect(ImportSource.edge.dataFolder(home: home).path == "/Users/someone/Library/Application Support/Microsoft Edge")
         #expect(ImportSource.opera.dataFolder(home: home).path == "/Users/someone/Library/Application Support/com.operasoftware.Opera")
         #expect(ImportSource.firefox.dataFolder(home: home).path == "/Users/someone/Library/Application Support/Firefox")
+        #elseif os(Windows)
+        let home = URL(fileURLWithPath: "C:\\Users\\someone")
+        #expect(ImportSource.chrome.dataFolder(home: home).path.hasSuffix("AppData/Local/Google/Chrome/User Data"))
+        #expect(ImportSource.edge.dataFolder(home: home).path.hasSuffix("AppData/Local/Microsoft/Edge/User Data"))
+        #expect(ImportSource.firefox.dataFolder(home: home).path.hasSuffix("AppData/Roaming/Mozilla/Firefox"))
+        #expect(!ImportSource.supported.contains(.safari))
+        #endif
     }
 
     @Test func onlyBrowsersWithDataAreInstalled() {

@@ -101,6 +101,7 @@ import PlinthStore
     }
 }
 
+#if os(macOS)
 @Suite struct SafariHistoryTests {
     @Test func historyIsNewestFirstAndSkipsNonWebAddresses() throws {
         let home = FakeHome()
@@ -128,6 +129,7 @@ import PlinthStore
         }
     }
 }
+#endif
 
 /// Each browser's newest-N history is the newest N *web* visits: other addresses are filtered before the limit.
 @Suite struct HistoryLimitTests {

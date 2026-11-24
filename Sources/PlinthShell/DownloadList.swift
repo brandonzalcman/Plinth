@@ -27,6 +27,7 @@ public struct DownloadUpdate: Equatable {
 
 /// The downloads of this session, newest first, in the shared `DownloadItem` form the tray and bar draw.
 public struct DownloadList: Equatable {
+    public init() {}
     public private(set) var items: [DownloadItem] = []
     /// Chromium's id for each item.
     public private(set) var chromiumIDs: [UUID: UInt32] = [:]
