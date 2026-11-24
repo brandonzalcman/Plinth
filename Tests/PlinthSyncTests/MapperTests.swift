@@ -1,4 +1,6 @@
+#if canImport(CloudKit)
 import CloudKit
+#endif
 import Foundation
 import Testing
 import PlinthModel
@@ -80,6 +82,7 @@ import PlinthModel
         #expect(!SyncValue.string("a").contentEquals(.strings(["a"])))
     }
 
+    #if canImport(CloudKit)
     @Test func cloudKitRecordMappingRoundTrips() {
         let zone = CKRecordZone.ID(zoneName: "Plinth", ownerName: CKCurrentUserDefaultName)
         var r = RecordMapper.shelfRecords([makeEntry("a.com", [makeShelfPage("https://a.com/1", at: t0)], at: t0)])[0]
@@ -106,4 +109,5 @@ import PlinthModel
         #expect(tomb.isTombstone)
         #expect(tomb.fields.isEmpty)
     }
+    #endif
 }
